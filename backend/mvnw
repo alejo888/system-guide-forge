@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+BASE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+MAVEN_VERSION=3.9.11
+MAVEN_HOME="$BASE_DIR/.maven/apache-maven-$MAVEN_VERSION"
+if [ ! -x "$MAVEN_HOME/bin/mvn" ]; then
+  CACHE="$BASE_DIR/.maven/apache-maven-$MAVEN_VERSION-bin.zip"
+  mkdir -p "$BASE_DIR/.maven"
+  if [ ! -f "$CACHE" ]; then curl -fsSL "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/$MAVEN_VERSION/apache-maven-$MAVEN_VERSION-bin.zip" -o "$CACHE"; fi
+  unzip -q -o "$CACHE" -d "$BASE_DIR/.maven"
+fi
+exec "$MAVEN_HOME/bin/mvn" -f "$BASE_DIR/pom.xml" "$@"

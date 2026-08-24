@@ -1,0 +1,324 @@
+openapi: 3.1.0
+info:
+  title: SystemGuideForge API
+  version: 0.1.0
+  description: API MVP para documentar sistemas web locales de forma segura y de solo lectura.
+
+servers:
+  - url: http://localhost:8080/api
+
+tags:
+  - name: Projects
+  - name: Applications
+  - name: Analyses
+  - name: Documents
+
+paths:
+  /projects:
+    get:
+      tags: [Projects]
+      summary: Listar proyectos
+      responses:
+        '200':
+          description: Lista de proyectos
+    post:
+      tags: [Projects]
+      summary: Crear proyecto
+      responses:
+        '201':
+          description: Proyecto creado
+
+  /projects/{projectId}:
+    get:
+      tags: [Projects]
+      summary: Obtener proyecto
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Proyecto encontrado
+        '404':
+          description: Proyecto no encontrado
+
+  /projects/{projectId}/applications:
+    post:
+      tags: [Applications]
+      summary: Registrar sistema web local
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplicationInput'
+      responses:
+        '201':
+          description: Sistema registrado
+
+  /applications/{applicationId}:
+    get:
+      tags: [Applications]
+      summary: Obtener configuración del sistema
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        '200':
+          description: Configuración encontrada
+    put:
+      tags: [Applications]
+      summary: Actualizar configuración del sistema
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplicationInput'
+      responses:
+        '200':
+          description: Configuración actualizada
+
+  /applications/{applicationId}/test-access:
+    post:
+      tags: [Applications]
+      summary: Probar acceso y autenticación tradicional
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        '200':
+          description: Resultado de la prueba de acceso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessTestResult'
+
+  /applications/{applicationId}/analyses:
+    post:
+      tags: [Analyses]
+      summary: Iniciar análisis seguro de solo lectura
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        '202':
+          description: Análisis iniciado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Analysis'
+        '409':
+          description: Ya existe un análisis activo
+
+  /analyses/{analysisId}:
+    get:
+      tags: [Analyses]
+      summary: Consultar estado del análisis
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+      responses:
+        '200':
+          description: Estado del análisis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Analysis'
+
+  /analyses/{analysisId}/pages:
+    get:
+      tags: [Analyses]
+      summary: Listar pantallas detectadas
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+      responses:
+        '200':
+          description: Pantallas del análisis
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Page'
+
+  /pages/{pageId}/elements:
+    get:
+      tags: [Analyses]
+      summary: Listar elementos detectados en una pantalla
+      parameters:
+        - $ref: '#/components/parameters/PageId'
+      responses:
+        '200':
+          description: Elementos detectados
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UiElement'
+
+  /pages/{pageId}/screenshot:
+    get:
+      tags: [Analyses]
+      summary: Obtener screenshot sanitizado de una pantalla
+      parameters:
+        - $ref: '#/components/parameters/PageId'
+      responses:
+        '200':
+          description: Imagen de la pantalla sin credenciales ni secretos
+          content:
+            image/png: {}
+
+  /documents:
+    post:
+      tags: [Documents]
+      summary: Crear borrador editable desde evidencia seleccionada
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentInput'
+      responses:
+        '201':
+          description: Borrador creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+
+  /documents/{documentId}:
+    get:
+      tags: [Documents]
+      summary: Obtener borrador editable
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '200':
+          description: Borrador encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+    put:
+      tags: [Documents]
+      summary: Editar borrador
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentInput'
+      responses:
+        '200':
+          description: Borrador actualizado
+
+components:
+  parameters:
+    ProjectId:
+      in: path
+      name: projectId
+      required: true
+      schema: { type: string, format: uuid }
+    ApplicationId:
+      in: path
+      name: applicationId
+      required: true
+      schema: { type: string, format: uuid }
+    AnalysisId:
+      in: path
+      name: analysisId
+      required: true
+      schema: { type: string, format: uuid }
+    PageId:
+      in: path
+      name: pageId
+      required: true
+      schema: { type: string, format: uuid }
+    DocumentId:
+      in: path
+      name: documentId
+      required: true
+      schema: { type: string, format: uuid }
+
+  schemas:
+    ApplicationInput:
+      type: object
+      required: [name, baseUrl, loginUrl, username, password]
+      properties:
+        name: { type: string }
+        baseUrl: { type: string, format: uri }
+        loginUrl: { type: string, format: uri }
+        username: { type: string, writeOnly: true }
+        password: { type: string, format: password, writeOnly: true }
+        excludedRoutes:
+          type: array
+          items: { type: string }
+
+    AccessTestResult:
+      type: object
+      required: [reachable, authenticated]
+      properties:
+        reachable: { type: boolean }
+        authenticated: { type: boolean }
+        message: { type: string }
+
+    Analysis:
+      type: object
+      required: [id, status, readOnly]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [RUNNING, COMPLETED, FAILED] }
+        readOnly: { type: boolean, const: true }
+        pagesDiscovered: { type: integer, minimum: 0 }
+        errorMessage: { type: string }
+
+    Page:
+      type: object
+      required: [id, url, title]
+      properties:
+        id: { type: string, format: uuid }
+        url: { type: string, format: uri }
+        title: { type: string }
+        moduleName: { type: string }
+        screenshotAvailable: { type: boolean }
+
+    UiElement:
+      type: object
+      required: [id, type, riskLevel]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string }
+        label: { type: string }
+        accessibleName: { type: string }
+        riskLevel: { type: string, enum: [SAFE, MUTATING, UNKNOWN] }
+
+    DocumentInput:
+      type: object
+      required: [applicationId, title, sections]
+      properties:
+        applicationId: { type: string, format: uuid }
+        title: { type: string }
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentSection'
+
+    Document:
+      allOf:
+        - $ref: '#/components/schemas/DocumentInput'
+        - type: object
+          required: [id, status]
+          properties:
+            id: { type: string, format: uuid }
+            status: { type: string, enum: [DRAFT] }
+
+    DocumentSection:
+      type: object
+      required: [title, content]
+      properties:
+        title: { type: string }
+        content: { type: string }
+        sourcePageId: { type: string, format: uuid }
+        screenshotId: { type: string, format: uuid }
