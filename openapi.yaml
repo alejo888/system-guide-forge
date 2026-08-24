@@ -2,48 +2,66 @@ openapi: 3.1.0
 info:
   title: SystemGuideForge API
   version: 0.1.0
-  description: API MVP para documentar sistemas web locales de forma segura y de solo lectura.
+  description: API implementada para registrar sistemas web locales y probar su acceso autenticado de forma segura.
 
 servers:
   - url: http://localhost:8080/api
 
 tags:
   - name: Projects
+    description: Projects configured in the personal workspace.
   - name: Applications
-  - name: Analyses
-  - name: Documents
+    description: Local web systems registered for analysis.
 
 paths:
   /projects:
-    get:
-      tags: [Projects]
-      summary: Listar proyectos
-      responses:
-        '200':
-          description: Lista de proyectos
     post:
       tags: [Projects]
-      summary: Crear proyecto
+      summary: Create a project
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectInput'
       responses:
         '201':
-          description: Proyecto creado
+          description: Project created.
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
 
   /projects/{projectId}:
     get:
       tags: [Projects]
-      summary: Obtener proyecto
+      summary: Get a project
+      operationId: getProject
       parameters:
         - $ref: '#/components/parameters/ProjectId'
       responses:
         '200':
-          description: Proyecto encontrado
+          description: Project found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
         '404':
-          description: Proyecto no encontrado
+          $ref: '#/components/responses/NotFound'
 
   /projects/{projectId}/applications:
     post:
       tags: [Applications]
-      summary: Registrar sistema web local
+      summary: Register a local web system
+      operationId: createApplication
       parameters:
         - $ref: '#/components/parameters/ProjectId'
       requestBody:
@@ -54,165 +72,59 @@ paths:
               $ref: '#/components/schemas/ApplicationInput'
       responses:
         '201':
-          description: Sistema registrado
+          description: Application registered.
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /applications/{applicationId}:
     get:
       tags: [Applications]
-      summary: Obtener configuración del sistema
+      summary: Get a registered application
+      operationId: getApplication
       parameters:
         - $ref: '#/components/parameters/ApplicationId'
       responses:
         '200':
-          description: Configuración encontrada
-    put:
-      tags: [Applications]
-      summary: Actualizar configuración del sistema
-      parameters:
-        - $ref: '#/components/parameters/ApplicationId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ApplicationInput'
-      responses:
-        '200':
-          description: Configuración actualizada
+          description: Application found. Credentials are never returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /applications/{applicationId}/test-access:
     post:
       tags: [Applications]
-      summary: Probar acceso y autenticación tradicional
+      summary: Test local access with traditional username/password authentication
+      description: >-
+        Opens an isolated Playwright browser context, navigates to the configured
+        login URL, and attempts the configured username/password login. Credentials
+        are never returned. The current MVP accepts only local targets and fails
+        closed when browser automation is unavailable or the login cannot be verified.
+      operationId: testApplicationAccess
       parameters:
         - $ref: '#/components/parameters/ApplicationId'
       responses:
         '200':
-          description: Resultado de la prueba de acceso
+          description: Access test result.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessTestResult'
-
-  /applications/{applicationId}/analyses:
-    post:
-      tags: [Analyses]
-      summary: Iniciar análisis seguro de solo lectura
-      parameters:
-        - $ref: '#/components/parameters/ApplicationId'
-      responses:
-        '202':
-          description: Análisis iniciado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Analysis'
-        '409':
-          description: Ya existe un análisis activo
-
-  /analyses/{analysisId}:
-    get:
-      tags: [Analyses]
-      summary: Consultar estado del análisis
-      parameters:
-        - $ref: '#/components/parameters/AnalysisId'
-      responses:
-        '200':
-          description: Estado del análisis
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Analysis'
-
-  /analyses/{analysisId}/pages:
-    get:
-      tags: [Analyses]
-      summary: Listar pantallas detectadas
-      parameters:
-        - $ref: '#/components/parameters/AnalysisId'
-      responses:
-        '200':
-          description: Pantallas del análisis
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Page'
-
-  /pages/{pageId}/elements:
-    get:
-      tags: [Analyses]
-      summary: Listar elementos detectados en una pantalla
-      parameters:
-        - $ref: '#/components/parameters/PageId'
-      responses:
-        '200':
-          description: Elementos detectados
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/UiElement'
-
-  /pages/{pageId}/screenshot:
-    get:
-      tags: [Analyses]
-      summary: Obtener screenshot sanitizado de una pantalla
-      parameters:
-        - $ref: '#/components/parameters/PageId'
-      responses:
-        '200':
-          description: Imagen de la pantalla sin credenciales ni secretos
-          content:
-            image/png: {}
-
-  /documents:
-    post:
-      tags: [Documents]
-      summary: Crear borrador editable desde evidencia seleccionada
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DocumentInput'
-      responses:
-        '201':
-          description: Borrador creado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Document'
-
-  /documents/{documentId}:
-    get:
-      tags: [Documents]
-      summary: Obtener borrador editable
-      parameters:
-        - $ref: '#/components/parameters/DocumentId'
-      responses:
-        '200':
-          description: Borrador encontrado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Document'
-    put:
-      tags: [Documents]
-      summary: Editar borrador
-      parameters:
-        - $ref: '#/components/parameters/DocumentId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DocumentInput'
-      responses:
-        '200':
-          description: Borrador actualizado
+        '404':
+          $ref: '#/components/responses/NotFound'
 
 components:
   parameters:
@@ -220,105 +132,98 @@ components:
       in: path
       name: projectId
       required: true
-      schema: { type: string, format: uuid }
+      schema:
+        type: string
+        format: uuid
     ApplicationId:
       in: path
       name: applicationId
       required: true
-      schema: { type: string, format: uuid }
-    AnalysisId:
-      in: path
-      name: analysisId
-      required: true
-      schema: { type: string, format: uuid }
-    PageId:
-      in: path
-      name: pageId
-      required: true
-      schema: { type: string, format: uuid }
-    DocumentId:
-      in: path
-      name: documentId
-      required: true
-      schema: { type: string, format: uuid }
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Request validation failed or target URL is outside the local MVP scope.
+    NotFound:
+      description: Resource not found.
 
   schemas:
+    ProjectInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+
+    ProjectResponse:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+
     ApplicationInput:
       type: object
+      additionalProperties: false
       required: [name, baseUrl, loginUrl, username, password]
       properties:
-        name: { type: string }
-        baseUrl: { type: string, format: uri }
-        loginUrl: { type: string, format: uri }
-        username: { type: string, writeOnly: true }
-        password: { type: string, format: password, writeOnly: true }
-        excludedRoutes:
-          type: array
-          items: { type: string }
+        name:
+          type: string
+          minLength: 1
+        baseUrl:
+          type: string
+          format: uri
+          description: Local base URL, such as http://localhost:3000.
+        loginUrl:
+          type: string
+          format: uri
+          description: Local login form URL.
+        username:
+          type: string
+          minLength: 1
+          writeOnly: true
+        password:
+          type: string
+          minLength: 1
+          format: password
+          writeOnly: true
+
+    ApplicationResponse:
+      type: object
+      additionalProperties: false
+      required: [id, projectId, name, baseUrl, loginUrl]
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        baseUrl:
+          type: string
+          format: uri
+        loginUrl:
+          type: string
+          format: uri
 
     AccessTestResult:
       type: object
+      additionalProperties: false
       required: [reachable, authenticated]
       properties:
-        reachable: { type: boolean }
-        authenticated: { type: boolean }
-        message: { type: string }
-
-    Analysis:
-      type: object
-      required: [id, status, readOnly]
-      properties:
-        id: { type: string, format: uuid }
-        status: { type: string, enum: [RUNNING, COMPLETED, FAILED] }
-        readOnly: { type: boolean, const: true }
-        pagesDiscovered: { type: integer, minimum: 0 }
-        errorMessage: { type: string }
-
-    Page:
-      type: object
-      required: [id, url, title]
-      properties:
-        id: { type: string, format: uuid }
-        url: { type: string, format: uri }
-        title: { type: string }
-        moduleName: { type: string }
-        screenshotAvailable: { type: boolean }
-
-    UiElement:
-      type: object
-      required: [id, type, riskLevel]
-      properties:
-        id: { type: string, format: uuid }
-        type: { type: string }
-        label: { type: string }
-        accessibleName: { type: string }
-        riskLevel: { type: string, enum: [SAFE, MUTATING, UNKNOWN] }
-
-    DocumentInput:
-      type: object
-      required: [applicationId, title, sections]
-      properties:
-        applicationId: { type: string, format: uuid }
-        title: { type: string }
-        sections:
-          type: array
-          items:
-            $ref: '#/components/schemas/DocumentSection'
-
-    Document:
-      allOf:
-        - $ref: '#/components/schemas/DocumentInput'
-        - type: object
-          required: [id, status]
-          properties:
-            id: { type: string, format: uuid }
-            status: { type: string, enum: [DRAFT] }
-
-    DocumentSection:
-      type: object
-      required: [title, content]
-      properties:
-        title: { type: string }
-        content: { type: string }
-        sourcePageId: { type: string, format: uuid }
-        screenshotId: { type: string, format: uuid }
+        reachable:
+          type: boolean
+        authenticated:
+          type: boolean
+        message:
+          type: string
