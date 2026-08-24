@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: SystemGuideForge API
   version: 0.1.0
-  description: API implementada para registrar sistemas web locales y probar su acceso autenticado de forma segura.
+  description: API implementada para registrar sistemas web locales y analizar una pantalla autenticada de forma segura.
 
 servers:
   - url: http://localhost:8080/api
@@ -12,6 +12,8 @@ tags:
     description: Projects configured in the personal workspace.
   - name: Applications
     description: Local web systems registered for analysis.
+  - name: Analyses
+    description: Safe read-only analysis evidence for local applications.
 
 paths:
   /projects:
@@ -126,6 +128,108 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /applications/{applicationId}/analyses:
+    post:
+      tags: [Analyses]
+      summary: Start a safe single-screen analysis
+      description: >-
+        Starts a synchronous, read-only analysis of the authenticated initial
+        screen. The current MVP accepts one active analysis at a time and never
+        executes discovered controls.
+      operationId: startAnalysis
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        '201':
+          description: Analysis completed or failed and its result was persisted.
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Another analysis is already running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /analyses/{analysisId}:
+    get:
+      tags: [Analyses]
+      summary: Get an analysis result
+      operationId: getAnalysis
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+      responses:
+        '200':
+          description: Analysis found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /analyses/{analysisId}/pages:
+    get:
+      tags: [Analyses]
+      summary: List pages discovered by an analysis
+      operationId: listAnalysisPages
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+      responses:
+        '200':
+          description: Pages discovered by the analysis.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /pages/{pageId}/elements:
+    get:
+      tags: [Analyses]
+      summary: List elements detected on a page
+      operationId: listPageElements
+      parameters:
+        - $ref: '#/components/parameters/PageId'
+      responses:
+        '200':
+          description: Elements detected on the page.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ElementResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /pages/{pageId}/screenshot:
+    get:
+      tags: [Analyses]
+      summary: Get the sanitized page screenshot
+      operationId: getPageScreenshot
+      parameters:
+        - $ref: '#/components/parameters/PageId'
+      responses:
+        '200':
+          description: PNG screenshot with detected sensitive fields masked.
+          content:
+            image/png: {}
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
   parameters:
     ProjectId:
@@ -138,6 +242,20 @@ components:
     ApplicationId:
       in: path
       name: applicationId
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AnalysisId:
+      in: path
+      name: analysisId
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PageId:
+      in: path
+      name: pageId
       required: true
       schema:
         type: string
@@ -225,5 +343,75 @@ components:
           type: boolean
         authenticated:
           type: boolean
+        message:
+          type: string
+
+    AnalysisResponse:
+      type: object
+      additionalProperties: false
+      required: [id, applicationId, status, startedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        applicationId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [RUNNING, COMPLETED, FAILED]
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        failureMessage:
+          type: string
+          nullable: true
+          description: Generic failure message; implementation never exposes secrets.
+
+    PageResponse:
+      type: object
+      additionalProperties: false
+      required: [id, analysisId, url, title]
+      properties:
+        id:
+          type: string
+          format: uuid
+        analysisId:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        title:
+          type: string
+
+    ElementResponse:
+      type: object
+      additionalProperties: false
+      required: [id, kind, selector, actionClassification]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+        selector:
+          type: string
+        accessibleName:
+          type: string
+          nullable: true
+        actionClassification:
+          type: string
+          enum: [SAFE, MUTATING, UNKNOWN]
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
         message:
           type: string
