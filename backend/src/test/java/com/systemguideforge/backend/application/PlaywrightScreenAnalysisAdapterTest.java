@@ -18,6 +18,19 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void authenticatesOnlyAfterSameOriginRedirectAwayFromLogin() {
+        TargetApplication app = new TargetApplication(
+                "p", "app", "http://localhost:8080", "http://localhost:8080/login", "u", "p");
+
+        assertThat(PlaywrightScreenAnalysisAdapter.isAuthenticatedAfterRedirect(
+                "http://localhost:8080/dashboard", app)).isTrue();
+        assertThat(PlaywrightScreenAnalysisAdapter.isAuthenticatedAfterRedirect(
+                "http://localhost:8080/login", app)).isFalse();
+        assertThat(PlaywrightScreenAnalysisAdapter.isAuthenticatedAfterRedirect(
+                "http://evil.example/dashboard", app)).isFalse();
+    }
+
+    @Test
     void exposesExplicitSingleActiveAnalysisLimit() {
         assertThat(AnalysisService.MAX_ACTIVE_ANALYSES).isEqualTo(1);
     }

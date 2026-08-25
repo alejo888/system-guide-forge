@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SystemGuideForge Fixture Dashboard</title>
+</head>
+<body>
+  <header>
+    <h1>SystemGuideForge Fixture Dashboard</h1>
+    <nav aria-label="Main navigation">
+      <a href="#overview" data-action-type="SAFE">Overview</a>
+      <a href="#reports" data-action-type="SAFE">Reports</a>
+      <form action="/logout" method="post" style="display:inline">
+        <button type="submit">Sign out</button>
+      </form>
+    </nav>
+  </header>
+
+  <main>
+    <section id="overview" aria-labelledby="overview-title">
+      <h2 id="overview-title">Overview</h2>
+      <p>All fixture values are deterministic and local.</p>
+      <div role="tablist" aria-label="Dashboard modules">
+        <button type="button" role="tab" aria-controls="summary-panel" data-action-type="SAFE">Summary</button>
+        <button type="button" role="tab" aria-controls="activity-panel" data-action-type="SAFE">Activity</button>
+      </div>
+      <div id="summary-panel" role="tabpanel"><p>Three modules are ready for analysis.</p></div>
+      <div id="activity-panel" role="tabpanel" hidden><p>No activity has been recorded.</p></div>
+    </section>
+
+    <section id="reports" aria-labelledby="reports-title">
+      <h2 id="reports-title">Reports</h2>
+      <details>
+        <summary data-action-type="SAFE">Show report filters</summary>
+        <form>
+          <label for="report-name">Report name</label>
+          <input id="report-name" name="report-name" type="text" value="Weekly overview">
+          <button type="button" data-action-type="MUTATING">Save report</button>
+        </form>
+      </details>
+      <button type="button" data-action-type="MUTATING">Create report</button>
+      <button type="button" data-action-type="MUTATING">Delete selected report</button>
+      <button type="button" data-action-type="MUTATING">Send report</button>
+      <button type="button" aria-label="More options" data-action-type="UNKNOWN">Process</button>
+    </section>
+
+    <section aria-labelledby="profile-title">
+      <h2 id="profile-title">Profile</h2>
+      <label for="api-key">Fixture API key</label>
+      <input id="api-key" name="api-key" type="password" value="fixture-sensitive-value" readonly>
+    </section>
+  </main>
+</body>
+</html>

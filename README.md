@@ -35,6 +35,7 @@ La documentación vigente está en la raíz:
 systemguideforge/
 ├── frontend/
 ├── backend/
+├── test-target/
 ├── README.md
 ├── specification.md
 ├── architecture.md
@@ -69,3 +70,42 @@ El backend exige `SGF_CREDENTIAL_KEY` para cifrar credenciales; no existe una cl
 `POST /applications/{id}/test-access` ejecuta un login tradicional real mediante Playwright, con un contexto de navegador aislado. Requiere tener instalado el navegador Chromium de Playwright. Si el navegador no está disponible, el resultado no indica autenticación exitosa.
 
 La configuración H2 con `ddl-auto=update` incluida en el backend es únicamente para desarrollo local; no representa la configuración de producción documentada (PostgreSQL/Flyway).
+
+## Aplicación fixture local
+
+La aplicación determinista para probar SystemGuideForge vive en `test-target/` y usa únicamente Node.js:
+
+```bash
+cd test-target
+npm start
+```
+
+Abrí `http://127.0.0.1:4173`. Credenciales de fixture: `fixture-user` / `fixture-password` (son datos de prueba, no secretos reales). La fixture incluye login, sesión protegida, logout, controles seguros, mutantes y ambiguos, y un campo sensible para validar el masking de screenshots. El smoke test reproducible se ejecuta con `cd test-target && npm test`.
+
+## E2E contra backend y fixture
+
+El smoke test unitario (`npm test`) no requiere backend. El E2E requiere ambos servicios levantados, Chromium de Playwright instalado y Java 25:
+
+Terminal 1:
+
+```bash
+cd test-target
+npm start
+```
+
+Terminal 2:
+
+```bash
+cd backend
+set SGF_CREDENTIAL_KEY=local-only-test-key
+./mvnw spring-boot:run
+```
+
+En PowerShell usar `$env:SGF_CREDENTIAL_KEY="local-only-test-key"` antes de `./mvnw spring-boot:run`. Con ambos servicios activos, ejecutar:
+
+```bash
+cd test-target
+npm run e2e
+```
+
+El backend puede configurarse con `SGF_BACKEND_URL`; la fixture con `SGF_FIXTURE_URL`, `FIXTURE_USERNAME` y `FIXTURE_PASSWORD`. El E2E crea un proyecto y aplicación temporales, ejecuta test-access y analysis, y verifica autenticación, estado `COMPLETED`, páginas, elementos y screenshot PNG.
