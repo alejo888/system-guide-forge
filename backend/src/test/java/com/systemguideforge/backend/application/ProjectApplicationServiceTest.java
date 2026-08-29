@@ -28,6 +28,44 @@ class ProjectApplicationServiceTest {
     }
 
     @Test
+    void updatesConfigurationAndReencryptsCredentials() {
+        var existing = TestFixtures.application("app-id");
+        when(applications.findById("app-id")).thenReturn(java.util.Optional.of(existing));
+        when(protector.encrypt("new-user")).thenReturn("encrypted-new-user");
+        when(protector.encrypt("new-password")).thenReturn("encrypted-new-password");
+        when(applications.save(existing)).thenReturn(existing);
+
+        var updated = service.updateApplication("app-id", "Updated", "http://localhost:9090", "http://localhost:9090/sign-in", "new-user", "new-password");
+
+        assertEquals("Updated", updated.getName());
+        assertEquals("http://localhost:9090", updated.getBaseUrl());
+        assertEquals("http://localhost:9090/sign-in", updated.getLoginUrl());
+        assertEquals("encrypted-new-user", updated.getUsernameEncrypted());
+        assertEquals("encrypted-new-password", updated.getPasswordEncrypted());
+        verify(protector, never()).decrypt(any());
+        verify(applications).save(existing);
+    }
+
+    @Test
+    void rejectsMissingApplicationUpdate() {
+        when(applications.findById("missing")).thenReturn(java.util.Optional.empty());
+        assertThrows(java.util.NoSuchElementException.class, () -> service.updateApplication("missing", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password"));
+        verify(applications, never()).save(any());
+    }
+
+    @Test
+    void rejectsRemoteUpdateUrlBeforePersistence() {
+        assertThrows(IllegalArgumentException.class, () -> service.updateApplication("app-id", "App", "https://example.com", "http://localhost:8080/login", "user", "password"));
+        verifyNoInteractions(applications, protector);
+    }
+
+    @Test
+    void rejectsBlankUpdateFieldsBeforePersistence() {
+        assertThrows(IllegalArgumentException.class, () -> service.updateApplication("app-id", " ", "http://localhost:8080", "http://localhost:8080/login", "user", "password"));
+        verifyNoInteractions(applications, protector);
+    }
+
+    @Test
     void accessProbeReceivesCredentialsButResponseContainsOnlyResult() {
         when(applications.findById("app-id")).thenReturn(java.util.Optional.of(TestFixtures.application("app-id")));
         when(protector.decrypt("encrypted-user")).thenReturn("user");

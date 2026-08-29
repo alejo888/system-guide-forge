@@ -54,22 +54,38 @@ Quedan como evolución futura, no como requisitos inmediatos: IA, workflows y ca
 - `implementation.md`: flujo técnico, seguridad y reglas de implementación.
 - `openapi.yaml`: contrato REST limitado al MVP.
 
-## Ejecutar backend
+## Run the backend locally
 
-Requiere Java 25:
+Local backend persistence uses PostgreSQL and Flyway. Docker is required for the database:
+
+```bash
+docker compose up -d postgres
+```
+
+Wait until the PostgreSQL healthcheck is healthy, then start the backend with Java 25:
 
 ```bash
 cd backend
 ./mvnw spring-boot:run
 ```
 
-Las pruebas se ejecutan con `./mvnw test`.
+Flyway creates the schema on backend startup. Existing H2 files are not imported or migrated; create any required local data again in PostgreSQL.
 
-El backend exige `SGF_CREDENTIAL_KEY` para cifrar credenciales; no existe una clave predeterminada. `sgf.credential-key` puede configurarse explícitamente en entornos de test/local, pero nunca debe compartirse ni usarse en producción.
+The default database settings are:
 
-`POST /applications/{id}/test-access` ejecuta un login tradicional real mediante Playwright, con un contexto de navegador aislado. Requiere tener instalado el navegador Chromium de Playwright. Si el navegador no está disponible, el resultado no indica autenticación exitosa.
+| Variable | Default |
+| --- | --- |
+| `SGF_DB_URL` | `jdbc:postgresql://localhost:15432/systemguideforge` |
+| `SGF_DB_USERNAME` | `systemguideforge` |
+| `SGF_DB_PASSWORD` | `systemguideforge` |
 
-La configuración H2 con `ddl-auto=update` incluida en el backend es únicamente para desarrollo local; no representa la configuración de producción documentada (PostgreSQL/Flyway).
+The compose database uses these same defaults. The backend remains on port `8080`, and the frontend and fixture workflows remain on ports `4200` and `4173` respectively. Tests use an isolated PostgreSQL Testcontainers instance and do not fall back to H2; Docker must be available to run them.
+
+Run backend tests with `./mvnw test` from `backend`.
+
+The backend requires `SGF_CREDENTIAL_KEY` to encrypt credentials; there is no default key. `sgf.credential-key` may be configured explicitly in test/local environments, but must never be shared or used in production.
+
+`POST /applications/{id}/test-access` performs a real traditional login through Playwright using an isolated browser context. Chromium must be installed for Playwright. If the browser is unavailable, the result does not indicate successful authentication.
 
 ## Aplicación fixture local
 
@@ -93,7 +109,7 @@ cd test-target
 npm start
 ```
 
-Terminal 2:
+Terminal 2 (after `docker compose up -d postgres`):
 
 ```bash
 cd backend

@@ -8,7 +8,7 @@ public class Screenshot {
     @Id private String id;
     private String pageId;
     private boolean sanitized;
-    @Lob private byte[] content;
+    @Column(columnDefinition = "bytea") private byte[] content;
     protected Screenshot() {}
     public Screenshot(String pageId, byte[] content){this.id=UUID.randomUUID().toString();this.pageId=pageId;this.content=content;this.sanitized=true;}
     public String getId(){return id;} public String getPageId(){return pageId;} public boolean isSanitized(){return sanitized;} public byte[] getContent(){return content;}

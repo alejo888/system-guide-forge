@@ -1,0 +1,22 @@
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" routerLink="/" aria-label="SystemGuideForge home">
+      <span class="brand-mark">SG</span><span>SystemGuide<span class="brand-accent">Forge</span></span>
+    </a>
+    <div class="workspace-label">WORKSPACE</div>
+    <nav class="primary-nav" aria-label="Primary navigation">
+      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}"><span class="nav-icon">▦</span>Overview</a>
+      <a routerLink="/register" routerLinkActive="active"><span class="nav-icon">＋</span>Register system</a>
+      <a class="disabled-link" role="link" aria-disabled="true" tabindex="-1" aria-label="Analysis, unavailable until an analysis is selected"><span class="nav-icon">◫</span>Analysis</a>
+      <a class="disabled-link" role="link" aria-disabled="true" tabindex="-1" aria-label="Evidence, coming soon"><span class="nav-icon">▤</span>Evidence <span class="soon">SOON</span></a>
+    </nav>
+    <div class="sidebar-footer"><span class="status-dot"></span><span>Local workspace</span><small>v0.1 MVP</small></div>
+  </aside>
+  <main class="main-content"><router-outlet /></main>
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}"><span>▦</span>Overview</a>
+    <a routerLink="/register" routerLinkActive="active"><span>＋</span>Register</a>
+    <a class="disabled-link" role="link" aria-disabled="true" tabindex="-1" aria-label="Analysis, unavailable until an analysis is selected"><span>◫</span>Analysis</a>
+    <a class="disabled-link" role="link" aria-disabled="true" tabindex="-1" aria-label="More navigation options, coming soon"><span>⋯</span>More</a>
+  </nav>
+</div>

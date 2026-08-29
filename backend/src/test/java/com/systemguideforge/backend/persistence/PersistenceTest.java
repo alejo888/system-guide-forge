@@ -3,13 +3,40 @@ package com.systemguideforge.backend.persistence;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DataJpaTest
+@Testcontainers
 class PersistenceTest {
+    @Container
+    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
+
+    @DynamicPropertySource
+    static void configureDatasource(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", postgres::getJdbcUrl);
+        registry.add("spring.datasource.username", postgres::getUsername);
+        registry.add("spring.datasource.password", postgres::getPassword);
+    }
+
     @Autowired ProjectRepository projects;
     @Autowired TargetApplicationRepository applications;
+    @Autowired ScreenshotRepository screenshots;
+
+    @Test
+    void persistsAndRetrievesScreenshotContentExactly() {
+        byte[] content = new byte[]{0, 1, 2, (byte) 0xff};
+        Screenshot screenshot = screenshots.save(new Screenshot("page-id", content));
+
+        Screenshot loaded = screenshots.findById(screenshot.getId()).orElseThrow();
+
+        assertThat(loaded.getContent()).containsExactly(content);
+    }
 
     @Test
     void persistsProjectAndApplicationWithoutPlaintextCredentials() {

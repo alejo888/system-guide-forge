@@ -1,0 +1,19 @@
+:host { display: block; min-height: 100vh; }
+.app-shell { min-height: 100vh; display: flex; background: var(--surface); }
+.sidebar { width: 248px; flex: 0 0 248px; background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 28px 18px 20px; }
+.brand { display: flex; align-items: center; gap: 10px; color: var(--ink); font-size: 16px; font-weight: 800; letter-spacing: -.04em; text-decoration: none; padding: 0 10px 42px; }
+.brand-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--cobalt); color: #fff; font: 500 12px var(--mono); letter-spacing: -.08em; }
+.brand-accent { color: var(--cobalt); }
+.workspace-label { color: var(--muted); font: 500 10px var(--mono); letter-spacing: .14em; padding: 0 13px 12px; }
+.primary-nav { display: grid; gap: 4px; }
+.primary-nav a { display: flex; align-items: center; gap: 12px; color: #596273; font-size: 13px; font-weight: 600; text-decoration: none; padding: 12px 13px; border-radius: 8px; }
+.primary-nav a.active { background: #edf2ff; color: var(--cobalt); }
+.nav-icon { width: 16px; font-size: 17px; text-align: center; font-weight: 400; }
+.disabled-link { cursor: default; opacity: .52; }
+.soon { margin-left: auto; color: var(--muted); font: 500 8px var(--mono); }
+.sidebar-footer { display: flex; align-items: center; gap: 8px; margin-top: auto; color: var(--muted); font: 11px var(--mono); border-top: 1px solid var(--line); padding: 20px 10px 0; }
+.sidebar-footer small { margin-left: auto; font-size: 9px; }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: #37b87c; box-shadow: 0 0 0 3px #e4f7ed; }
+.main-content { flex: 1; min-width: 0; }
+.mobile-nav { display: none; }
+@media (max-width: 720px) { .sidebar { display: none; } .main-content { padding-bottom: 74px; } .mobile-nav { position: fixed; z-index: 10; display: flex; bottom: 0; left: 0; right: 0; height: 66px; background: rgba(255,255,255,.96); border-top: 1px solid var(--line); justify-content: space-around; backdrop-filter: blur(12px); } .mobile-nav a { display: flex; flex: 1; align-items: center; justify-content: center; flex-direction: column; gap: 4px; color: var(--muted); font: 10px var(--mono); text-decoration: none; } .mobile-nav a span { font: 20px Arial; line-height: 20px; } .mobile-nav a.active { color: var(--cobalt); } }
