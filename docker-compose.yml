@@ -4,9 +4,9 @@ services:
     environment:
       POSTGRES_DB: systemguideforge
       POSTGRES_USER: systemguideforge
-      POSTGRES_PASSWORD: systemguideforge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     ports:
-      - "15432:5432"
+      - "127.0.0.1:15432:5432"
     volumes:
       - systemguideforge-postgres-data:/var/lib/postgresql/data
     healthcheck:
