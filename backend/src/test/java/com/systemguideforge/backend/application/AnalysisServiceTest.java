@@ -4,9 +4,41 @@ import com.systemguideforge.backend.persistence.*;
 import org.junit.jupiter.api.Test;
 import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 class AnalysisServiceTest {
+    @Test
+    void listsDeterministicSummariesForAnExistingApplication() {
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        TargetApplicationRepository applications = mock(TargetApplicationRepository.class);
+        TargetApplication app = TestFixtures.application("app-id");
+        Analysis newest = new Analysis(app.getId());
+        Analysis older = new Analysis(app.getId());
+        when(applications.existsById(app.getId())).thenReturn(true);
+        when(analyses.findByApplicationIdOrderByStartedAtDescIdDesc(app.getId())).thenReturn(List.of(newest, older));
+        when(pages.countByAnalysisId(newest.getId())).thenReturn(3L);
+        when(pages.countByAnalysisId(older.getId())).thenReturn(1L);
+
+        AnalysisService service = new AnalysisService(analyses, pages, mock(UIElementRepository.class), mock(ScreenshotRepository.class), applications, mock(CredentialProtector.class), mock(ScreenAnalysisAdapter.class));
+
+        assertThat(service.history(app.getId()))
+                .extracting(AnalysisService.AnalysisSummary::id, AnalysisService.AnalysisSummary::pageCount)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(newest.getId(), 3L), org.assertj.core.groups.Tuple.tuple(older.getId(), 1L));
+        verify(applications).existsById(app.getId());
+    }
+
+    @Test
+    void rejectsHistoryForAnUnknownApplication() {
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        TargetApplicationRepository applications = mock(TargetApplicationRepository.class);
+        when(applications.existsById("missing")).thenReturn(false);
+        AnalysisService service = new AnalysisService(analyses, mock(PageRepository.class), mock(UIElementRepository.class), mock(ScreenshotRepository.class), applications, mock(CredentialProtector.class), mock(ScreenAnalysisAdapter.class));
+
+        assertThatThrownBy(() -> service.history("missing")).isInstanceOf(java.util.NoSuchElementException.class);
+        verifyNoInteractions(analyses);
+    }
     @Test
     void completesAndPersistsOnlySanitizedResults() {
         AnalysisRepository analyses=mock(AnalysisRepository.class); PageRepository pages=mock(PageRepository.class); UIElementRepository elements=mock(UIElementRepository.class); ScreenshotRepository screenshots=mock(ScreenshotRepository.class); TargetApplicationRepository apps=mock(TargetApplicationRepository.class); CredentialProtector protector=mock(CredentialProtector.class); ScreenAnalysisAdapter adapter=mock(ScreenAnalysisAdapter.class);

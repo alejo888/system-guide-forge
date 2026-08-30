@@ -37,5 +37,14 @@ public class AnalysisService {
         if(screenshot!=null) screenshots.save(new Screenshot(page.getId(),screenshot));
     }
     public Optional<Analysis> get(String id){return analyses.findById(id);} public List<Page> pages(String id){return pages.findByAnalysisId(id);} public List<UIElement> elements(String id){return elements.findByPageId(id);} public Optional<Screenshot> screenshot(String pageId){return screenshots.findByPageId(pageId);}
+    public List<AnalysisSummary> history(String applicationId) {
+        if (!applications.existsById(applicationId)) throw new NoSuchElementException();
+        return analyses.findByApplicationIdOrderByStartedAtDescIdDesc(applicationId).stream()
+                .map(analysis -> new AnalysisSummary(analysis, pages.countByAnalysisId(analysis.getId())))
+                .toList();
+    }
+    public record AnalysisSummary(String id, String applicationId, AnalysisStatus status, java.time.Instant startedAt, java.time.Instant completedAt, String failureMessage, long pageCount) {
+        AnalysisSummary(Analysis analysis, long pageCount) { this(analysis.getId(), analysis.getApplicationId(), analysis.getStatus(), analysis.getStartedAt(), analysis.getCompletedAt(), analysis.getFailureMessage(), pageCount); }
+    }
     public static class AnalysisInProgressException extends RuntimeException { public AnalysisInProgressException(){super("An analysis is already running; try again later");} }
 }

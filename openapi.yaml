@@ -152,6 +152,23 @@ paths:
           $ref: '#/components/responses/NotFound'
 
   /applications/{applicationId}/analyses:
+    get:
+      tags: [Analyses]
+      summary: List analysis history for an application
+      operationId: listApplicationAnalyses
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        '200':
+          description: Analyses ordered newest first by start time and id.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AnalysisSummaryResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
     post:
       tags: [Analyses]
       summary: Start a safe multi-screen analysis
@@ -278,6 +295,33 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 
   /documents/{documentId}:
+    put:
+      tags: [Analyses]
+      summary: Update a manual document draft
+      operationId: updateDocument
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentUpdateRequest'
+      responses:
+        '200':
+          description: Updated document draft.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentResponse'
+        '400':
+          description: Invalid document title, section content, or section set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
     get:
       tags: [Analyses]
       summary: Get a generated manual document draft
@@ -443,6 +487,35 @@ components:
           nullable: true
           description: Generic failure message; implementation never exposes secrets.
 
+    AnalysisSummaryResponse:
+      type: object
+      additionalProperties: false
+      required: [id, applicationId, status, startedAt, pageCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        applicationId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [RUNNING, COMPLETED, FAILED]
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        failureMessage:
+          type: string
+          nullable: true
+        pageCount:
+          type: integer
+          format: int64
+          minimum: 0
+
     PageResponse:
       type: object
       additionalProperties: false
@@ -479,14 +552,35 @@ components:
           type: string
           enum: [SAFE, MUTATING, UNKNOWN]
 
+    DocumentUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [title, sections]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 255 }
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentSectionUpdateRequest'
+
+    DocumentSectionUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [id, title, content]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string, minLength: 1, maxLength: 255 }
+        content: { type: string, minLength: 1, maxLength: 10000 }
+
     DocumentResponse:
       type: object
       additionalProperties: false
-      required: [id, applicationId, sourceAnalysisId, status, sections]
+      required: [id, applicationId, sourceAnalysisId, title, status, sections]
       properties:
         id: { type: string, format: uuid }
         applicationId: { type: string, format: uuid }
         sourceAnalysisId: { type: string, format: uuid }
+        title: { type: string }
         status: { type: string, enum: [DRAFT] }
         sections:
           type: array

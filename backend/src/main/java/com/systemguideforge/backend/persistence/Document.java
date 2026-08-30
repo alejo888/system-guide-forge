@@ -9,11 +9,14 @@ public class Document {
     @Id private String id;
     private String applicationId;
     private String sourceAnalysisId;
+    @Column(nullable = false, length = 255) private String title;
     @Enumerated(EnumType.STRING) private DocumentStatus status;
     @Transient private List<DocumentSection> sections = new ArrayList<>();
     protected Document() {}
-    public Document(String sourceAnalysisId, String applicationId) { this.id = UUID.randomUUID().toString(); this.sourceAnalysisId = sourceAnalysisId; this.applicationId = applicationId; this.status = DocumentStatus.DRAFT; }
+    public Document(String sourceAnalysisId, String applicationId) { this.id = UUID.randomUUID().toString(); this.sourceAnalysisId = sourceAnalysisId; this.applicationId = applicationId; this.title = "Untitled document"; this.status = DocumentStatus.DRAFT; }
     public String getId() { return id; }
+    public String getTitle() { return title; }
+    public void updateTitle(String title) { this.title = title; }
     public String getApplicationId() { return applicationId; }
     public String getSourceAnalysisId() { return sourceAnalysisId; }
     public DocumentStatus getStatus() { return status; }

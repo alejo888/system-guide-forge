@@ -6,6 +6,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -41,14 +46,39 @@ class PersistenceTest {
     @Autowired DocumentService documentService;
 
     @Test
+    void listsAnalysesNewestFirstAndCountsTheirPages() throws InterruptedException {
+        Project project = projects.save(new Project("History project"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost:8080", "http://localhost:8080/login", "u", "p"));
+        Analysis older = analyses.save(new Analysis(application.getId()));
+        pages.save(new Page(older.getId(), "http://localhost:8080/older", "Older"));
+        Thread.sleep(2);
+        Analysis newer = analyses.save(new Analysis(application.getId()));
+        pages.save(new Page(newer.getId(), "http://localhost:8080/newer-1", "Newer"));
+        pages.save(new Page(newer.getId(), "http://localhost:8080/newer-2", "Newer"));
+
+        assertThat(analyses.findByApplicationIdOrderByStartedAtDescIdDesc(application.getId()))
+                .extracting(Analysis::getId).containsExactly(newer.getId(), older.getId());
+        assertThat(pages.countByAnalysisId(newer.getId())).isEqualTo(2);
+        assertThat(pages.countByAnalysisId(older.getId())).isEqualTo(1);
+    }
+
+    @Test
     void persistsAndRetrievesScreenshotContentExactly() {
+        Project project = projects.save(new Project("Screenshot project"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost", "http://localhost/login", "u", "p"));
+        Analysis analysis = analyses.save(new Analysis(application.getId()));
+        Page page = pages.save(new Page(analysis.getId(), "http://localhost/page", "Page"));
         byte[] content = new byte[]{0, 1, 2, (byte) 0xff};
-        Screenshot screenshot = screenshots.save(new Screenshot("page-id", content));
+        Screenshot screenshot = screenshots.save(new Screenshot(page.getId(), content));
+        Screenshot later = screenshots.save(new Screenshot(page.getId(), new byte[]{9}));
 
         Screenshot loaded = screenshots.findById(screenshot.getId()).orElseThrow();
 
         assertThat(loaded.getContent()).containsExactly(content);
+        assertThat(screenshots.findByPageIdOrderByIdAsc(page.getId()))
+                .extracting(Screenshot::getId).containsExactlyElementsOf(List.of(screenshot.getId(), later.getId()).stream().sorted().toList());
     }
+
 
     @Test
     void persistsOrderedDocumentSectionsWithTraceability() {
@@ -70,8 +100,82 @@ class PersistenceTest {
     }
 
     @Test
+    void acquiresPessimisticWriteLockForDocumentUpdates() {
+        Project project = projects.save(new Project("Lock project"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "Lock app", "http://localhost", "http://localhost/login", "u", "p"));
+        Analysis analysis = analyses.save(new Analysis(application.getId()));
+        Document document = documents.save(new Document(analysis.getId(), application.getId()));
+
+        assertThat(documents.findByIdForUpdate(document.getId())).containsSame(document);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void serializesConcurrentDocumentUpdatesWithoutMixedOrLostSnapshots() throws Exception {
+        Project project = projects.save(new Project("Concurrent docs"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost", "http://localhost/login", "u", "p"));
+        Analysis analysis = analyses.save(new Analysis(application.getId()));
+        Page page = pages.save(new Page(analysis.getId(), "http://localhost/page", "Page"));
+        Document document = documents.save(new Document(analysis.getId(), application.getId()));
+        DocumentSection section = documentSections.save(new DocumentSection(document.getId(), 0, page.getId(), null, "Original", "original"));
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> first = executor.submit(() -> updateAfter(start, document.getId(), section.getId(), "Title A", "Content A"));
+            Future<?> second = executor.submit(() -> updateAfter(start, document.getId(), section.getId(), "Title B", "Content B"));
+            start.countDown();
+            first.get();
+            second.get();
+        } finally {
+            executor.shutdownNow();
+        }
+
+        DocumentSection finalSection = documentSections.findById(section.getId()).orElseThrow();
+        assertThat(List.of("Title A|Content A", "Title B|Content B"))
+                .contains(finalSection.getTitle() + "|" + finalSection.getContent());
+    }
+
+    private void updateAfter(CountDownLatch start, String documentId, String sectionId, String title, String content) {
+        try {
+            start.await();
+            documentService.update(documentId, new DocumentService.UpdateCommand(title,
+                    List.of(new DocumentService.SectionUpdate(sectionId, title, content))));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Test
+    void updatesDocumentAtomicallyAndPreservesSectionTraceability() {
+        Project project = projects.save(new Project("Docs update"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost:8080", "http://localhost:8080/login", "u", "p"));
+        Analysis analysis = new Analysis(application.getId());
+        analyses.save(analysis);
+        Page firstPage = pages.save(new Page(analysis.getId(), "http://localhost:8080/first", "First"));
+        Page secondPage = pages.save(new Page(analysis.getId(), "http://localhost:8080/second", "Second"));
+        Document document = documents.save(new Document(analysis.getId(), application.getId()));
+        DocumentSection first = documentSections.save(new DocumentSection(document.getId(), 0, firstPage.getId(), null, "First", "first"));
+        DocumentSection second = documentSections.save(new DocumentSection(document.getId(), 1, secondPage.getId(), null, "Second", "second"));
+
+        Document updated = documentService.update(document.getId(), new DocumentService.UpdateCommand("Edited", java.util.List.of(
+                new DocumentService.SectionUpdate(second.getId(), "Second edited", "second edited"),
+                new DocumentService.SectionUpdate(first.getId(), "First edited", "first edited"))));
+
+        Document loaded = documents.findById(document.getId()).orElseThrow();
+        assertThat(loaded.getTitle()).isEqualTo("Edited");
+        assertThat(documentSections.findByDocumentIdOrderByPositionAsc(document.getId())).extracting(DocumentSection::getId)
+                .containsExactly(second.getId(), first.getId());
+        DocumentSection loadedSecond = documentSections.findById(second.getId()).orElseThrow();
+        assertThat(loadedSecond.getSourcePageId()).isEqualTo(secondPage.getId());
+        assertThat(loadedSecond.getScreenshotId()).isNull();
+        assertThat(updated.getSections()).extracting(DocumentSection::getPosition).containsExactly(0, 1);
+    }
+
+    @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void rollsBackDocumentAndSectionsWhenSectionGenerationFails() {
+            List<String> existingSectionIds = documentSections.findAll().stream().map(DocumentSection::getId).toList();
         Project project = projects.save(new Project("Docs"));
         TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost:8080", "http://localhost:8080/login", "u", "p"));
         Analysis analysis = new Analysis(application.getId());
@@ -87,7 +191,8 @@ class PersistenceTest {
                 .isInstanceOf(RuntimeException.class);
 
         assertThat(documents.findBySourceAnalysisId(analysis.getId())).isEmpty();
-        assertThat(documentSections.findAll()).isEmpty();
+        assertThat(documentSections.findAll()).extracting(DocumentSection::getId)
+                    .containsExactlyInAnyOrderElementsOf(existingSectionIds);
     }
 
     @Test
