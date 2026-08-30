@@ -428,11 +428,24 @@ components:
           minLength: 1
           format: password
           writeOnly: true
+        maxCrawlDepth:
+          type: integer
+          minimum: 0
+          maximum: 5
+          default: 2
+          description: Maximum safe same-origin link depth to crawl.
+        excludedRoutes:
+          type: array
+          default: []
+          items:
+            type: string
+            pattern: '^/(?:[^/?#%]+(?:/[^/?#%]+)*)?/?$'
+          description: Absolute route prefixes excluded along with their descendants.
 
     ApplicationResponse:
       type: object
       additionalProperties: false
-      required: [id, projectId, name, baseUrl, loginUrl]
+      required: [id, projectId, name, baseUrl, loginUrl, maxCrawlDepth, excludedRoutes]
       properties:
         id:
           type: string
@@ -448,6 +461,16 @@ components:
         loginUrl:
           type: string
           format: uri
+        maxCrawlDepth:
+          type: integer
+          minimum: 0
+          maximum: 5
+          default: 2
+        excludedRoutes:
+          type: array
+          items:
+            type: string
+            pattern: '^/(?:[^/?#%]+(?:/[^/?#%]+)*)?/?$'
 
     AccessTestResult:
       type: object

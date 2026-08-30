@@ -21,10 +21,27 @@ class PlaywrightScreenAnalysisAdapterTest {
     @Test
     void followsOnlySafeSameOriginLinksAndStripsFragmentsAndQueries() {
         assertThat(PlaywrightScreenAnalysisAdapter.internalSafeUrl("/reports#today", "http://localhost:8080/home", "http://localhost:8080")).isEqualTo("http://localhost:8080/reports");
+        assertThat(PlaywrightScreenAnalysisAdapter.internalSafeUrl("/reports/", "http://localhost:8080/home", "http://localhost:8080")).isEqualTo("http://localhost:8080/reports");
+        assertThat(PlaywrightScreenAnalysisAdapter.internalSafeUrl("/", "http://localhost:8080/home", "http://localhost:8080")).isEqualTo("http://localhost:8080/");
+        assertThat(PlaywrightScreenAnalysisAdapter.internalSafeUrl("/private%2Farea", "http://localhost:8080/home", "http://localhost:8080")).isNull();
         assertThat(PlaywrightScreenAnalysisAdapter.internalSafeUrl("http://localhost:8080/reports", "http://localhost:8080/home", "http://localhost:8080")).isEqualTo("http://localhost:8080/reports");
         assertThat(PlaywrightScreenAnalysisAdapter.classifyResolvedAnchor(null, "http://localhost:8080/reports")).isEqualTo(ActionClassification.SAFE);
         assertThat(PlaywrightScreenAnalysisAdapter.internalSafeUrl("javascript:alert(1)", "http://localhost:8080/home", "http://localhost:8080")).isNull();
     }
+    @Test
+    void excludesConfiguredRoutesOnlyOnSegmentBoundaries() {
+        TargetApplication app = new TargetApplication("p", "app", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 5, java.util.List.of("/admin"));
+        assertThat(app.isExcludedPath("http://localhost:8080/admin")).isTrue();
+        assertThat(app.isExcludedPath("http://localhost:8080/admin/users")).isTrue();
+        assertThat(app.isExcludedPath("http://localhost:8080/administrator")).isFalse();
+    }
+
+    @Test
+    void usesApplicationCrawlerDepthInsteadOfGlobalDepth() {
+        TargetApplication app = new TargetApplication("p", "app", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 5, java.util.List.of());
+        assertThat(app.getMaxCrawlDepth()).isEqualTo(5);
+    }
+
     @Test
     void rejectsConfiguredLoginRedirectsAsAuthenticatedPageResults() {
         TargetApplication app = new TargetApplication("p", "app", "http://localhost:8080", "http://localhost:8080/login", "u", "p");
@@ -51,8 +68,10 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
     @Test
     void rejectsUnsafeRedirectsAfterNavigation() {
-        TargetApplication app = new TargetApplication("p", "app", "http://localhost:8080", "http://localhost:8080/login", "u", "p");
+        TargetApplication app = new TargetApplication("p", "app", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 5, java.util.List.of("/admin"));
         assertThat(PlaywrightScreenAnalysisAdapter.isSafeNavigationResult("http://localhost:8080/reports", app)).isTrue();
+        assertThat(PlaywrightScreenAnalysisAdapter.isSafeNavigationResult("http://localhost:8080/admin/users", app)).isFalse();
+        assertThat(PlaywrightScreenAnalysisAdapter.isSafeNavigationResult("http://localhost:8080/private%2Farea", app)).isFalse();
         assertThat(PlaywrightScreenAnalysisAdapter.isSafeNavigationResult("http://evil.example/reports", app)).isFalse();
         assertThat(PlaywrightScreenAnalysisAdapter.isSafeNavigationResult("javascript:alert(1)", app)).isFalse();
     }

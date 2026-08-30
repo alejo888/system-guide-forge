@@ -37,6 +37,7 @@ class PersistenceTest {
 
     @Autowired ProjectRepository projects;
     @Autowired TargetApplicationRepository applications;
+        @Autowired ExcludedRouteRepository excludedRoutes;
     @Autowired ScreenshotRepository screenshots;
     @Autowired AnalysisRepository analyses;
     @Autowired PageRepository pages;
@@ -194,6 +195,17 @@ class PersistenceTest {
         assertThat(documentSections.findAll()).extracting(DocumentSection::getId)
                     .containsExactlyInAnyOrderElementsOf(existingSectionIds);
     }
+
+    @Test
+    void persistsCrawlerConfigurationAndExcludedRoutes() {
+            Project project = projects.save(new Project("Crawler project"));
+            TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 4, List.of("/admin", "/settings")));
+
+            TargetApplication loaded = applications.findById(application.getId()).orElseThrow();
+            assertThat(loaded.getMaxCrawlDepth()).isEqualTo(4);
+            assertThat(excludedRoutes.findByApplicationIdOrderByPath(application.getId())).extracting(ExcludedRoute::getPath)
+                    .containsExactly("/admin", "/settings");
+        }
 
     @Test
     void persistsProjectAndApplicationWithoutPlaintextCredentials() {

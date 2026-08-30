@@ -21,6 +21,48 @@ class ProjectApplicationServiceTest {
     @InjectMocks ProjectApplicationService service;
 
     @Test
+    void createsApplicationWithValidatedCrawlerConfiguration() {
+        when(projects.existsById("project-id")).thenReturn(true);
+        when(protector.encrypt("user")).thenReturn("encrypted-user");
+        when(protector.encrypt("password")).thenReturn("encrypted-password");
+        when(applications.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var created = service.createApplication("project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 4, java.util.List.of("/admin/", "/settings"));
+
+        assertEquals(4, created.getMaxCrawlDepth());
+        assertEquals(java.util.List.of("/admin", "/settings"), created.getExcludedRoutes());
+    }
+
+    @Test
+    void rejectsInvalidCrawlerConfigurationBeforePersistence() {
+        assertThrows(IllegalArgumentException.class, () -> service.createApplication(
+                "project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 6, java.util.List.of()));
+        verifyNoInteractions(applications, protector);
+    }
+
+    @Test
+    void normalizesRootAndTrailingSlashExcludedRoutes() {
+        when(projects.existsById("project-id")).thenReturn(true);
+        when(protector.encrypt("user")).thenReturn("encrypted-user");
+        when(protector.encrypt("password")).thenReturn("encrypted-password");
+        when(applications.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var created = service.createApplication("project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2,
+                java.util.List.of("/", "/admin/", "/settings"));
+
+        assertEquals(java.util.List.of("/", "/admin", "/settings"), created.getExcludedRoutes());
+    }
+
+    @Test
+    void rejectsMalformedExcludedRoutesBeforePersistence() {
+        for (String route : java.util.List.of("admin?x=1", "//admin", "/admin//", "/admin?x=1", "http://localhost/admin", "/a%2Fb", "   ")) {
+            assertThrows(IllegalArgumentException.class, () -> service.createApplication(
+                    "project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, java.util.List.of(route)));
+        }
+        verifyNoInteractions(applications, protector);
+    }
+
+    @Test
     void rejectsRemoteApplicationUrlBeforePersistence() {
         assertThrows(IllegalArgumentException.class, () -> service.createApplication(
                 "project-id", "App", "https://example.com", "https://example.com/login", "user", "password"));
@@ -35,13 +77,15 @@ class ProjectApplicationServiceTest {
         when(protector.encrypt("new-password")).thenReturn("encrypted-new-password");
         when(applications.save(existing)).thenReturn(existing);
 
-        var updated = service.updateApplication("app-id", "Updated", "http://localhost:9090", "http://localhost:9090/sign-in", "new-user", "new-password");
+        var updated = service.updateApplication("app-id", "Updated", "http://localhost:9090", "http://localhost:9090/sign-in", "new-user", "new-password", 3, java.util.List.of("/admin/users"));
 
         assertEquals("Updated", updated.getName());
         assertEquals("http://localhost:9090", updated.getBaseUrl());
         assertEquals("http://localhost:9090/sign-in", updated.getLoginUrl());
         assertEquals("encrypted-new-user", updated.getUsernameEncrypted());
         assertEquals("encrypted-new-password", updated.getPasswordEncrypted());
+        assertEquals(3, updated.getMaxCrawlDepth());
+        assertEquals(java.util.List.of("/admin/users"), updated.getExcludedRoutes());
         verify(protector, never()).decrypt(any());
         verify(applications).save(existing);
     }

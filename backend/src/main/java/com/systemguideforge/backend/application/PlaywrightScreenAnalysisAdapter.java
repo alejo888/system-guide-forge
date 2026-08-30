@@ -39,6 +39,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             user.fill(username); pass.fill(password); submit.click();
             page.waitForURL(url -> isAuthenticatedAfterRedirect(url, application), new Page.WaitForURLOptions().setTimeout(10_000));
             if (!isAuthenticatedAfterRedirect(page.url(), application)) throw new IllegalStateException("Authentication failed");
+            if (!isSafeNavigationResult(page.url(), application)) throw new IllegalStateException("Unsafe authenticated redirect rejected");
 
             String startUrl = safeUrl(page.url());
             CrawlBudget budget = new CrawlBudget(AnalysisService.MAX_CRAWL_PAGES, AnalysisService.MAX_CRAWL_LINKS);
@@ -49,7 +50,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             ArrayDeque<Link> queue = new ArrayDeque<>(links(page, application, 1, budget));
             while (!queue.isEmpty()) {
                 Link link = queue.removeFirst();
-                if (link.depth > AnalysisService.MAX_CRAWL_DEPTH || !visited.add(link.url) || !budget.takePage()) continue;
+                if (link.depth > application.getMaxCrawlDepth() || application.isExcludedPath(link.url) || !visited.add(link.url) || !budget.takePage()) continue;
                 page.navigate(link.url);
                 if (isLoginNavigationResult(page.url(), application)) continue;
                 if (!isSafeNavigationResult(page.url(), application)) {
@@ -57,7 +58,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                 }
                 ScreenAnalysisResult current = analyzeCurrentPage(page, application, link.depth);
                 discovered.add(new DiscoveredPage(current.url(), current.title(), current.elements(), current.sanitizedScreenshot(), link.depth, ActionClassification.SAFE));
-                if (link.depth < AnalysisService.MAX_CRAWL_DEPTH) queue.addAll(links(page, application, link.depth + 1, budget));
+                if (link.depth < application.getMaxCrawlDepth()) queue.addAll(links(page, application, link.depth + 1, budget));
             }
             return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), discovered);
         } catch (Exception e) { throw new IllegalStateException("Screen analysis unavailable or failed", e); }
@@ -79,7 +80,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             Locator anchor = locator.nth(i);
             String href = anchor.getAttribute("href");
             String resolved = internalSafeUrl(href, page.url(), application.getBaseUrl());
-            if (resolved != null && classifyResolvedAnchor(anchor.getAttribute("data-action-type"), resolved) == ActionClassification.SAFE) {
+            if (resolved != null && !application.isExcludedPath(resolved) && classifyResolvedAnchor(anchor.getAttribute("data-action-type"), resolved) == ActionClassification.SAFE) {
                 result.add(new Link(resolved, depth));
             }
         }
@@ -107,16 +108,17 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
 
     static boolean isSafeNavigationResult(String candidateUrl, TargetApplication application) {
         return !isLoginNavigationResult(candidateUrl, application)
+                && !application.isExcludedPath(candidateUrl)
                 && internalSafeUrl(candidateUrl, candidateUrl, application.getBaseUrl()) != null;
     }
 
     static String internalSafeUrl(String href, String currentUrl, String baseUrl) {
-        if (href == null || href.isBlank()) return null;
+        if (href == null || href.isBlank() || href.contains("%")) return null;
         try {
             URI raw = URI.create(href.trim());
             if ("javascript".equalsIgnoreCase(raw.getScheme()) || href.startsWith("//")) return null;
             URI candidate = new URI(new URI(currentUrl).resolve(raw).toString()); URI base = URI.create(baseUrl);
-            if (!sameOrigin(candidate, base)) return null;
+            if (candidate.toString().contains("%") || !sameOrigin(candidate, base)) return null;
             return safeUrl(candidate.toString());
         } catch (Exception e) { return null; }
     }
@@ -135,7 +137,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     }
     private static ActionClassification classifyFixtureElement(Locator item,String kind,String attribute,String value,String name,String id,String placeholder){ if(isSensitiveField(kind,value,name,id,placeholder))return ActionClassification.UNKNOWN; ActionClassification metadata=ActionClassifier.classifyFixtureMetadata(item.getAttribute("data-action-type")); return metadata!=null?metadata:ActionClassifier.classify(kind,attribute,value); }
     private static boolean isSensitiveField(String kind,String type,String name,String id,String placeholder){if(!"input".equals(kind)&&!"textarea".equals(kind))return false; return String.join(" ",type==null?"":type,name==null?"":name,id==null?"":id,placeholder==null?"":placeholder).matches("(?i).*(password|api[-_]?key|secret|token|credential).*");}
-    private static String text(Locator l){try{return l.textContent();}catch(Exception e){return null;}} private static String first(String... values){for(String v:values)if(v!=null&&!v.isBlank())return v.trim();return null;} private static String safe(String value){return value==null?null:value.replaceAll("(?i)password|secret|credential|token|api[-_]?key","[redacted]");} private static String safeUrl(String value){try{URI uri=URI.create(value);return new URI(uri.getScheme(),uri.getAuthority(),uri.getPath(),null,null).toString();}catch(Exception e){return "about:blank";}}
+    private static String text(Locator l){try{return l.textContent();}catch(Exception e){return null;}} private static String first(String... values){for(String v:values)if(v!=null&&!v.isBlank())return v.trim();return null;} private static String safe(String value){return value==null?null:value.replaceAll("(?i)password|secret|credential|token|api[-_]?key","[redacted]");} private static String safeUrl(String value){try{URI uri=URI.create(value);return new URI(uri.getScheme(),uri.getAuthority(),normalizedPath(uri),null,null).toString();}catch(Exception e){return "about:blank";}}
     static final class CrawlBudget {
         private int pages;
         private int links;

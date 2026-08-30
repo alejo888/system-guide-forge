@@ -19,7 +19,9 @@ export class RegistrationComponent {
     projectName: this.editMode ? (this.existingApplication?.name ?? '') : '',
     name: this.editMode ? (this.existingApplication?.name ?? '') : '',
     baseUrl: this.editMode ? (this.existingApplication?.baseUrl ?? '') : '',
-    loginUrl: this.editMode ? (this.existingApplication?.loginUrl ?? '') : '', username: '', password: ''
+    loginUrl: this.editMode ? (this.existingApplication?.loginUrl ?? '') : '', username: '', password: '',
+    maxCrawlDepth: this.existingApplication?.maxCrawlDepth ?? 2,
+    excludedRoutes: this.existingApplication?.excludedRoutes ?? []
   });
   readonly registrationForm = form(this.model, path => {
     required(path.projectName); required(path.name); required(path.baseUrl); required(path.loginUrl); required(path.username); required(path.password);
@@ -29,28 +31,38 @@ export class RegistrationComponent {
   readonly accessResult = signal<AccessTestResult | null>(null);
   readonly applicationId = signal(this.existingApplication?.id ?? '');
   readonly localUrlsValid = computed(() => this.isLocalUrl(this.model().baseUrl) && this.isLocalUrl(this.model().loginUrl));
+  readonly crawlerConfigurationValid = computed(() => {
+    const { maxCrawlDepth = 2, excludedRoutes = [] } = this.model();
+    return Number.isInteger(maxCrawlDepth) && maxCrawlDepth >= 0 && maxCrawlDepth <= 5 && excludedRoutes.every(route => this.isExcludedRoute(route));
+  });
 
   isLocalUrl(value: string): boolean {
     try { const url = new URL(value); return (url.protocol === 'http:' || url.protocol === 'https:') && (url.hostname === 'localhost' || url.hostname === '127.0.0.1'); }
     catch { return false; }
   }
 
+  setMaxCrawlDepth(value: string): void { this.model.update(model => ({ ...model, maxCrawlDepth: Number(value) })); }
+  setExcludedRoutes(value: string): void {
+    const excludedRoutes = value.split(/[\n,]/).map(route => route.trim()).filter(Boolean);
+    this.model.update(model => ({ ...model, excludedRoutes }));
+  }
+  isExcludedRoute(value: string): boolean { return /^\/(?:[^/?#%]+(?:\/[^/?#%]+)*)?\/?$/.test(value); }
+  routeIsExcluded(route: string, excludedRoute: string): boolean { return route === excludedRoute || route.startsWith(`${excludedRoute}/`); }
+      private normalizeExcludedRoutes(routes: string[]): string[] { return [...new Set(routes.map(route => route.length > 1 && route.endsWith('/') ? route.slice(0, -1) : route))]; }
+
   async register(): Promise<void> {
-    if (!this.localUrlsValid() || this.registrationForm().invalid()) return;
+    if (!this.localUrlsValid() || !this.crawlerConfigurationValid() || this.registrationForm().invalid()) return;
     this.state.set('saving'); this.errorMessage.set('');
     try {
       const value = this.model();
       const { projectName: _, ...application } = value;
+      application.maxCrawlDepth ??= 2; application.excludedRoutes = this.normalizeExcludedRoutes(application.excludedRoutes ?? []);
       const saved = this.editMode
         ? await this.api.updateApplication(this.applicationId(), application)
         : await this.createApplication(value.projectName, application);
       localStorage.setItem('sgf.application', JSON.stringify(saved));
-      if (this.editMode) {
-        this.state.set('success');
-        await this.router.navigate(['/']);
-      } else {
-        this.applicationId.set(saved.id); await this.testAccess();
-      }
+      if (this.editMode) { this.state.set('success'); await this.router.navigate(['/']); }
+      else { this.applicationId.set(saved.id); await this.testAccess(); }
     } catch { this.fail(this.editMode ? 'We could not update the system. Check that the API is running and try again.' : 'We could not create the project. Check that the API is running and try again.'); }
   }
 
@@ -60,21 +72,17 @@ export class RegistrationComponent {
     try { this.accessResult.set(await this.api.testAccess(this.applicationId())); this.state.set('success'); }
     catch { this.fail('The access test could not be completed. The system remains safely untested.'); }
   }
-
   async startAnalysis(): Promise<void> {
     if (!this.applicationId()) return;
     this.state.set('starting-analysis');
     try { const analysis = await this.api.startAnalysis(this.applicationId()); await this.router.navigate(['/analysis', analysis.id]); }
     catch { this.fail('The analysis could not be started. Try again when the system is available.'); }
   }
-
   private async createApplication(projectName: string, application: ApplicationInput): Promise<ApplicationResponse> {
-    const project = await this.api.createProject({ name: projectName.trim() });
-    return this.api.createApplication(project.id, application);
+    const project = await this.api.createProject({ name: projectName.trim() }); return this.api.createApplication(project.id, application);
   }
   private readApplication(): ApplicationResponse | null {
-    try { const value = localStorage.getItem('sgf.application'); return value ? JSON.parse(value) as ApplicationResponse : null; }
-    catch { return null; }
+    try { const value = localStorage.getItem('sgf.application'); return value ? JSON.parse(value) as ApplicationResponse : null; } catch { return null; }
   }
   private fail(message: string): void { this.state.set('error'); this.errorMessage.set(message); }
 }

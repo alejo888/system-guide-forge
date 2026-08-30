@@ -7,7 +7,7 @@ import java.util.*;
 @Service
 public class AnalysisService {
     public static final int MAX_ACTIVE_ANALYSES = 1;
-    public static final int MAX_CRAWL_DEPTH = 2;
+    public static final int MAX_CRAWL_DEPTH = 5;
     public static final int MAX_CRAWL_PAGES = 100;
     public static final int MAX_CRAWL_LINKS = 500;
     private final AnalysisRepository analyses; private final PageRepository pages; private final UIElementRepository elements; private final ScreenshotRepository screenshots; private final TargetApplicationRepository applications; private final CredentialProtector protector; private final ScreenAnalysisAdapter adapter;
@@ -19,9 +19,10 @@ public class AnalysisService {
             Set<String> visited = new HashSet<>();
             persistPage(analysis, result.url(), result.title(), result.elements(), result.sanitizedScreenshot(), visited);
             int persistedPages = 1;
+            int maxCrawlDepth = Math.min(app.getMaxCrawlDepth(), MAX_CRAWL_DEPTH);
             for (var discovered : result.discoveredPages()) {
                 if (persistedPages >= MAX_CRAWL_PAGES) break;
-                if (discovered.classification() == ActionClassification.SAFE && discovered.depth() <= MAX_CRAWL_DEPTH) {
+                if (discovered.classification() == ActionClassification.SAFE && discovered.depth() <= maxCrawlDepth) {
                     int before = visited.size();
                     persistPage(analysis, discovered.url(), discovered.title(), discovered.elements(), discovered.sanitizedScreenshot(), visited);
                     if (visited.size() > before) persistedPages++;

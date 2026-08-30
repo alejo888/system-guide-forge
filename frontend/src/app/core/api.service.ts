@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 
 export interface ProjectResponse { id: string; name: string; }
-export interface ApplicationResponse { id: string; projectId: string; name: string; baseUrl: string; loginUrl: string; }
+export interface ApplicationResponse { id: string; projectId: string; name: string; baseUrl: string; loginUrl: string; maxCrawlDepth?: number; excludedRoutes?: string[]; }
 export interface AccessTestResult { reachable: boolean; authenticated: boolean; message?: string; }
 export type AnalysisStatus = 'RUNNING' | 'COMPLETED' | 'FAILED';
 export interface AnalysisResponse { id: string; applicationId: string; status: AnalysisStatus; startedAt: string; completedAt: string | null; failureMessage: string | null; }
@@ -13,7 +13,7 @@ export interface DocumentSectionResponse { id: string; position: number; sourceP
 export interface DocumentResponse { id: string; title: string; applicationId: string; sourceAnalysisId: string; status: 'DRAFT'; sections: DocumentSectionResponse[]; }
 export interface DocumentUpdatePayload { title: string; sections: Array<{ id: string; title: string; content: string }>; }
 export interface ProjectInput { name: string; }
-export interface ApplicationInput { name: string; baseUrl: string; loginUrl: string; username: string; password: string; }
+export interface ApplicationInput { name: string; baseUrl: string; loginUrl: string; username: string; password: string; maxCrawlDepth?: number; excludedRoutes?: string[]; }
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {

@@ -2,6 +2,8 @@ package com.systemguideforge.backend.application;
 
 import com.systemguideforge.backend.persistence.*;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -62,6 +64,31 @@ class AnalysisServiceTest {
         when(adapter.analyze(any(), any(), any())).thenReturn(new ScreenAnalysisAdapter.ScreenAnalysisResult("http://localhost/home", "Home", List.of(), null, List.of(child, duplicate, deep, blocked)));
         Analysis result=new AnalysisService(analyses,pages,elements,screenshots,apps,protector,adapter).start(app.getId());
         assertThat(result.getStatus()).isEqualTo(AnalysisStatus.COMPLETED); verify(pages, times(2)).save(any(Page.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {3, 4, 5})
+    void persistsPagesAtConfiguredDepths(int configuredDepth) {
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        TargetApplicationRepository apps = mock(TargetApplicationRepository.class);
+        CredentialProtector protector = mock(CredentialProtector.class);
+        ScreenAnalysisAdapter adapter = mock(ScreenAnalysisAdapter.class);
+        TargetApplication app = new TargetApplication("project-id", "App", "http://localhost", "http://localhost/login", "enc-user", "enc-pass", configuredDepth, List.of());
+        when(apps.findById(app.getId())).thenReturn(java.util.Optional.of(app));
+        when(analyses.existsByStatusIn(any())).thenReturn(false);
+        when(analyses.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(analyses.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
+        when(protector.decrypt(any())).thenReturn("secret");
+        when(pages.save(any())).thenAnswer(i -> i.getArgument(0));
+        var effective = new ScreenAnalysisAdapter.DiscoveredPage("http://localhost/effective-" + configuredDepth, "Effective", List.of(), null, configuredDepth, ActionClassification.SAFE);
+        var beyond = new ScreenAnalysisAdapter.DiscoveredPage("http://localhost/beyond-" + configuredDepth, "Beyond", List.of(), null, configuredDepth + 1, ActionClassification.SAFE);
+        when(adapter.analyze(any(), any(), any())).thenReturn(new ScreenAnalysisAdapter.ScreenAnalysisResult("http://localhost/home", "Home", List.of(), null, List.of(effective, beyond)));
+
+        Analysis result = new AnalysisService(analyses, pages, mock(UIElementRepository.class), mock(ScreenshotRepository.class), apps, protector, adapter).start(app.getId());
+
+        assertThat(result.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
+        verify(pages, times(2)).save(any(Page.class));
     }
 
     @Test
