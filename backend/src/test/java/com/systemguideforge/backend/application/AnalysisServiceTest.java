@@ -32,6 +32,19 @@ class AnalysisServiceTest {
     }
 
     @Test
+    void derivesModulesForAnExistingAnalysisFromPersistedPages() {
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        TargetApplicationRepository applications = mock(TargetApplicationRepository.class);
+            Analysis analysis = new Analysis("app-id");
+            when(analyses.findById(analysis.getId())).thenReturn(java.util.Optional.of(analysis));
+            Page page = new Page(analysis.getId(), "http://localhost/settings/profile", "Profile");
+            when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(page));
+            AnalysisService service = new AnalysisService(analyses, pages, mock(UIElementRepository.class), mock(ScreenshotRepository.class), applications, mock(CredentialProtector.class), mock(ScreenAnalysisAdapter.class));
+            assertThat(service.modules(analysis.getId()).get(0).pages().get(0).id()).isEqualTo(page.getId());
+    }
+
+    @Test
     void rejectsHistoryForAnUnknownApplication() {
         AnalysisRepository analyses = mock(AnalysisRepository.class);
         TargetApplicationRepository applications = mock(TargetApplicationRepository.class);

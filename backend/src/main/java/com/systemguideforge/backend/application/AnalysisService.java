@@ -37,7 +37,7 @@ public class AnalysisService {
         for(var e:detected) elements.save(new UIElement(page.getId(),e.kind(),e.selector(),e.accessibleName(),e.classification()));
         if(screenshot!=null) screenshots.save(new Screenshot(page.getId(),screenshot));
     }
-    public Optional<Analysis> get(String id){return analyses.findById(id);} public List<Page> pages(String id){return pages.findByAnalysisId(id);} public List<UIElement> elements(String id){return elements.findByPageId(id);} public Optional<Screenshot> screenshot(String pageId){return screenshots.findByPageId(pageId);}
+    public Optional<Analysis> get(String id){return analyses.findById(id);} public List<Page> pages(String id){return pages.findByAnalysisId(id);} public List<FunctionalModuleDeriver.Module> modules(String id){ analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); return new FunctionalModuleDeriver().derive(pages.findByAnalysisId(id)); } public List<UIElement> elements(String id){return elements.findByPageId(id);} public Optional<Screenshot> screenshot(String pageId){return screenshots.findByPageId(pageId);}
     public List<AnalysisSummary> history(String applicationId) {
         if (!applications.existsById(applicationId)) throw new NoSuchElementException();
         return analyses.findByApplicationIdOrderByStartedAtDescIdDesc(applicationId).stream()

@@ -1,6 +1,7 @@
 package com.systemguideforge.backend.web;
 
 import com.systemguideforge.backend.application.AnalysisService;
+    import com.systemguideforge.backend.application.FunctionalModuleDeriver;
 import com.systemguideforge.backend.persistence.*;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +16,7 @@ public class AnalysisController {
     @GetMapping("/api/applications/{applicationId}/analyses") public List<AnalysisSummaryResponse> history(@PathVariable String applicationId){return service.history(applicationId).stream().map(AnalysisController::toSummary).toList();}
     @GetMapping("/api/analyses/{id}") public ResponseEntity<AnalysisResponse> get(@PathVariable String id){return service.get(id).map(a->ResponseEntity.ok(to(a))).orElseGet(()->ResponseEntity.notFound().build());}
     @GetMapping("/api/analyses/{id}/pages") public List<PageResponse> pages(@PathVariable String id){return service.pages(id).stream().map(p->new PageResponse(p.getId(),p.getAnalysisId(),p.getUrl(),p.getTitle())).toList();}
+        @GetMapping("/api/analyses/{id}/modules") public List<FunctionalModuleDeriver.Module> modules(@PathVariable String id){return service.modules(id);}
     @GetMapping("/api/pages/{id}/elements") public List<ElementResponse> elements(@PathVariable String id){return service.elements(id).stream().map(e->new ElementResponse(e.getId(),e.getKind(),e.getSelector(),e.getAccessibleName(),e.getActionClassification())).toList();}
     @GetMapping("/api/pages/{id}/screenshot") public ResponseEntity<byte[]> screenshot(@PathVariable String id){return service.screenshot(id).map(s->ResponseEntity.ok().contentType(MediaType.IMAGE_PNG).body(s.getContent())).orElseGet(()->ResponseEntity.notFound().build());}
     @ExceptionHandler(AnalysisService.AnalysisInProgressException.class) ResponseEntity<ErrorResponse> active(AnalysisService.AnalysisInProgressException e){return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(e.getMessage()));}

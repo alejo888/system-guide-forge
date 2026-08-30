@@ -1,18 +1,30 @@
 import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { ApiService, AnalysisResponse, DocumentResponse, DocumentSectionResponse, ElementResponse, PageResponse } from '../../core/api.service';
+import { ApiService, AnalysisResponse, DocumentResponse, DocumentSectionResponse, ElementResponse, FunctionalModule, PageResponse } from '../../core/api.service';
 interface PageEvidence extends PageResponse { elements: ElementResponse[]; screenshotUrl: string | null; }
 type SaveState = 'idle' | 'saving' | 'success' | 'error';
 
 @Component({ selector: 'sgf-analysis', standalone: true, imports: [RouterLink], templateUrl: './analysis.component.html', styleUrl: './analysis.component.css' })
 export class AnalysisComponent implements OnInit {
   private readonly api = inject(ApiService); private readonly route = inject(ActivatedRoute); private readonly destroyRef = inject(DestroyRef);
-  readonly analysis = signal<AnalysisResponse | null>(null); readonly pages = signal<PageEvidence[]>([]); readonly document = signal<DocumentResponse | null>(null);
+  readonly analysis = signal<AnalysisResponse | null>(null); readonly pages = signal<PageEvidence[]>([]); readonly modules = signal<FunctionalModule[]>([]); readonly document = signal<DocumentResponse | null>(null);
   readonly editableTitle = signal(''); readonly editableSections = signal<DocumentSectionResponse[]>([]);
-  readonly state = signal<'loading' | 'ready' | 'error'>('loading'); readonly documentState = signal<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle'); readonly saveState = signal<SaveState>('idle'); readonly errorMessage = signal('');
+  readonly state = signal<'loading' | 'ready' | 'error'>('loading'); readonly moduleState = signal<'loading' | 'ready' | 'error'>('loading'); readonly documentState = signal<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle'); readonly saveState = signal<SaveState>('idle'); readonly errorMessage = signal('');
   ngOnInit(): void { const id = this.route.snapshot.paramMap.get('id'); if (!id) { this.fail('No analysis was selected.'); return; } void this.load(id); this.destroyRef.onDestroy(() => this.pages().forEach(p => p.screenshotUrl && URL.revokeObjectURL(p.screenshotUrl))); }
-  private async load(id: string): Promise<void> { try { const analysis = await this.api.getAnalysis(id); this.analysis.set(analysis); const pages = await this.api.getAnalysisPages(id); this.pages.set(await Promise.all(pages.map(p => this.loadPage(p)))); this.state.set('ready'); } catch { this.fail('The analysis could not be loaded. Check that the API is running and try again.'); } }
-  private async loadPage(page: PageResponse): Promise<PageEvidence> { const [elements, screenshot] = await Promise.all([this.api.getPageElements(page.id).catch(() => [] as ElementResponse[]), this.api.getPageScreenshot(page.id).catch(() => null)]); return { ...page, elements, screenshotUrl: screenshot ? URL.createObjectURL(screenshot) : null }; }
+  private async load(id: string): Promise<void> {
+    try {
+      const analysis = await this.api.getAnalysis(id); this.analysis.set(analysis); this.moduleState.set('loading');
+      const [pages, moduleResult] = await Promise.all([
+        this.api.getAnalysisPages(id),
+        this.api.getAnalysisModules(id).then(modules => ({ modules, failed: false })).catch(() => ({ modules: [], failed: true })),
+      ]);
+      const pageEvidence = await Promise.all(pages.map(p => this.loadPage(p))); this.pages.set(pageEvidence);
+      this.modules.set(moduleResult.failed ? (pages.length ? [{ key: 'unassigned', name: 'Unassigned pages (module data unavailable)', pages }] : []) : moduleResult.modules);
+      this.moduleState.set(moduleResult.failed ? 'error' : 'ready'); this.state.set('ready');
+    } catch { this.fail('The analysis could not be loaded. Check that the API is running and try again.'); }
+  }
+  pageEvidence(id: string): PageEvidence | undefined { return this.pages().find(page => page.id === id); }
+      private async loadPage(page: PageResponse): Promise<PageEvidence> { const [elements, screenshot] = await Promise.all([this.api.getPageElements(page.id).catch(() => [] as ElementResponse[]), this.api.getPageScreenshot(page.id).catch(() => null)]); return { ...page, elements, screenshotUrl: screenshot ? URL.createObjectURL(screenshot) : null }; }
   async generateDocument(): Promise<void> { const id = this.analysis()?.id; if (!id) return; this.documentState.set('loading'); try { const generated = await this.api.generateDocument(id); this.setEditableDocument(generated); this.documentState.set(generated.sections.length ? 'ready' : 'empty'); } catch { this.documentState.set('error'); } }
   editTitle(title: string): void { this.ensureEditable(); this.editableTitle.set(title); }
   editSectionTitle(id: string, title: string): void { this.updateSection(id, section => ({ ...section, title })); }

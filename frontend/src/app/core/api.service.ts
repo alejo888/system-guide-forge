@@ -7,6 +7,8 @@ export type AnalysisStatus = 'RUNNING' | 'COMPLETED' | 'FAILED';
 export interface AnalysisResponse { id: string; applicationId: string; status: AnalysisStatus; startedAt: string; completedAt: string | null; failureMessage: string | null; }
 export interface AnalysisSummaryResponse { id: string; applicationId: string; status: AnalysisStatus; startedAt: string; completedAt: string | null; failureMessage: string | null; pageCount: number; }
 export interface PageResponse { id: string; analysisId: string; url: string; title: string; }
+    export interface FunctionalModulePage extends PageResponse {}
+    export interface FunctionalModule { key: string; name: string; pages: FunctionalModulePage[]; }
 export type ActionClassification = 'SAFE' | 'MUTATING' | 'UNKNOWN';
 export interface ElementResponse { id: string; kind: string; selector: string; accessibleName: string | null; actionClassification: ActionClassification; }
 export interface DocumentSectionResponse { id: string; position: number; sourcePageId: string; screenshotId: string | null; title: string; content: string; }
@@ -26,6 +28,7 @@ export class ApiService {
   getApplicationAnalyses(applicationId: string): Promise<AnalysisSummaryResponse[]> { return this.request(`/applications/${applicationId}/analyses`); }
   getAnalysis(analysisId: string): Promise<AnalysisResponse> { return this.request(`/analyses/${analysisId}`); }
   getAnalysisPages(analysisId: string): Promise<PageResponse[]> { return this.request(`/analyses/${analysisId}/pages`); }
+      getAnalysisModules(analysisId: string): Promise<FunctionalModule[]> { return this.request(`/analyses/${analysisId}/modules`); }
   getPageElements(pageId: string): Promise<ElementResponse[]> { return this.request(`/pages/${pageId}/elements`); }
   getPageScreenshot(pageId: string): Promise<Blob> { return this.request(`/pages/${pageId}/screenshot`, true); }
   generateDocument(analysisId: string): Promise<DocumentResponse> { return this.post(`/analyses/${analysisId}/document`, {}); }

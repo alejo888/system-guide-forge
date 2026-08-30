@@ -17,7 +17,8 @@ describe('AnalysisComponent document editing', () => {
   let api: jasmine.SpyObj<ApiService>;
 
   beforeEach(async () => {
-    api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getPageElements', 'getPageScreenshot', 'generateDocument', 'updateDocument']);
+    api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getAnalysisModules', 'getPageElements', 'getPageScreenshot', 'generateDocument', 'updateDocument']);
+        api.getAnalysisModules.and.resolveTo([]);
     api.updateDocument.and.resolveTo(document);
     await TestBed.configureTestingModule({ imports: [AnalysisComponent], providers: [
       { provide: ApiService, useValue: api }, { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => 'analysis-1' } } } },
@@ -37,6 +38,24 @@ describe('AnalysisComponent document editing', () => {
   });
 
   it('reorders sections by array order', () => { component.moveSection('section-2', -1); expect(component.editableSections().map(section => section.id)).toEqual(['section-2', 'section-1']); });
+  it('keeps page evidence and document editing available when module loading fails', async () => {
+    const analysis = { id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED' as const, startedAt: '', completedAt: null, failureMessage: null };
+    const page = { id: 'page-1', analysisId: 'analysis-1', url: 'https://example.test', title: 'Home' };
+    api.getAnalysis.and.resolveTo(analysis);
+    api.getAnalysisPages.and.resolveTo([page]);
+    api.getPageElements.and.resolveTo([]);
+    api.getPageScreenshot.and.resolveTo(new Blob());
+    api.getAnalysisModules.and.rejectWith(new Error('modules unavailable'));
+    api.generateDocument.and.resolveTo(document);
+
+    await (component as unknown as { load(id: string): Promise<void> }).load('analysis-1');
+
+    expect(component.state()).toBe('ready');
+    expect(component.pages()).toEqual([{ ...page, elements: [], screenshotUrl: jasmine.any(String) }]);
+    expect(component.modules()).toEqual([{ key: 'unassigned', name: 'Unassigned pages (module data unavailable)', pages: [page] }]);
+    await component.generateDocument();
+    expect(component.documentState()).toBe('ready');
+  });
   it('renders and preserves source page and screenshot traceability', async () => {
     const section = fixture.nativeElement.querySelector('.draft-card');
     expect(section.textContent).toContain('Source page: page-1');

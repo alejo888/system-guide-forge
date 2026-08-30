@@ -218,6 +218,25 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /analyses/{analysisId}/modules:
+    get:
+      tags: [Analyses]
+      summary: List deterministic functional modules for an analysis
+      operationId: listAnalysisModules
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+      responses:
+        '200':
+          description: Pages grouped by their first URL path segment.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FunctionalModuleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /analyses/{analysisId}/pages:
     get:
       tags: [Analyses]
@@ -539,22 +558,34 @@ components:
           format: int64
           minimum: 0
 
-    PageResponse:
+    FunctionalModuleResponse:
       type: object
       additionalProperties: false
-      required: [id, analysisId, url, title]
+      required: [key, name, pages]
       properties:
-        id:
-          type: string
-          format: uuid
-        analysisId:
-          type: string
-          format: uuid
-        url:
-          type: string
-          format: uri
-        title:
-          type: string
+        key: { type: string }
+        name: { type: string }
+        pages:
+          type: array
+          items:
+            $ref: '#/components/schemas/PageResponse'
+
+    PageResponse:
+          type: object
+          additionalProperties: false
+          required: [id, analysisId, url, title]
+          properties:
+            id:
+              type: string
+              format: uuid
+            analysisId:
+              type: string
+              format: uuid
+            url:
+              type: string
+              format: uri
+            title:
+              type: string
 
     ElementResponse:
       type: object
