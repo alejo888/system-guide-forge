@@ -254,6 +254,46 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /analyses/{analysisId}/document:
+    post:
+      tags: [Analyses]
+      summary: Generate or retrieve the deterministic manual document draft
+      operationId: generateDocument
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+      responses:
+        '201':
+          description: Draft generated, or the existing draft reused.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The analysis is not completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /documents/{documentId}:
+    get:
+      tags: [Analyses]
+      summary: Get a generated manual document draft
+      operationId: getDocument
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '200':
+          description: Document draft found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
   parameters:
     ProjectId:
@@ -280,6 +320,13 @@ components:
     PageId:
       in: path
       name: pageId
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DocumentId:
+      in: path
+      name: documentId
       required: true
       schema:
         type: string
@@ -431,6 +478,32 @@ components:
         actionClassification:
           type: string
           enum: [SAFE, MUTATING, UNKNOWN]
+
+    DocumentResponse:
+      type: object
+      additionalProperties: false
+      required: [id, applicationId, sourceAnalysisId, status, sections]
+      properties:
+        id: { type: string, format: uuid }
+        applicationId: { type: string, format: uuid }
+        sourceAnalysisId: { type: string, format: uuid }
+        status: { type: string, enum: [DRAFT] }
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentSectionResponse'
+
+    DocumentSectionResponse:
+      type: object
+      additionalProperties: false
+      required: [id, position, sourcePageId, title, content]
+      properties:
+        id: { type: string, format: uuid }
+        position: { type: integer, minimum: 0 }
+        sourcePageId: { type: string, format: uuid }
+        screenshotId: { type: string, format: uuid, nullable: true }
+        title: { type: string }
+        content: { type: string }
 
     ErrorResponse:
       type: object
