@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: SystemGuideForge API
   version: 0.1.0
-  description: API implementada para registrar sistemas web locales y analizar una pantalla autenticada de forma segura.
+  description: API for registering local web systems and safely analyzing authenticated screens linked through read-only navigation.
 
 servers:
   - url: http://localhost:8080/api
@@ -154,11 +154,12 @@ paths:
   /applications/{applicationId}/analyses:
     post:
       tags: [Analyses]
-      summary: Start a safe single-screen analysis
+      summary: Start a safe multi-screen analysis
       description: >-
         Starts a synchronous, read-only analysis of the authenticated initial
-        screen. The current MVP accepts one active analysis at a time and never
-        executes discovered controls.
+        screen and follows same-origin links classified SAFE up to the bounded
+        crawl depth. The current MVP accepts one active analysis at a time and
+        never executes discovered controls.
       operationId: startAnalysis
       parameters:
         - $ref: '#/components/parameters/ApplicationId'

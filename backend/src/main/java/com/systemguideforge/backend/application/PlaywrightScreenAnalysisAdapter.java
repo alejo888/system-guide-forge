@@ -3,20 +3,20 @@ package com.systemguideforge.backend.application;
 import com.microsoft.playwright.*;
 import com.systemguideforge.backend.persistence.TargetApplication;
 import org.springframework.stereotype.Component;
+import java.net.URI;
 import java.util.*;
 
 /** Runs one authenticated, isolated browser context and never performs discovered actions. */
 @Component
 public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdapter {
     static final String SENSITIVE_FIELD_SELECTOR =
-            "input[type='password'], input[autocomplete='current-password'], "
-                    + "input[autocomplete='new-password'], input[autocomplete='one-time-code'], "
-                    + "input[name*='password' i], input[name*='secret' i], input[name*='token' i], "
-                    + "input[name*='credential' i], input[name*='api-key' i], input[id*='password' i], "
-                    + "input[id*='secret' i], input[id*='token' i], input[placeholder*='password' i], "
-                    + "input[aria-label*='password' i], textarea[name*='password' i], "
-                    + "textarea[name*='secret' i], textarea[name*='token' i], [data-sensitive]";
-
+            "input[type='password'], input[autocomplete='current-password'], " +
+                    "input[autocomplete='new-password'], input[autocomplete='one-time-code'], " +
+                    "input[name*='password' i], input[name*='secret' i], input[name*='token' i], " +
+                    "input[name*='credential' i], input[name*='api-key' i], input[id*='password' i], " +
+                    "input[id*='secret' i], input[id*='token' i], input[placeholder*='password' i], " +
+                    "input[aria-label*='password' i], textarea[name*='password' i], " +
+                    "textarea[name*='secret' i], textarea[name*='token' i], [data-sensitive]";
     private final BrowserFactory browserFactory;
     public PlaywrightScreenAnalysisAdapter() { this(Playwright::create); }
     PlaywrightScreenAnalysisAdapter(BrowserFactory browserFactory) { this.browserFactory = browserFactory; }
@@ -37,53 +37,112 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             Locator submit = page.locator("button[type='submit'], input[type='submit']").first();
             if (user.count() == 0 || pass.count() == 0 || submit.count() == 0) throw new IllegalStateException("Login form unavailable");
             user.fill(username); pass.fill(password); submit.click();
-            page.waitForURL(url -> isAuthenticatedAfterRedirect(url, application),
-                    new Page.WaitForURLOptions().setTimeout(10_000));
+            page.waitForURL(url -> isAuthenticatedAfterRedirect(url, application), new Page.WaitForURLOptions().setTimeout(10_000));
             if (!isAuthenticatedAfterRedirect(page.url(), application)) throw new IllegalStateException("Authentication failed");
-            List<DetectedElement> found = new ArrayList<>();
-            detect(page, "button", found); detect(page, "a", found); detect(page, "input", found); detect(page, "textarea", found);
-            Locator sensitiveFields = page.locator(SENSITIVE_FIELD_SELECTOR);
-            sensitiveFields.count();
-            byte[] screenshot = page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions()
-                    .setFullPage(true).setMask(List.of(sensitiveFields)));
-            if (screenshot.length == 0) throw new IllegalStateException("Sanitized screenshot unavailable");
-            return new ScreenAnalysisResult(safeUrl(page.url()), safe(page.title()), found, screenshot);
+
+            String startUrl = safeUrl(page.url());
+            CrawlBudget budget = new CrawlBudget(AnalysisService.MAX_CRAWL_PAGES, AnalysisService.MAX_CRAWL_LINKS);
+            if (!budget.takePage()) throw new IllegalStateException("Crawl page budget unavailable");
+            ScreenAnalysisResult first = analyzeCurrentPage(page, application, 0);
+            List<DiscoveredPage> discovered = new ArrayList<>();
+            Set<String> visited = new HashSet<>(Set.of(startUrl));
+            ArrayDeque<Link> queue = new ArrayDeque<>(links(page, application, 1, budget));
+            while (!queue.isEmpty()) {
+                Link link = queue.removeFirst();
+                if (link.depth > AnalysisService.MAX_CRAWL_DEPTH || !visited.add(link.url) || !budget.takePage()) continue;
+                page.navigate(link.url);
+                if (isLoginNavigationResult(page.url(), application)) continue;
+                if (!isSafeNavigationResult(page.url(), application)) {
+                    throw new IllegalStateException("Unsafe navigation redirect rejected");
+                }
+                ScreenAnalysisResult current = analyzeCurrentPage(page, application, link.depth);
+                discovered.add(new DiscoveredPage(current.url(), current.title(), current.elements(), current.sanitizedScreenshot(), link.depth, ActionClassification.SAFE));
+                if (link.depth < AnalysisService.MAX_CRAWL_DEPTH) queue.addAll(links(page, application, link.depth + 1, budget));
+            }
+            return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), discovered);
         } catch (Exception e) { throw new IllegalStateException("Screen analysis unavailable or failed", e); }
     }
 
+    private ScreenAnalysisResult analyzeCurrentPage(com.microsoft.playwright.Page page, TargetApplication app, int depth) {
+        List<DetectedElement> found = new ArrayList<>();
+        detect(page, "button", found); detect(page, "a", found); detect(page, "input", found); detect(page, "textarea", found);
+        Locator sensitiveFields = page.locator(SENSITIVE_FIELD_SELECTOR); sensitiveFields.count();
+        byte[] screenshot = page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setFullPage(true).setMask(List.of(sensitiveFields)));
+        if (screenshot.length == 0) throw new IllegalStateException("Sanitized screenshot unavailable");
+        return new ScreenAnalysisResult(safeUrl(page.url()), safe(page.title()), found, screenshot);
+    }
+
+    private List<Link> links(com.microsoft.playwright.Page page, TargetApplication application, int depth, CrawlBudget budget) {
+        List<Link> result = new ArrayList<>(); Locator locator = page.locator("a");
+        for (int i = 0; i < Math.min(locator.count(), 500); i++) {
+            if (!budget.takeLink()) break;
+            Locator anchor = locator.nth(i);
+            String href = anchor.getAttribute("href");
+            String resolved = internalSafeUrl(href, page.url(), application.getBaseUrl());
+            if (resolved != null && classifyResolvedAnchor(anchor.getAttribute("data-action-type"), resolved) == ActionClassification.SAFE) {
+                result.add(new Link(resolved, depth));
+            }
+        }
+        return result;
+    }
+
+    static ActionClassification classifyAnchor(String metadata, String href) {
+        ActionClassification explicit = ActionClassifier.classifyFixtureMetadata(metadata);
+        return explicit != null ? explicit : ActionClassifier.classify("a", "href", href);
+    }
+
+    static ActionClassification classifyResolvedAnchor(String metadata, String resolvedUrl) {
+        ActionClassification explicit = ActionClassifier.classifyFixtureMetadata(metadata);
+        if (explicit != null) return explicit;
+        try { return ActionClassifier.classify("a", "href", URI.create(resolvedUrl).getPath()); }
+        catch (RuntimeException e) { return ActionClassification.UNKNOWN; }
+    }
+
+    static boolean isLoginNavigationResult(String candidateUrl, TargetApplication application) {
+        try {
+            URI candidate = URI.create(candidateUrl), login = URI.create(application.getLoginUrl());
+            return sameOrigin(candidate, login) && normalizedPath(candidate).equals(normalizedPath(login));
+        } catch (RuntimeException e) { return false; }
+    }
+
+    static boolean isSafeNavigationResult(String candidateUrl, TargetApplication application) {
+        return !isLoginNavigationResult(candidateUrl, application)
+                && internalSafeUrl(candidateUrl, candidateUrl, application.getBaseUrl()) != null;
+    }
+
+    static String internalSafeUrl(String href, String currentUrl, String baseUrl) {
+        if (href == null || href.isBlank()) return null;
+        try {
+            URI raw = URI.create(href.trim());
+            if ("javascript".equalsIgnoreCase(raw.getScheme()) || href.startsWith("//")) return null;
+            URI candidate = new URI(new URI(currentUrl).resolve(raw).toString()); URI base = URI.create(baseUrl);
+            if (!sameOrigin(candidate, base)) return null;
+            return safeUrl(candidate.toString());
+        } catch (Exception e) { return null; }
+    }
+
+    private static boolean sameOrigin(URI left, URI right) {
+        return left.getScheme() != null && left.getHost() != null && right.getScheme() != null && right.getHost() != null
+                && Objects.equals(left.getScheme(), right.getScheme()) && Objects.equals(left.getHost(), right.getHost()) && left.getPort() == right.getPort();
+    }
+    private static String normalizedPath(URI uri) { String path = uri.getPath(); return path == null || path.isBlank() ? "/" : path.length() > 1 && path.endsWith("/") ? path.substring(0, path.length() - 1) : path; }
     private void detect(com.microsoft.playwright.Page page, String kind, List<DetectedElement> found) {
         Locator locator = page.locator(kind); int count = Math.min(locator.count(), 500);
-        for (int i = 0; i < count; i++) {
-            Locator item = locator.nth(i);
-            String selector = kind + ":nth-of-type(" + (i + 1) + ")";
-            String aria = item.getAttribute("aria-label"); String name = item.getAttribute("name");
-            String id = item.getAttribute("id"); String placeholder = item.getAttribute("placeholder");
-            String type = item.getAttribute("type"); String href = item.getAttribute("href");
-            String label = first(aria, name, placeholder, text(item));
-            String attribute = "a".equals(kind) ? "href" : "type";
-            String value = "a".equals(kind) ? href : type;
-            found.add(new DetectedElement(kind, selector, safe(label),
-                    classifyFixtureElement(item, kind, attribute, value, name, id, placeholder)));
-        }
+        for (int i = 0; i < count; i++) { Locator item = locator.nth(i); String selector = kind + ":nth-of-type(" + (i + 1) + ")";
+            String aria=item.getAttribute("aria-label"), name=item.getAttribute("name"), id=item.getAttribute("id"), placeholder=item.getAttribute("placeholder"), type=item.getAttribute("type"), href=item.getAttribute("href");
+            String label=first(aria,name,placeholder,text(item)); String attribute="a".equals(kind)?"href":"type"; String value="a".equals(kind)?href:type;
+            found.add(new DetectedElement(kind,selector,safe(label),classifyFixtureElement(item,kind,attribute,value,name,id,placeholder))); }
     }
-
-    private static ActionClassification classifyFixtureElement(Locator item, String kind, String attribute,
-                                                                 String value, String name, String id, String placeholder) {
-        if (isSensitiveField(kind, value, name, id, placeholder)) return ActionClassification.UNKNOWN;
-        ActionClassification metadata = ActionClassifier.classifyFixtureMetadata(item.getAttribute("data-action-type"));
-        return metadata != null ? metadata : ActionClassifier.classify(kind, attribute, value);
+    private static ActionClassification classifyFixtureElement(Locator item,String kind,String attribute,String value,String name,String id,String placeholder){ if(isSensitiveField(kind,value,name,id,placeholder))return ActionClassification.UNKNOWN; ActionClassification metadata=ActionClassifier.classifyFixtureMetadata(item.getAttribute("data-action-type")); return metadata!=null?metadata:ActionClassifier.classify(kind,attribute,value); }
+    private static boolean isSensitiveField(String kind,String type,String name,String id,String placeholder){if(!"input".equals(kind)&&!"textarea".equals(kind))return false; return String.join(" ",type==null?"":type,name==null?"":name,id==null?"":id,placeholder==null?"":placeholder).matches("(?i).*(password|api[-_]?key|secret|token|credential).*");}
+    private static String text(Locator l){try{return l.textContent();}catch(Exception e){return null;}} private static String first(String... values){for(String v:values)if(v!=null&&!v.isBlank())return v.trim();return null;} private static String safe(String value){return value==null?null:value.replaceAll("(?i)password|secret|credential|token|api[-_]?key","[redacted]");} private static String safeUrl(String value){try{URI uri=URI.create(value);return new URI(uri.getScheme(),uri.getAuthority(),uri.getPath(),null,null).toString();}catch(Exception e){return "about:blank";}}
+    static final class CrawlBudget {
+        private int pages;
+        private int links;
+        CrawlBudget(int pages, int links) { this.pages = pages; this.links = links; }
+        boolean takePage() { if (pages == 0) return false; pages--; return true; }
+        boolean takeLink() { if (links == 0) return false; links--; return true; }
     }
-
-    private static boolean isSensitiveField(String kind, String type, String name, String id, String placeholder) {
-        if (!"input".equals(kind) && !"textarea".equals(kind)) return false;
-        String fields = String.join(" ", type == null ? "" : type, name == null ? "" : name,
-                id == null ? "" : id, placeholder == null ? "" : placeholder);
-        return fields.matches("(?i).*(password|api[-_]?key|secret|token|credential).*" );
-    }
-
-    private static String text(Locator l) { try { return l.textContent(); } catch (Exception e) { return null; } }
-    private static String first(String... values) { for (String v : values) if (v != null && !v.isBlank()) return v.trim(); return null; }
-    private static String safe(String value) { return value == null ? null : value.replaceAll("(?i)password|secret|credential|token|api[-_]?key", "[redacted]"); }
-    private static String safeUrl(String value) { try { java.net.URI uri = java.net.URI.create(value); return new java.net.URI(uri.getScheme(), uri.getAuthority(), uri.getPath(), null, null).toString(); } catch (Exception e) { return "about:blank"; } }
+    private record Link(String url,int depth) {}
     @FunctionalInterface interface BrowserFactory { Playwright create(); }
 }
