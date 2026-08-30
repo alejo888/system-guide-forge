@@ -1,6 +1,7 @@
 package com.systemguideforge.backend.application;
 
 import com.microsoft.playwright.*;
+import com.systemguideforge.backend.persistence.Analysis;
 import com.systemguideforge.backend.persistence.TargetApplication;
 import org.springframework.stereotype.Component;
 import java.net.URI;
@@ -61,7 +62,9 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                 if (link.depth < application.getMaxCrawlDepth()) queue.addAll(links(page, application, link.depth + 1, budget));
             }
             return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), discovered);
-        } catch (Exception e) { throw new IllegalStateException("Screen analysis unavailable or failed", e); }
+        } catch (Exception e) {
+                throw new IllegalStateException("Screen analysis unavailable or failed: " + Analysis.sanitizeFailureMessage(e.getMessage()));
+            }
     }
 
     private ScreenAnalysisResult analyzeCurrentPage(com.microsoft.playwright.Page page, TargetApplication app, int depth) {

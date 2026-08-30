@@ -1,7 +1,10 @@
 package com.systemguideforge.backend.persistence;
 
 import com.systemguideforge.backend.application.ActionClassification;
+import com.systemguideforge.backend.application.AnalysisService;
+import com.systemguideforge.backend.application.CredentialProtector;
 import com.systemguideforge.backend.application.DocumentService;
+import com.systemguideforge.backend.application.ScreenAnalysisAdapter;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Propagation;
@@ -20,6 +23,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @DataJpaTest
 @Import(DocumentService.class)
@@ -194,6 +200,25 @@ class PersistenceTest {
         assertThat(documents.findBySourceAnalysisId(analysis.getId())).isEmpty();
         assertThat(documentSections.findAll()).extracting(DocumentSection::getId)
                     .containsExactlyInAnyOrderElementsOf(existingSectionIds);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void startsAnalysisWithPersistedExcludedRoutesAfterApplicationSessionCloses() {
+        Project project = projects.save(new Project("Analysis project"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost", "http://localhost/login", "u", "p", 2, List.of("/admin")));
+        CredentialProtector protector = mock(CredentialProtector.class);
+        ScreenAnalysisAdapter adapter = mock(ScreenAnalysisAdapter.class);
+        when(protector.decrypt(any())).thenReturn("secret");
+        when(adapter.analyze(any(), any(), any())).thenAnswer(invocation -> {
+            TargetApplication loaded = invocation.getArgument(0);
+            assertThat(loaded.isExcludedPath("http://localhost/admin/settings")).isTrue();
+            return new ScreenAnalysisAdapter.ScreenAnalysisResult("http://localhost/home", "Home", List.of(), null);
+        });
+
+        Analysis result = new AnalysisService(analyses, pages, uiElements, screenshots, applications, protector, adapter).start(application.getId());
+
+        assertThat(result.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
     }
 
     @Test

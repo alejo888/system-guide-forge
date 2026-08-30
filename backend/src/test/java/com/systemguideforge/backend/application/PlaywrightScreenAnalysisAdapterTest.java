@@ -78,6 +78,18 @@ class PlaywrightScreenAnalysisAdapterTest {
     @Test
     void exposesExplicitSingleActiveAnalysisLimit() { assertThat(AnalysisService.MAX_ACTIVE_ANALYSES).isEqualTo(1); }
     @Test
+    void preservesSafeFailureOperationWithoutExposingSecrets() {
+        ScreenAnalysisAdapter adapter = new PlaywrightScreenAnalysisAdapter(() -> {
+            throw new IllegalStateException("navigation failed: password=supersecret https://target.test/home?token=secret");
+        });
+        TargetApplication app = new TargetApplication("p", "app", "http://localhost", "http://localhost/login", "u", "p");
+        assertThatThrownBy(() -> adapter.analyze(app, "user", "password"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("navigation failed")
+                .hasMessageNotContaining("supersecret")
+                .hasMessageNotContaining("https://target.test/home?token=secret");
+    }
+    @Test
     void failsClosedWhenBrowserCannotStart() {
         ScreenAnalysisAdapter adapter = new PlaywrightScreenAnalysisAdapter(() -> { throw new IllegalStateException("browser unavailable"); });
         TargetApplication app = new TargetApplication("p", "app", "http://localhost", "http://localhost/login", "u", "p");

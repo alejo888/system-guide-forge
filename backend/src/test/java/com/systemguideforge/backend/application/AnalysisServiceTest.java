@@ -108,9 +108,9 @@ class AnalysisServiceTest {
     void failsClosedAndDoesNotExposeAdapterSecrets() {
         AnalysisRepository analyses=mock(AnalysisRepository.class); TargetApplicationRepository apps=mock(TargetApplicationRepository.class); TargetApplication app=new TargetApplication("p","app","http://localhost","http://localhost/login","u","p");
         when(apps.findById(app.getId())).thenReturn(java.util.Optional.of(app)); when(analyses.existsByStatusIn(any())).thenReturn(false); when(analyses.save(any())).thenAnswer(i->i.getArgument(0)); when(analyses.saveAndFlush(any())).thenAnswer(i->i.getArgument(0));
-        ScreenAnalysisAdapter adapter=mock(ScreenAnalysisAdapter.class); when(adapter.analyze(any(),any(),any())).thenThrow(new RuntimeException("password=supersecret"));
+        ScreenAnalysisAdapter adapter=mock(ScreenAnalysisAdapter.class); when(adapter.analyze(any(),any(),any())).thenThrow(new RuntimeException("browser startup failed: password=supersecret https://target.test/home?token=secret"));
         Analysis result=new AnalysisService(analyses,mock(PageRepository.class),mock(UIElementRepository.class),mock(ScreenshotRepository.class),apps,mock(CredentialProtector.class),adapter).start(app.getId());
-        assertThat(result.getStatus()).isEqualTo(AnalysisStatus.FAILED); assertThat(result.getFailureMessage()).doesNotContain("supersecret");
+        assertThat(result.getStatus()).isEqualTo(AnalysisStatus.FAILED); assertThat(result.getFailureMessage()).contains("browser startup failed").doesNotContain("supersecret").doesNotContain("https://target.test/home?token=secret");
     }
 
     @Test
