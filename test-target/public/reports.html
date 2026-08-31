@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SystemGuideForge Fixture Reports</title>
+</head>
+<body>
+  <main>
+    <h1>Reports</h1>
+    <p id="reports-status">Loading report controls...</p>
+    <div id="report-controls"></div>
+  </main>
+  <script>
+    // Deliberately render the route's controls after navigation to exercise readiness.
+    window.setTimeout(() => {
+      document.querySelector('#reports-status').textContent = 'Reports are ready.';
+      document.querySelector('#report-controls').innerHTML =
+        '<section aria-label="Report controls">' +
+        '<a href="/dashboard.html" data-action-type="SAFE">Back to dashboard</a>' +
+        '<button type="button" data-action-type="SAFE">Preview report</button></section>';
+    }, 75);
+  </script>
+</body>
+</html>

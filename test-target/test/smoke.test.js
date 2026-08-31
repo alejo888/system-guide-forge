@@ -36,6 +36,15 @@ test('fixture protects dashboard and supports login/logout', async (t) => {
   assert.equal(authenticated.status, 200);
   assert.match(await authenticated.text(), /SystemGuideForge Fixture Dashboard/);
 
+      const reports = await fetch(`${baseUrl}/reports.html`, {
+        headers: { cookie: cookie.split(';', 1)[0] }
+      });
+      assert.equal(reports.status, 200);
+      const reportsMarkup = await reports.text();
+      assert.match(reportsMarkup, /Loading report controls/);
+      assert.match(reportsMarkup, /Reports are ready/);
+      assert.match(reportsMarkup, /Preview report/);
+
   const logout = await fetch(`${baseUrl}/logout`, {
     method: 'POST',
     headers: { cookie: cookie.split(';', 1)[0] },

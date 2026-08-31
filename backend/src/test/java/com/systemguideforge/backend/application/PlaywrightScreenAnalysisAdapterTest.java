@@ -7,6 +7,21 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PlaywrightScreenAnalysisAdapterTest {
     @Test
+    void waitsForCompleteDocumentWithRenderedContentBeforeExtraction() {
+        assertThat(PlaywrightScreenAnalysisAdapter.hasRenderableContent("loading", "Reports", 2, true)).isFalse();
+        assertThat(PlaywrightScreenAnalysisAdapter.hasRenderableContent("complete", "", 2, true)).isFalse();
+        assertThat(PlaywrightScreenAnalysisAdapter.hasRenderableContent("complete", "Reports", 0, true)).isTrue();
+        assertThat(PlaywrightScreenAnalysisAdapter.hasRenderableContent("complete", "Reports", 2, false)).isTrue();
+        assertThat(PlaywrightScreenAnalysisAdapter.hasRenderableContent("complete", "Reports", 0, false)).isFalse();
+    }
+
+    @Test
+    void doesNotTreatLoadingPlaceholderAsRenderedSecondaryPageContent() {
+        assertThat(PlaywrightScreenAnalysisAdapter.hasRenderableContent("complete", "Reports Loading report controls...", 0, true, true)).isFalse();
+        assertThat(PlaywrightScreenAnalysisAdapter.hasRenderableContent("complete", "Reports Reports are ready.", 2, true, false)).isTrue();
+    }
+
+    @Test
     void sanitizationPolicyMasksPasswordAndSensitiveFields() {
         String selector = PlaywrightScreenAnalysisAdapter.SENSITIVE_FIELD_SELECTOR;
         assertThat(selector).contains("input[type='password']").contains("[autocomplete='current-password']").contains("[name*='token' i]").contains("[data-sensitive]");

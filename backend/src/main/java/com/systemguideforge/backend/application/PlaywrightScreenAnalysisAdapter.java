@@ -68,12 +68,44 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     }
 
     private ScreenAnalysisResult analyzeCurrentPage(com.microsoft.playwright.Page page, TargetApplication app, int depth) {
+        waitForPageReady(page);
         List<DetectedElement> found = new ArrayList<>();
         detect(page, "button", found); detect(page, "a", found); detect(page, "input", found); detect(page, "textarea", found);
         Locator sensitiveFields = page.locator(SENSITIVE_FIELD_SELECTOR); sensitiveFields.count();
         byte[] screenshot = page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setFullPage(true).setMask(List.of(sensitiveFields)));
         if (screenshot.length == 0) throw new IllegalStateException("Sanitized screenshot unavailable");
         return new ScreenAnalysisResult(safeUrl(page.url()), safe(page.title()), found, screenshot);
+    }
+
+    private void waitForPageReady(com.microsoft.playwright.Page page) {
+        page.waitForFunction("() => {"
+                        + "if (document.readyState !== 'complete' || document.body === null) return false;"
+                        + "const text = document.body.innerText.trim();"
+                        + "if (!text) return false;"
+                        + "const visible = element => {"
+                        + "const style = window.getComputedStyle(element);"
+                        + "return !element.hidden && style.display !== 'none' && style.visibility !== 'hidden';"
+                        + "};"
+                        + "const controls = [...document.querySelectorAll('button, a, input, textarea, select, [role=button], [role=tab]')]"
+                        + ".filter(visible).length;"
+                        + "const hasLoadingState = /\\b(?:loading|please\\s+wait|initializing|fetching|updating)\\b/i.test(text);"
+                        + "const hasContentContainer = [...document.querySelectorAll('main, [role=main], article, section')]"
+                        + ".some(element => visible(element) && element.innerText.trim().length > 0);"
+                        + "return controls > 0 || (hasContentContainer && !hasLoadingState);"
+                        + "}",
+                null, new Page.WaitForFunctionOptions().setTimeout(10_000));
+    }
+
+    static boolean hasRenderableContent(String readyState, String bodyText, int interactiveElementCount, boolean hasContentContainer) {
+        return hasRenderableContent(readyState, bodyText, interactiveElementCount, hasContentContainer, false);
+    }
+
+    static boolean hasRenderableContent(String readyState, String bodyText, int interactiveElementCount,
+                                        boolean hasContentContainer, boolean hasLoadingIndicator) {
+        return "complete".equalsIgnoreCase(readyState)
+                && bodyText != null && !bodyText.isBlank()
+                && !hasLoadingIndicator
+                && (interactiveElementCount > 0 || hasContentContainer);
     }
 
     private List<Link> links(com.microsoft.playwright.Page page, TargetApplication application, int depth, CrawlBudget budget) {

@@ -54,12 +54,12 @@ function createServer() {
       sendRedirect(response, '/login.html');
       return;
     }
-    if (request.method === 'GET' && requestUrl.pathname === '/dashboard.html') {
+    if (request.method === 'GET' && (requestUrl.pathname === '/dashboard.html' || requestUrl.pathname === '/reports.html')) {
       if (!isAuthenticated(request)) {
         sendRedirect(response, '/login.html');
         return;
       }
-      serveFile(response, 'dashboard.html');
+      serveFile(response, requestUrl.pathname.slice(1));
       return;
     }
     if (request.method === 'GET' && requestUrl.pathname === '/login.html') {
