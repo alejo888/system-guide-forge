@@ -24,6 +24,15 @@ public class FunctionalModuleDeriver {
                 .toList();
     }
 
+    public String moduleNameFor(String url) {
+        return displayName(moduleKey(url));
+    }
+
+    public String routeFor(String url) {
+        String path = URI.create(url).getPath();
+        return path == null || path.isBlank() ? "/" : path;
+    }
+
     private String moduleKey(String url) {
         String path = URI.create(url).getPath();
         if (path == null || path.isBlank()) return "home";

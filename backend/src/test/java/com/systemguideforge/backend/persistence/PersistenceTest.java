@@ -181,25 +181,24 @@ class PersistenceTest {
 
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    void rollsBackDocumentAndSectionsWhenSectionGenerationFails() {
-            List<String> existingSectionIds = documentSections.findAll().stream().map(DocumentSection::getId).toList();
+    void persistsGeneratedSectionsWithinDatabaseBounds() {
         Project project = projects.save(new Project("Docs"));
         TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost:8080", "http://localhost:8080/login", "u", "p"));
         Analysis analysis = new Analysis(application.getId());
         analysis.complete();
         analyses.save(analysis);
         Page page = pages.save(new Page(analysis.getId(), "http://localhost:8080/home", "Home"));
-        // The generated section exceeds its database column after the document is inserted.
         for (int i = 0; i < 100; i++) {
             uiElements.save(new UIElement(page.getId(), "button", "#save-" + i, "x".repeat(120), ActionClassification.MUTATING));
         }
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> documentService.generate(analysis.getId()))
-                .isInstanceOf(RuntimeException.class);
-
-        assertThat(documents.findBySourceAnalysisId(analysis.getId())).isEmpty();
-        assertThat(documentSections.findAll()).extracting(DocumentSection::getId)
-                    .containsExactlyInAnyOrderElementsOf(existingSectionIds);
+        Document generated = documentService.generate(analysis.getId());
+        assertThat(generated).isNotNull();
+        List<DocumentSection> persistedSections = documentSections.findByDocumentIdOrderByPositionAsc(generated.getId());
+        assertThat(persistedSections).isNotEmpty().allSatisfy(section -> {
+            assertThat(section.getTitle()).isNotNull().hasSizeLessThanOrEqualTo(255);
+            assertThat(section.getContent()).isNotNull().hasSizeLessThanOrEqualTo(10_000);
+        });
     }
 
     @Test

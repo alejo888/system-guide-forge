@@ -30,9 +30,11 @@ class DocumentServiceTest {
     void generatesStablePageSectionsWithSourceTraceability() {
         Analysis analysis = new Analysis("application-1");
         analysis.complete();
-        Page zulu = new Page(analysis.getId(), "http://localhost/z", "Zulu");
-        Page alpha = new Page(analysis.getId(), "http://localhost/a", "Alpha");
+        Page zulu = new Page(analysis.getId(), "http://localhost/z", "FlowPilot");
+        Page alpha = new Page(analysis.getId(), "http://localhost/admin/users", "FlowPilot");
         UIElement element = new UIElement(alpha.getId(), "button", "#save", "Save", ActionClassification.MUTATING);
+            UIElement safeElement = new UIElement(alpha.getId(), "link", "a.help", "Help", ActionClassification.SAFE);
+            UIElement unknownElement = new UIElement(alpha.getId(), "input", "#query", "Search", ActionClassification.UNKNOWN);
         AnalysisRepository analyses = mock(AnalysisRepository.class);
         PageRepository pages = mock(PageRepository.class);
         UIElementRepository elements = mock(UIElementRepository.class);
@@ -42,7 +44,7 @@ class DocumentServiceTest {
         when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
         when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.empty());
         when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(zulu, alpha));
-        when(elements.findByPageId(alpha.getId())).thenReturn(List.of(element));
+            when(elements.findByPageId(alpha.getId())).thenReturn(List.of(element, safeElement, unknownElement));
         when(elements.findByPageId(zulu.getId())).thenReturn(List.of());
         when(screenshots.findByPageIdOrderByIdAsc(alpha.getId())).thenReturn(List.of(new Screenshot(alpha.getId(), new byte[]{1})));
         when(screenshots.findByPageIdOrderByIdAsc(zulu.getId())).thenReturn(List.of());
@@ -53,10 +55,47 @@ class DocumentServiceTest {
 
         assertThat(document.getApplicationId()).isEqualTo("application-1");
         assertThat(document.getSourceAnalysisId()).isEqualTo(analysis.getId());
-        assertThat(document.getSections()).extracting(DocumentSection::getTitle).containsExactly("Alpha", "Zulu");
+        assertThat(document.getSections()).extracting(DocumentSection::getTitle)
+                    .containsExactly("Admin: FlowPilot (/admin/users)", "Z: FlowPilot (/z)");
         assertThat(document.getSections().get(0).getSourcePageId()).isEqualTo(alpha.getId());
         assertThat(document.getSections().get(0).getScreenshotId()).isNotNull();
-        assertThat(document.getSections().get(0).getContent()).contains("Save", "#save");
+        assertThat(document.getSections().get(0).getContent())
+                    .contains("Observed UI elements", "Button", "Save", "MUTATING", "#save", "SAFE", "UNKNOWN")
+                    .doesNotStartWith("button: #save");
+    }
+
+    @Test
+    void boundsOversizedGeneratedTitleAndContentWithoutLosingClassificationOrTraceability() {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        Page page = new Page(analysis.getId(), "http://localhost/" + "route".repeat(150), "title".repeat(150));
+        UIElement first = new UIElement(page.getId(), "button", "#save", "Save", ActionClassification.MUTATING);
+        List<UIElement> manyElements = new java.util.ArrayList<>();
+        for (int i = 0; i < 300; i++) manyElements.add(new UIElement(page.getId(), "link", "#help-" + i, "Help", ActionClassification.SAFE));
+        manyElements.add(0, first);
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        UIElementRepository elements = mock(UIElementRepository.class);
+        ScreenshotRepository screenshots = mock(ScreenshotRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.empty());
+        when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(page));
+        when(elements.findByPageId(page.getId())).thenReturn(manyElements);
+        Screenshot screenshot = new Screenshot(page.getId(), new byte[]{1});
+        when(screenshots.findByPageIdOrderByIdAsc(page.getId())).thenReturn(List.of(screenshot));
+        when(documents.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Document document = service(analyses, pages, elements, screenshots, documents, sections).generate(analysis.getId());
+        DocumentSection section = document.getSections().getFirst();
+
+        assertThat(section.getTitle()).hasSizeLessThanOrEqualTo(255);
+        assertThat(section.getContent()).hasSizeLessThanOrEqualTo(10000);
+        assertThat(section.getContent()).contains("MUTATING", "#save");
+        assertThat(section.getSourcePageId()).isEqualTo(page.getId());
+        assertThat(section.getScreenshotId()).isEqualTo(screenshot.getId());
     }
 
     @Test

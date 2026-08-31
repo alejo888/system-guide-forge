@@ -19,6 +19,7 @@ public class DocumentService {
     private final DocumentRepository documents;
     private final DocumentSectionRepository sections;
     private final TransactionTemplate transactions;
+    private final FunctionalModuleDeriver moduleDeriver = new FunctionalModuleDeriver();
 
     public DocumentService(AnalysisRepository analyses, PageRepository pages, UIElementRepository elements, ScreenshotRepository screenshots, DocumentRepository documents, DocumentSectionRepository sections, PlatformTransactionManager transactionManager) {
         this.analyses = analyses; this.pages = pages; this.elements = elements; this.screenshots = screenshots; this.documents = documents; this.sections = sections;
@@ -44,8 +45,8 @@ public class DocumentService {
         for (int position = 0; position < orderedPages.size(); position++) {
             Page page = orderedPages.get(position);
             List<UIElement> pageElements = elements.findByPageId(page.getId()).stream().sorted(Comparator.comparing(UIElement::getKind).thenComparing(UIElement::getSelector).thenComparing(UIElement::getId)).toList();
-            String content = pageElements.stream().map(e -> e.getKind() + ": " + (e.getAccessibleName() == null ? e.getSelector() : e.getAccessibleName()) + " [" + e.getSelector() + "]").collect(Collectors.joining("\n"));
-            String title = page.getTitle() == null || page.getTitle().isBlank() ? page.getUrl() : page.getTitle();
+            String content = describeElements(pageElements);
+            String title = boundedText(descriptiveTitle(page), TITLE_LIMIT);
             String screenshotId = screenshots.findByPageIdOrderByIdAsc(page.getId()).stream().findFirst().map(Screenshot::getId).orElse(null);
             DocumentSection section = sections.save(new DocumentSection(document.getId(), position, page.getId(), screenshotId, title, content));
             document.addSection(section);
@@ -53,47 +54,76 @@ public class DocumentService {
         return document;
     }
 
-    public Document get(String documentId) { return documents.findById(documentId).map(this::load).orElseThrow(DocumentNotFoundException::new); }
-
-    public Document update(String documentId, UpdateCommand command) {
-        return transactions.execute(status -> updateInTransaction(documentId, command));
+    private String descriptiveTitle(Page page) {
+        String pageTitle = page.getTitle() == null || page.getTitle().isBlank() ? "Untitled page" : page.getTitle().trim();
+        return moduleDeriver.moduleNameFor(page.getUrl()) + ": " + pageTitle + " (" + moduleDeriver.routeFor(page.getUrl()) + ")";
     }
 
+    private String describeElements(List<UIElement> pageElements) {
+        if (pageElements.isEmpty()) return "No interactive UI elements were observed on this page.";
+        String header = "Observed UI elements:\n";
+        List<String> lines = pageElements.stream()
+                .map(element -> "- " + boundedText(displayKind(element.getKind()), 2000) + " \""
+                        + boundedText(displayName(element), 3000) + "\" (" + classification(element)
+                        + "), located by selector \"" + boundedText(element.getSelector(), 3000) + "\".")
+                .toList();
+        StringBuilder result = new StringBuilder(header);
+        for (String line : lines) {
+            if (result.length() + line.length() + (result.length() > header.length() ? 1 : 0) > CONTENT_LIMIT) {
+                String omitted = "[Additional elements omitted.]";
+                if (result.length() + omitted.length() + 1 <= CONTENT_LIMIT) result.append(omitted);
+                break;
+            }
+            if (result.length() > header.length()) result.append('\n');
+            result.append(line);
+        }
+        return result.toString();
+    }
+
+    private static String boundedText(String value, int limit) {
+        if (value.length() <= limit) return value;
+        if (limit <= 3) return value.substring(0, limit);
+        int prefixLength = (limit - 3) / 2;
+        int suffixLength = limit - 3 - prefixLength;
+        return value.substring(0, prefixLength) + "..." + value.substring(value.length() - suffixLength);
+    }
+
+    private String displayKind(String kind) {
+        if (kind == null || kind.isBlank()) return "Element";
+        return Character.toUpperCase(kind.charAt(0)) + kind.substring(1);
+    }
+    private String displayName(UIElement element) {
+        if (element.getAccessibleName() != null && !element.getAccessibleName().isBlank()) return element.getAccessibleName();
+        return element.getSelector();
+    }
+    private ActionClassification classification(UIElement element) { return element.getActionClassification() == null ? ActionClassification.UNKNOWN : element.getActionClassification(); }
+    public Document get(String documentId) { return documents.findById(documentId).map(this::load).orElseThrow(DocumentNotFoundException::new); }
+    public Document update(String documentId, UpdateCommand command) { return transactions.execute(status -> updateInTransaction(documentId, command)); }
     private Document updateInTransaction(String documentId, UpdateCommand command) {
         Document document = documents.findByIdForUpdate(documentId).orElseThrow(DocumentNotFoundException::new);
         List<DocumentSection> current = sections.findByDocumentIdOrderByPositionAsc(documentId);
         validate(command, documentId, current);
         Map<String, DocumentSection> byId = current.stream().collect(Collectors.toMap(DocumentSection::getId, s -> s));
         document.updateTitle(command.title());
-        // Move all rows out of the final position range before assigning the new order.
         for (int i = 0; i < current.size(); i++) current.get(i).updateEditableFields(current.get(i).getTitle(), current.get(i).getContent(), -(i + 1));
-        sections.saveAll(current);
-        sections.flush();
+        sections.saveAll(current); sections.flush();
         List<DocumentSection> reordered = new ArrayList<>();
         for (int position = 0; position < command.sections().size(); position++) {
-            SectionUpdate requested = command.sections().get(position);
-            DocumentSection section = byId.get(requested.id());
-            section.updateEditableFields(requested.title(), requested.content(), position);
-            reordered.add(section);
+            SectionUpdate requested = command.sections().get(position); DocumentSection section = byId.get(requested.id());
+            section.updateEditableFields(requested.title(), requested.content(), position); reordered.add(section);
         }
-        sections.saveAll(reordered);
-        sections.flush();
-        document.replaceSections(reordered);
-        return document;
+        sections.saveAll(reordered); sections.flush(); document.replaceSections(reordered); return document;
     }
-
     private void validate(UpdateCommand command, String documentId, List<DocumentSection> current) {
         if (command == null || blankOrTooLong(command.title(), TITLE_LIMIT)) throw new InvalidDocumentUpdateException("Document title is required and must be at most 255 characters");
         if (command.sections() == null || command.sections().size() != current.size()) throw new InvalidDocumentUpdateException("Sections must include exactly the document's current sections");
-        Set<String> currentIds = current.stream().map(DocumentSection::getId).collect(Collectors.toSet());
-        Set<String> requestedIds = new HashSet<>();
+        Set<String> currentIds = current.stream().map(DocumentSection::getId).collect(Collectors.toSet()); Set<String> requestedIds = new HashSet<>();
         for (SectionUpdate section : command.sections()) {
             if (section == null || !requestedIds.add(section.id()) || !currentIds.contains(section.id())) throw new InvalidDocumentUpdateException("Sections must contain unique IDs belonging to this document");
             if (blankOrTooLong(section.title(), TITLE_LIMIT)) throw new InvalidDocumentUpdateException("Section title is required and must be at most 255 characters");
             if (blankOrTooLong(section.content(), CONTENT_LIMIT)) throw new InvalidDocumentUpdateException("Section content is required and must be at most 10000 characters");
         }
     }
-
     private static boolean blankOrTooLong(String value, int limit) { return value == null || value.isBlank() || value.length() > limit; }
     private Document load(Document document) { document.replaceSections(sections.findByDocumentIdOrderByPositionAsc(document.getId())); return document; }
     public record UpdateCommand(String title, List<SectionUpdate> sections) {}
