@@ -11,7 +11,7 @@
 .nav-icon { width: 16px; font-size: 17px; text-align: center; font-weight: 400; }
 .disabled-link { cursor: default; opacity: .52; }
 .soon { margin-left: auto; color: var(--muted); font: 500 8px var(--mono); }
-.sidebar-footer { display: flex; align-items: center; gap: 8px; margin-top: auto; color: var(--muted); font: 11px var(--mono); border-top: 1px solid var(--line); padding: 20px 10px 0; }
+.settings { margin: 20px 10px; color: var(--muted); font: 10px var(--mono); } .settings label { display: grid; gap: 6px; } .settings select { width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 5px; color: var(--ink); background: #fff; font: 11px var(--sans); } .sidebar-footer { display: flex; align-items: center; gap: 8px; margin-top: auto; color: var(--muted); font: 11px var(--mono); border-top: 1px solid var(--line); padding: 20px 10px 0; }
 .sidebar-footer small { margin-left: auto; font-size: 9px; }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #37b87c; box-shadow: 0 0 0 3px #e4f7ed; }
 .main-content { flex: 1; min-width: 0; }

@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { ApiService, AnalysisSummaryResponse, DocumentUpdatePayload } from './api.service';
+import { ApiService, AnalysisSummaryResponse, DocumentUpdatePayload, LocalizationService } from './api.service';
 
 describe('ApiService', () => {
   let service: ApiService; let fetchSpy: jasmine.Spy;
@@ -14,4 +14,23 @@ describe('ApiService', () => {
   it('generates and loads a document draft', async () => { fetchSpy.and.callFake(() => Promise.resolve(response({ id: 'doc-1', title: 'Guide', applicationId: 'app-1', sourceAnalysisId: 'analysis-1', status: 'DRAFT', sections: [] }))); await service.generateDocument('analysis-1'); await service.getDocument('doc-1'); expect(fetchSpy.calls.allArgs().map(([url]) => url)).toEqual(['/api/analyses/analysis-1/document', '/api/documents/doc-1']); expect(fetchSpy.calls.argsFor(0)[1]).toEqual(jasmine.objectContaining({ method: 'POST', body: '{}' })); });
   it('loads analysis evidence endpoints and requests screenshots as blobs', async () => { fetchSpy.and.callFake((url: string) => Promise.resolve(url.endsWith('screenshot') ? new Response(new Blob(['png'], { type: 'image/png' })) : response([]))); await service.startAnalysis('app-1'); await service.getAnalysis('analysis-1'); await service.getAnalysisPages('analysis-1'); await service.getPageElements('page-1'); const screenshot = await service.getPageScreenshot('page-1'); expect(screenshot).toEqual(jasmine.any(Blob)); expect(fetchSpy.calls.allArgs().map(([url]) => url)).toContain('/api/pages/page-1/screenshot'); });
   it('loads analysis history for an application', async () => { const analyses: AnalysisSummaryResponse[] = [{ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T00:01:00Z', failureMessage: null, pageCount: 2 }]; fetchSpy.and.resolveTo(response(analyses)); await expectAsync(service.getApplicationAnalyses('app-1')).toBeResolvedTo(analyses); expect(fetchSpy).toHaveBeenCalledWith('/api/applications/app-1/analyses', jasmine.any(Object)); });
+
+  it('translates known keys and falls back to English for missing Spanish keys', () => {
+    const localization = new LocalizationService();
+    localization.setLanguage('es');
+    expect(localization.t('overview')).toBe('Resumen');
+    expect(localization.t('analysis-subtitle')).toBe('Evidencia segura descubierta del sistema registrado.');
+    expect(localization.t('missing-key')).toBe('missing key');
+  });
+
+  it('persists language changes and normalizes invalid values to English', () => {
+    localStorage.setItem('sgf.language', 'fr');
+    const localization = new LocalizationService();
+    expect(localization.language()).toBe('en');
+    localization.setLanguage('es');
+    expect(localStorage.getItem('sgf.language')).toBe('es');
+    localization.setLanguage('invalid' as 'en');
+    expect(localization.language()).toBe('en');
+    expect(localStorage.getItem('sgf.language')).toBe('en');
+  });
 });

@@ -3,20 +3,21 @@
     <a class="brand" routerLink="/" aria-label="SystemGuideForge home">
       <span class="brand-mark">SG</span><span>SystemGuide<span class="brand-accent">Forge</span></span>
     </a>
-    <div class="workspace-label">WORKSPACE</div>
-    <nav class="primary-nav" aria-label="Primary navigation">
-      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}"><span class="nav-icon">▦</span>Overview</a>
-      <a routerLink="/register" routerLinkActive="active"><span class="nav-icon">＋</span>Register system</a>
-      <a class="disabled-link" role="link" aria-disabled="true" tabindex="-1" aria-label="Analysis, unavailable until an analysis is selected"><span class="nav-icon">◫</span>Analysis</a>
-      <a class="disabled-link" role="link" aria-disabled="true" tabindex="-1" aria-label="Evidence, coming soon"><span class="nav-icon">▤</span>Evidence <span class="soon">SOON</span></a>
+    <div class="workspace-label">{{ t('workspace') }}</div>
+    <nav class="primary-nav" [attr.aria-label]="t('primary-navigation')">
+      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}"><span class="nav-icon">▦</span>{{ t('overview') }}</a>
+      <a routerLink="/register" routerLinkActive="active"><span class="nav-icon">＋</span>{{ t('register') }}</a>
+      <a class="disabled-link" role="link" aria-disabled="true" tabindex="-1" [attr.aria-label]="t('analysis-unavailable')"><span class="nav-icon">◫</span>{{ t('analysis') }}</a>
+      <a class="disabled-link" role="link" aria-disabled="true" tabindex="-1" [attr.aria-label]="t('evidence-coming-soon')"><span class="nav-icon">▤</span>{{ t('evidence') }} <span class="soon">{{ t('soon') }}</span></a>
     </nav>
-    <div class="sidebar-footer"><span class="status-dot"></span><span>Local workspace</span><small>v0.1 MVP</small></div>
+    <div class="settings"><label>{{ t('language') }}<select [ngModel]="localization.language()" (ngModelChange)="setLanguage($event)"><option value="en">English</option><option value="es">Español</option></select></label></div>
+        <div class="sidebar-footer"><span class="status-dot"></span><span>{{ t('local-workspace') }}</span><small>v0.1 MVP</small></div>
   </aside>
   <main class="main-content"><router-outlet /></main>
-  <nav class="mobile-nav" aria-label="Mobile navigation">
-    <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}"><span>▦</span>Overview</a>
-    <a routerLink="/register" routerLinkActive="active"><span>＋</span>Register</a>
-    <a class="disabled-link" role="link" aria-disabled="true" tabindex="-1" aria-label="Analysis, unavailable until an analysis is selected"><span>◫</span>Analysis</a>
-    <a class="disabled-link" role="link" aria-disabled="true" tabindex="-1" aria-label="More navigation options, coming soon"><span>⋯</span>More</a>
+  <nav class="mobile-nav" [attr.aria-label]="t('mobile-navigation')">
+    <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}"><span>▦</span>{{ t('overview') }}</a>
+    <a routerLink="/register" routerLinkActive="active"><span>＋</span>{{ t('register') }}</a>
+    <a class="disabled-link" role="link" aria-disabled="true" tabindex="-1" [attr.aria-label]="t('analysis-unavailable')"><span>◫</span>{{ t('analysis') }}</a>
+    <a class="disabled-link" role="link" aria-disabled="true" tabindex="-1" [attr.aria-label]="t('more-coming-soon')"><span>⋯</span>{{ t('more') }}</a>
   </nav>
 </div>

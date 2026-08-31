@@ -1,6 +1,6 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { ApiService, AnalysisSummaryResponse, ApplicationResponse } from '../../core/api.service';
+import { ApiService, AnalysisSummaryResponse, ApplicationResponse, LocalizationService } from '../../core/api.service';
 
 type StartState = 'idle' | 'starting' | 'error';
 type HistoryState = 'loading' | 'ready' | 'error';
@@ -12,6 +12,8 @@ type HistoryState = 'loading' | 'ready' | 'error';
 export class DashboardComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+      readonly localization = inject(LocalizationService);
+      readonly t = (key: string): string => this.localization.t(key);
   readonly application = signal<ApplicationResponse | null>(this.readApplication());
   readonly analyses = signal<AnalysisSummaryResponse[]>([]);
   readonly state = signal<StartState>('idle');
@@ -36,7 +38,7 @@ export class DashboardComponent implements OnInit {
       await this.router.navigate(['/analysis', analysis.id]);
     } catch {
       this.state.set('error');
-      this.errorMessage.set('The analysis could not be started. Check that the API and local system are available.');
+      this.errorMessage.set(this.t('start-analysis-error'));
     }
   }
 
@@ -47,7 +49,7 @@ export class DashboardComponent implements OnInit {
       this.historyState.set('ready');
     } catch {
       this.historyState.set('error');
-      this.historyErrorMessage.set('Analysis history could not be loaded. Check that the API is running and try again.');
+      this.historyErrorMessage.set(this.t('history-error'));
     }
   }
 

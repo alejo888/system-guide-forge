@@ -15,6 +15,7 @@ describe('DashboardComponent', () => {
   ];
 
   beforeEach(async () => {
+    localStorage.setItem('sgf.language', 'en');
     localStorage.setItem('sgf.application', JSON.stringify(application));
     api = jasmine.createSpyObj<ApiService>('ApiService', ['getApplicationAnalyses', 'startAnalysis']);
     api.getApplicationAnalyses.and.resolveTo(analyses);
@@ -23,7 +24,10 @@ describe('DashboardComponent', () => {
     component = fixture.componentInstance;
   });
 
-  afterEach(() => localStorage.removeItem('sgf.application'));
+  afterEach(() => {
+    localStorage.removeItem('sgf.application');
+    localStorage.removeItem('sgf.language');
+  });
 
   it('loads history on initialization and renders aggregate metrics and links', async () => {
     fixture.detectChanges();

@@ -1,7 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { form, FormField, required } from '@angular/forms/signals';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { ApiService, AccessTestResult, ApplicationInput, ApplicationResponse } from '../../core/api.service';
+import { ApiService, AccessTestResult, ApplicationInput, ApplicationResponse, LocalizationService } from '../../core/api.service';
 
 type RegistrationState = 'idle' | 'saving' | 'testing' | 'success' | 'starting-analysis' | 'error';
 
@@ -12,6 +12,8 @@ type RegistrationState = 'idle' | 'saving' | 'testing' | 'success' | 'starting-a
 export class RegistrationComponent {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+      readonly localization = inject(LocalizationService);
+      readonly t = (key: string): string => this.localization.t(key);
   private readonly route = inject(ActivatedRoute);
   readonly editMode = this.route.snapshot.url.some(segment => segment.path === 'edit');
   readonly existingApplication = this.readApplication();
@@ -63,20 +65,20 @@ export class RegistrationComponent {
       localStorage.setItem('sgf.application', JSON.stringify(saved));
       if (this.editMode) { this.state.set('success'); await this.router.navigate(['/']); }
       else { this.applicationId.set(saved.id); await this.testAccess(); }
-    } catch { this.fail(this.editMode ? 'We could not update the system. Check that the API is running and try again.' : 'We could not create the project. Check that the API is running and try again.'); }
+    } catch { this.fail(this.t(this.editMode ? 'update-error' : 'register-error'));  }
   }
 
   async testAccess(): Promise<void> {
     if (!this.applicationId()) return;
     this.state.set('testing');
     try { this.accessResult.set(await this.api.testAccess(this.applicationId())); this.state.set('success'); }
-    catch { this.fail('The access test could not be completed. The system remains safely untested.'); }
+    catch { this.fail(this.t('access-error')); }
   }
   async startAnalysis(): Promise<void> {
     if (!this.applicationId()) return;
     this.state.set('starting-analysis');
     try { const analysis = await this.api.startAnalysis(this.applicationId()); await this.router.navigate(['/analysis', analysis.id]); }
-    catch { this.fail('The analysis could not be started. Try again when the system is available.'); }
+    catch { this.fail(this.t('start-analysis-retry')); }
   }
   private async createApplication(projectName: string, application: ApplicationInput): Promise<ApplicationResponse> {
     const project = await this.api.createProject({ name: projectName.trim() }); return this.api.createApplication(project.id, application);
