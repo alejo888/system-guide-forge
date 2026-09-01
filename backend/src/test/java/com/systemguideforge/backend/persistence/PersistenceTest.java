@@ -102,6 +102,7 @@ class PersistenceTest {
         Document loaded = documents.findById(document.getId()).orElseThrow();
         DocumentSection section = documentSections.findByDocumentIdOrderByPositionAsc(loaded.getId()).getFirst();
         assertThat(loaded.getSourceAnalysisId()).isEqualTo(analysis.getId());
+        assertThat(loaded.getType()).isEqualTo(Document.DocumentType.USER_MANUAL);
         assertThat(section.getSourcePageId()).isEqualTo(page.getId());
         assertThat(section.getScreenshotId()).isEqualTo(screenshot.getId());
     }

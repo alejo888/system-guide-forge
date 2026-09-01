@@ -1,0 +1,2 @@
+ALTER TABLE documents
+    ADD COLUMN language VARCHAR(2) NOT NULL DEFAULT 'EN';

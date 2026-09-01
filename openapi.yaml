@@ -293,17 +293,33 @@ paths:
   /analyses/{analysisId}/document:
     post:
       tags: [Analyses]
-      summary: Generate or retrieve the deterministic manual document draft
+      summary: Generate or replace the deterministic manual document draft
+      description: >-
+        Generates the requested draft from a completed analysis. An existing draft is
+        reused when language and type match; otherwise it is transactionally replaced,
+        including its sections and editable content.
       operationId: generateDocument
       parameters:
         - $ref: '#/components/parameters/AnalysisId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentGenerateRequest'
       responses:
         '201':
-          description: Draft generated, or the existing draft reused.
+          description: Draft generated, or the existing matching draft reused; a mismatched draft is replaced.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DocumentResponse'
+        '400':
+          description: Missing, blank, or unsupported language/type input.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -606,6 +622,20 @@ components:
           type: string
           enum: [SAFE, MUTATING, UNKNOWN]
 
+    DocumentGenerateRequest:
+      type: object
+      additionalProperties: false
+      required: [language, type]
+      properties:
+        language:
+          type: string
+          enum: [en, es]
+          description: Language for the persisted manual draft.
+        type:
+          type: string
+          enum: [user_manual]
+          description: Type for the persisted manual draft.
+
     DocumentUpdateRequest:
       type: object
       additionalProperties: false
@@ -629,13 +659,15 @@ components:
     DocumentResponse:
       type: object
       additionalProperties: false
-      required: [id, applicationId, sourceAnalysisId, title, status, sections]
+      required: [id, applicationId, sourceAnalysisId, title, status, language, type, sections]
       properties:
         id: { type: string, format: uuid }
         applicationId: { type: string, format: uuid }
         sourceAnalysisId: { type: string, format: uuid }
         title: { type: string }
         status: { type: string, enum: [DRAFT] }
+        language: { type: string, enum: [en, es] }
+        type: { type: string, enum: [user_manual] }
         sections:
           type: array
           items:

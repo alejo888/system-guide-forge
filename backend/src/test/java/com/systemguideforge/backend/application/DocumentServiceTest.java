@@ -27,6 +27,33 @@ class DocumentServiceTest {
     }
 
     @Test
+    void generatesSpanishUserManualWithApplicationTitleAndGuidance() {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        Page page = new Page(analysis.getId(), "http://localhost/admin", "Panel");
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        UIElementRepository elements = mock(UIElementRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.empty());
+        when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(page));
+        when(elements.findByPageId(page.getId())).thenReturn(List.of(new UIElement(page.getId(), "button", "#save", "Save", ActionClassification.MUTATING)));
+        when(documents.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Document document = service(analyses, pages, elements, mock(ScreenshotRepository.class), documents, sections)
+                .generate(analysis.getId(), Document.DocumentLanguage.ES, Document.DocumentType.USER_MANUAL);
+
+        assertThat(document.getTitle()).isEqualTo("Manual de usuario \"FlowPilot\"");
+            assertThat(document.getLanguage()).isEqualTo(Document.DocumentLanguage.ES);
+        assertThat(document.getType()).isEqualTo(Document.DocumentType.USER_MANUAL);
+        assertThat(document.getSections().getFirst().getContent()).contains("Esta pantalla", "Pasos seguros para usarla", "1.", "Save", "#save", "Seguridad y límites", "MUTATING", "No ejecutes la acción del control", "Referencia técnica").doesNotContain("Elementos de interfaz observados", "Observed interface elements", "Revisa el control");
+        assertThat(document.getSections().getFirst().getContent()).contains("Save", "#save", "MUTATING");
+    }
+
+    @Test
     void generatesStablePageSectionsWithSourceTraceability() {
         Analysis analysis = new Analysis("application-1");
         analysis.complete();
@@ -53,15 +80,17 @@ class DocumentServiceTest {
 
         Document document = service(analyses, pages, elements, screenshots, documents, sections).generate(analysis.getId());
 
-        assertThat(document.getApplicationId()).isEqualTo("application-1");
+        assertThat(document.getTitle()).isEqualTo("User manual \"FlowPilot\"");
+            assertThat(document.getApplicationId()).isEqualTo("application-1");
         assertThat(document.getSourceAnalysisId()).isEqualTo(analysis.getId());
         assertThat(document.getSections()).extracting(DocumentSection::getTitle)
                     .containsExactly("Admin: FlowPilot (/admin/users)", "Z: FlowPilot (/z)");
         assertThat(document.getSections().get(0).getSourcePageId()).isEqualTo(alpha.getId());
         assertThat(document.getSections().get(0).getScreenshotId()).isNotNull();
         assertThat(document.getSections().get(0).getContent())
-                    .contains("Observed UI elements", "Button", "Save", "MUTATING", "#save", "SAFE", "UNKNOWN")
-                    .doesNotStartWith("button: #save");
+                    .contains("This screen", "Safe usage steps", "1.", "control", "Save", "MUTATING", "#save", "SAFE", "UNKNOWN", "Safety and limitations", "Do not execute the action", "You can select or open the link", "Verify the effect of the field")
+                    .doesNotContain("Review the Button control")
+                        .doesNotStartWith("button: #save");
     }
 
     @Test
@@ -222,9 +251,15 @@ class DocumentServiceTest {
         verify(documents, never()).save(any());
     }
 
+    private static TargetApplicationRepository testApplications() {
+        TargetApplicationRepository applications = mock(TargetApplicationRepository.class);
+        when(applications.findById(any())).thenReturn(Optional.of(new TargetApplication("project-1", "FlowPilot", "http://localhost", null, null, null)));
+        return applications;
+    }
+
     private static DocumentService service(AnalysisRepository analyses, PageRepository pages, UIElementRepository elements, ScreenshotRepository screenshots, DocumentRepository documents, DocumentSectionRepository sections) {
         PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
         when(transactions.getTransaction(any(TransactionDefinition.class))).thenReturn(mock(TransactionStatus.class));
-        return new DocumentService(analyses, pages, elements, screenshots, documents, sections, transactions);
+        return new DocumentService(analyses, pages, elements, screenshots, documents, sections, testApplications(), transactions);
     }
 }

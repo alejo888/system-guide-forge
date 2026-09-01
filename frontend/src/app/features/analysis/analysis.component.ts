@@ -1,33 +1,20 @@
 import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { ApiService, AnalysisResponse, DocumentResponse, DocumentSectionResponse, ElementResponse, FunctionalModule, PageResponse, LocalizationService } from '../../core/api.service';
+import { ApiService, AnalysisResponse, DocumentResponse, DocumentSectionResponse, ElementResponse, FunctionalModule, PageResponse, LocalizationService, DocumentLanguage, DocumentType } from '../../core/api.service';
 interface PageEvidence extends PageResponse { elements: ElementResponse[]; screenshotUrl: string | null; }
 type SaveState = 'idle' | 'saving' | 'success' | 'error';
 
 @Component({ selector: 'sgf-analysis', standalone: true, imports: [RouterLink], templateUrl: './analysis.component.html', styleUrl: './analysis.component.css' })
 export class AnalysisComponent implements OnInit {
-  private readonly api = inject(ApiService); private readonly route = inject(ActivatedRoute);
-      readonly localization = inject(LocalizationService);
-      readonly t = (key: string): string => this.localization.t(key); private readonly destroyRef = inject(DestroyRef);
+  private readonly api = inject(ApiService); private readonly route = inject(ActivatedRoute); readonly localization = inject(LocalizationService); readonly t = (key: string): string => this.localization.t(key); private readonly destroyRef = inject(DestroyRef);
   readonly analysis = signal<AnalysisResponse | null>(null); readonly pages = signal<PageEvidence[]>([]); readonly modules = signal<FunctionalModule[]>([]); readonly document = signal<DocumentResponse | null>(null);
-  readonly editableTitle = signal(''); readonly editableSections = signal<DocumentSectionResponse[]>([]);
+  readonly editableTitle = signal(''); readonly documentLanguage = signal<DocumentLanguage>(this.readDocumentLanguage()); readonly documentType = signal<DocumentType>('user_manual'); readonly editableSections = signal<DocumentSectionResponse[]>([]);
   readonly state = signal<'loading' | 'ready' | 'error'>('loading'); readonly moduleState = signal<'loading' | 'ready' | 'error'>('loading'); readonly documentState = signal<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle'); readonly saveState = signal<SaveState>('idle'); readonly errorMessage = signal('');
   ngOnInit(): void { const id = this.route.snapshot.paramMap.get('id'); if (!id) { this.fail(this.t('no-analysis-selected')); return; } void this.load(id); this.destroyRef.onDestroy(() => this.pages().forEach(p => p.screenshotUrl && URL.revokeObjectURL(p.screenshotUrl))); }
-  private async load(id: string): Promise<void> {
-    try {
-      const analysis = await this.api.getAnalysis(id); this.analysis.set(analysis); this.moduleState.set('loading');
-      const [pages, moduleResult] = await Promise.all([
-        this.api.getAnalysisPages(id),
-        this.api.getAnalysisModules(id).then(modules => ({ modules, failed: false })).catch(() => ({ modules: [], failed: true })),
-      ]);
-      const pageEvidence = await Promise.all(pages.map(p => this.loadPage(p))); this.pages.set(pageEvidence);
-      this.modules.set(moduleResult.failed ? (pages.length ? [{ key: 'unassigned', name: this.t('unassigned-pages'), pages }] : []) : moduleResult.modules);
-      this.moduleState.set(moduleResult.failed ? 'error' : 'ready'); this.state.set('ready');
-    } catch { this.fail(this.t('analysis-load-error')); }
-  }
+  private async load(id: string): Promise<void> { try { const analysis = await this.api.getAnalysis(id); this.analysis.set(analysis); this.moduleState.set('loading'); const [pages, moduleResult] = await Promise.all([this.api.getAnalysisPages(id), this.api.getAnalysisModules(id).then(modules => ({ modules, failed: false })).catch(() => ({ modules: [], failed: true }))]); const pageEvidence = await Promise.all(pages.map(p => this.loadPage(p))); this.pages.set(pageEvidence); this.modules.set(moduleResult.failed ? (pages.length ? [{ key: 'unassigned', name: this.t('unassigned-pages'), pages }] : []) : moduleResult.modules); this.moduleState.set(moduleResult.failed ? 'error' : 'ready'); this.state.set('ready'); } catch { this.fail(this.t('analysis-load-error')); } }
   pageEvidence(id: string): PageEvidence | undefined { return this.pages().find(page => page.id === id); }
-      private async loadPage(page: PageResponse): Promise<PageEvidence> { const [elements, screenshot] = await Promise.all([this.api.getPageElements(page.id).catch(() => [] as ElementResponse[]), this.api.getPageScreenshot(page.id).catch(() => null)]); return { ...page, elements, screenshotUrl: screenshot ? URL.createObjectURL(screenshot) : null }; }
-  async generateDocument(): Promise<void> { const id = this.analysis()?.id; if (!id) return; this.documentState.set('loading'); try { const generated = await this.api.generateDocument(id); this.setEditableDocument(generated); this.documentState.set(generated.sections.length ? 'ready' : 'empty'); } catch { this.documentState.set('error'); } }
+  private async loadPage(page: PageResponse): Promise<PageEvidence> { const [elements, screenshot] = await Promise.all([this.api.getPageElements(page.id).catch(() => [] as ElementResponse[]), this.api.getPageScreenshot(page.id).catch(() => null)]); return { ...page, elements, screenshotUrl: screenshot ? URL.createObjectURL(screenshot) : null }; }
+  async generateDocument(): Promise<void> { const id = this.analysis()?.id; if (!id) return; const current = this.document(); const language = this.documentLanguage(); const type = this.documentType(); if (current && (current.language !== language || current.type !== type) && !window.confirm(this.documentReplacementWarning())) return; this.documentState.set('loading'); try { const generated = await this.api.generateDocument(id, { language, type }); this.setEditableDocument(generated); this.documentState.set(generated.sections.length ? 'ready' : 'empty'); } catch { this.documentState.set('error'); } }
   editTitle(title: string): void { this.ensureEditable(); this.editableTitle.set(title); }
   editSectionTitle(id: string, title: string): void { this.updateSection(id, section => ({ ...section, title })); }
   editSectionContent(id: string, content: string): void { this.updateSection(id, section => ({ ...section, content })); }
@@ -35,6 +22,10 @@ export class AnalysisComponent implements OnInit {
   async saveDocument(): Promise<void> { const current = this.document(); if (!current) return; this.ensureEditable(); this.saveState.set('saving'); try { const saved = await this.api.updateDocument(current.id, { title: this.editableTitle(), sections: this.editableSections().map(section => ({ id: section.id, title: section.title, content: section.content })) }); this.setEditableDocument(saved); this.saveState.set('success'); } catch { this.saveState.set('error'); } }
   private updateSection(id: string, update: (section: DocumentSectionResponse) => DocumentSectionResponse): void { this.ensureEditable(); this.editableSections.set(this.editableSections().map(section => section.id === id ? update(section) : section)); }
   private ensureEditable(): void { if (!this.document() || this.editableSections().length) return; this.setEditableDocument(this.document()!); }
-  private setEditableDocument(document: DocumentResponse): void { this.document.set(document); this.editableTitle.set(document.title); this.editableSections.set(document.sections.map((section, index) => ({ ...section, position: index }))); }
+  setDocumentLanguage(language: DocumentLanguage): void { this.documentLanguage.set(language); localStorage.setItem('sgf.document-language', language); }
+  setDocumentType(type: DocumentType): void { this.documentType.set(type); }
+  private readDocumentLanguage(): DocumentLanguage { return localStorage.getItem('sgf.document-language') === 'es' ? 'es' : 'en'; }
+  private setEditableDocument(document: DocumentResponse): void { this.document.set(document); this.documentLanguage.set(document.language); this.documentType.set(document.type); this.editableTitle.set(document.title); this.editableSections.set(document.sections.map((section, index) => ({ ...section, position: index }))); }
+  private documentReplacementWarning(): string { return this.localization.language() === 'es' ? 'Este borrador editable existente se eliminará y se reemplazará. ¿Querés continuar?' : 'The existing editable draft will be destroyed and replaced. Do you want to continue?'; }
   private fail(message: string): void { this.state.set('error'); this.errorMessage.set(message); }
 }

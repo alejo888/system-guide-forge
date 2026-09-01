@@ -55,15 +55,16 @@ class DocumentControllerTest {
     @Test
     void mapsGenerationErrorsAndCreatedResponse() {
         Document document = document();
-        when(service.generate("analysis-1")).thenReturn(document);
+        when(service.generate("analysis-1", Document.DocumentLanguage.EN, Document.DocumentType.USER_MANUAL)).thenReturn(document);
 
-        var created = controller.generate("analysis-1");
+        var created = controller.generate("analysis-1", new DocumentController.GenerateRequest("en", "user_manual"));
         var notFound = controller.analysisNotFound(new DocumentService.AnalysisNotFoundException());
         var incomplete = controller.analysisNotCompleted(new DocumentService.AnalysisNotCompletedException());
 
         assertThat(created.getStatusCode().value()).isEqualTo(201);
         assertThat(created.getHeaders().getLocation().toString()).isEqualTo("/api/documents/" + document.getId());
         assertThat(created.getBody().sourceAnalysisId()).isEqualTo("analysis-1");
+            assertThat(created.getBody().type()).isEqualTo("user_manual");
         assertThat(notFound.getStatusCode().value()).isEqualTo(404);
         assertThat(incomplete.getStatusCode().value()).isEqualTo(409);
         assertThat(incomplete.getBody().message()).contains("completed analyses");

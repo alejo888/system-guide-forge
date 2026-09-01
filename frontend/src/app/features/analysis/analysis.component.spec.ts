@@ -4,7 +4,7 @@ import { AnalysisComponent } from './analysis.component';
 import { ApiService, DocumentResponse } from '../../core/api.service';
 
 const document: DocumentResponse = {
-  id: 'doc-1', title: 'Guide', applicationId: 'app-1', sourceAnalysisId: 'analysis-1', status: 'DRAFT',
+  id: 'doc-1', title: 'Guide', applicationId: 'app-1', sourceAnalysisId: 'analysis-1', status: 'DRAFT', language: 'en', type: 'user_manual',
   sections: [
     { id: 'section-1', position: 0, sourcePageId: 'page-1', screenshotId: 'shot-1', title: 'First', content: 'Content 1' },
     { id: 'section-2', position: 1, sourcePageId: 'page-2', screenshotId: null, title: 'Second', content: 'Content 2' },
@@ -16,7 +16,7 @@ describe('AnalysisComponent document editing', () => {
   let component: AnalysisComponent;
   let api: jasmine.SpyObj<ApiService>;
 
-  beforeEach(async () => {
+  beforeEach(async () => { localStorage.setItem('sgf.language', 'en'); spyOn(window, 'confirm').and.returnValue(true);
     api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getAnalysisModules', 'getPageElements', 'getPageScreenshot', 'generateDocument', 'updateDocument']);
         api.getAnalysisModules.and.resolveTo([]);
     api.updateDocument.and.resolveTo(document);
@@ -37,7 +37,17 @@ describe('AnalysisComponent document editing', () => {
     expect(component.editableSections()[0].screenshotId).toBe('shot-1');
   });
 
-  it('reorders sections by array order', () => { component.moveSection('section-2', -1); expect(component.editableSections().map(section => section.id)).toEqual(['section-2', 'section-1']); });
+  it('sends the selected language and manual type and reflects persisted values', async () => {
+    api.generateDocument.and.resolveTo({ ...document, language: 'en', type: 'user_manual' });
+    component.analysis.set({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
+    component.setDocumentLanguage('es');
+    await component.generateDocument();
+    expect(api.generateDocument).toHaveBeenCalledWith('analysis-1', { language: 'es', type: 'user_manual' });
+    expect(component.documentLanguage()).toBe('en');
+    expect(component.documentType()).toBe('user_manual');
+  });
+  it('cancels replacement without calling the API or changing the persisted draft', async () => { component.document.set(document); component.editableTitle.set(document.title); component.setDocumentLanguage('es'); (window.confirm as jasmine.Spy).and.returnValue(false); await component.generateDocument(); expect(api.generateDocument).not.toHaveBeenCalled(); expect(component.document()).toBe(document); expect(component.documentLanguage()).toBe('es'); });
+      it('reorders sections by array order', () => { component.moveSection('section-2', -1); expect(component.editableSections().map(section => section.id)).toEqual(['section-2', 'section-1']); });
   it('keeps page evidence and document editing available when module loading fails', async () => {
     const analysis = { id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED' as const, startedAt: '', completedAt: null, failureMessage: null };
     const page = { id: 'page-1', analysisId: 'analysis-1', url: 'https://example.test', title: 'Home' };
