@@ -78,4 +78,24 @@ describe('AnalysisComponent document editing', () => {
     await component.saveDocument(); expect(component.saveState()).toBe('success');
     api.updateDocument.and.rejectWith(new Error('failed')); await component.saveDocument(); expect(component.saveState()).toBe('error');
   });
+  it('filters pages and sections across searchable evidence fields', () => {
+    const page = { id: 'page-1', analysisId: 'analysis-1', url: 'https://example.test/settings', title: 'Settings' };
+    component.pages.set([{ ...page, elements: [{ id: 'element-1', kind: 'button', selector: '#save-settings', accessibleName: 'Save', actionClassification: 'MUTATING' }], screenshotUrl: null }]);
+    component.modules.set([{ key: 'admin', name: 'Administration', pages: [page] }]);
+    component.searchQuery.set('save-settings');
+    expect(component.filteredModules()[0].pages).toEqual([page]);
+    component.searchQuery.set('missing');
+    expect(component.filteredModules()).toEqual([]);
+    expect(component.filteredSections()).toEqual([]);
+  });
+  it('builds stable anchor ids for navigation', () => {
+    expect(component.sectionAnchor('section-1')).toBe('manual-section-section-1');
+    expect(component.pageAnchor('page-1')).toBe('discovered-page-page-1');
+    expect(component.moduleAnchor('Admin Users')).toBe('module-admin-users');
+  });
+  it('renders no-match states for page and section searches', () => {
+    component.pages.set([]); component.modules.set([]); component.searchQuery.set('nothing'); component.editableSections.set(document.sections); component.state.set('ready'); component.analysis.set({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('No matching results');
+  });
 });
