@@ -1,154 +1,101 @@
 # SystemGuideForge
-## Implementación del MVP
+## Implementación actual del MVP
 
 ## 1. Flujo técnico
 
-### Registrar y configurar un sistema
+### Registrar y configurar
 
 1. Crear `PROJECT` y `TARGET_APPLICATION`.
-2. Validar que la URL pertenezca a un sistema local autorizado.
-3. Guardar URL base, URL de login, rutas excluidas y credenciales cifradas.
-4. No incluir credenciales en respuestas, logs ni objetos de análisis.
+2. Validar la URL local, el protocolo, el host y las redirecciones permitidas.
+3. Guardar URL base, URL de login, configuración del crawler y credenciales cifradas.
+4. Excluir credenciales de respuestas, logs, screenshots y evidencia.
 
 ### Probar acceso
 
-1. Validar protocolo, host y redirecciones permitidas.
-2. Abrir un contexto aislado de Playwright.
-3. Navegar a la URL de login.
-4. Completar el formulario tradicional con los secretos en memoria.
-5. Ejecutar el envío y verificar el resultado.
-6. Cerrar y limpiar el contexto si la prueba falla.
+1. Abrir un contexto aislado de Playwright.
+2. Navegar a la URL de login.
+3. Completar el formulario tradicional con secretos en memoria.
+4. Verificar el resultado y limpiar el contexto.
 
-### Iniciar análisis
+### Ejecutar análisis
 
-1. Verificar que no exista otro análisis activo.
-2. Crear `ANALYSIS` con estado `RUNNING`.
-3. Crear un contexto aislado y autenticado.
-4. Recorrer la pantalla inicial y las rutas permitidas.
-5. Guardar resultados parciales después de cada pantalla.
-6. Finalizar como `COMPLETED` o `FAILED` sin exponer secretos.
+1. Rechazar el inicio si ya existe un análisis `RUNNING` (`MAX_ACTIVE_ANALYSES = 1`).
+2. Crear `ANALYSIS` en estado `RUNNING`.
+3. Ejecutar el `ScreenAnalysisAdapter` de forma síncrona.
+4. Persistir la pantalla inicial y las páginas descubiertas por el adaptador.
+5. Continuar únicamente con enlaces clasificados como `SAFE`, respetando los límites de profundidad y páginas.
+6. Persistir elementos y screenshots sanitizados en PostgreSQL; `ScreenshotRepository` guarda los bytes como `BYTEA`.
+7. Finalizar como `COMPLETED` o `FAILED`.
 
-### Analizar una pantalla
+No se persisten resultados parciales ni existe recuperación automática si la ejecución falla. El análisis no ejecuta controles: enlaces no `SAFE`, botones, formularios y acciones `MUTATING` o `UNKNOWN` no se ejecutan.
 
-1. Obtener URL, ruta y título.
-2. Detectar módulo por configuración o heurística simple.
-3. Extraer elementos relevantes.
-4. Clasificar cada acción como `SAFE`, `MUTATING` o `UNKNOWN`.
-5. Guardar `PAGE` y `UI_ELEMENT`.
-6. Ocultar o excluir valores sensibles antes de tomar y persistir el screenshot.
+### Generar y editar el manual
 
-### Recorrer de forma segura
+La generación es determinista y usa únicamente la evidencia observada:
 
-Mantener dos colecciones:
-
-```text
-visited
-pending
-```
-
-Por cada control:
-
-1. Ejecutar solo si su clasificación es `SAFE`.
-2. Esperar la navegación o el cambio de estado.
-3. Extraer la nueva evidencia.
-4. Calcular fingerprint.
-5. Guardar la pantalla si es nueva.
-6. Detenerse ante una acción mutante o desconocida.
-
-### Generar el borrador
-
-1. Seleccionar pantallas y elementos desde la evidencia.
-2. Crear `DOCUMENT` y sus `DOCUMENT_SECTION`.
-3. Generar texto descriptivo basado únicamente en la evidencia observada.
-4. Asociar screenshots sanitizados.
-5. Permitir edición de título, contenido, orden y asociaciones.
-
-La generación inicial es determinista y no requiere IA.
+- Idiomas admitidos: `en` y `es`.
+- Tipo admitido: `user_manual`.
+- Si ya existe un documento con el mismo análisis, idioma y tipo, la solicitud devuelve ese borrador y conserva las ediciones.
+- Si cambia el idioma o el tipo, el sistema muestra una advertencia localizada y reemplaza transaccionalmente las secciones y el contenido editable. **Las ediciones anteriores se destruyen.**
+- La edición posterior se limita al título y a las secciones del documento; los resultados del análisis no son editables desde este flujo.
 
 ## 2. Política de acciones
 
-### Permitidas automáticamente
+| Clasificación | Comportamiento |
+| --- | --- |
+| `SAFE` | Puede habilitar el crawling de un enlace de navegación de solo lectura. |
+| `MUTATING` | Se bloquea; nunca se ejecuta. |
+| `UNKNOWN` | Se bloquea por defecto; nunca se ejecuta. |
 
-- Abrir menús, submenús, tabs, acordeones o modales.
-- Navegar enlaces internos permitidos.
-- Paginar sin modificar datos.
-- Abrir detalles en modo consulta.
+El análisis no adivina el efecto de un control ni envía formularios, confirma operaciones, modifica datos o descarga contenido cuyo efecto no sea claramente de solo lectura.
 
-### Bloqueadas
+## 3. Seguridad
 
-- Crear, guardar, editar o eliminar.
-- Aprobar, rechazar, confirmar, enviar o procesar.
-- Pagar, importar, exportar o descargar cuando el efecto no sea claramente de solo lectura.
-- Cualquier acción que cambie estado del sistema.
+- Cifrar credenciales en reposo con `SGF_CREDENTIAL_KEY`; no hay clave predeterminada.
+- Mantener secretos descifrados solo durante la operación de acceso/análisis.
+- No escribir credenciales, cookies, tokens ni headers sensibles en logs, screenshots, respuestas API o evidencia.
+- Usar contextos de navegador aislados y limpiar cada contexto al finalizar.
+- Restringir navegación a sistemas locales autorizados y rechazar destinos no permitidos.
 
-### Desconocidas
-
-Se bloquean por defecto y se informan para revisión manual. El análisis nunca intenta adivinar el efecto de un control.
-
-## 3. Protección de credenciales
-
-- Cifrar las credenciales en reposo.
-- Mantener secretos descifrados solo durante la autenticación.
-- No escribir credenciales, cookies, tokens ni headers sensibles en logs.
-- No incluir secretos en screenshots, evidencia, respuestas API ni prompts.
-- Limpiar el contexto del navegador al finalizar cada operación.
-
-## 4. Seguridad de navegación
-
-- Aceptar únicamente sistemas locales configurados por la persona.
-- Validar protocolos, hosts y redirecciones.
-- Rechazar destinos no autorizados y acceso a servicios de metadata.
-- Aplicar timeouts y límites de profundidad.
-- Mantener `MAX_ACTIVE_ANALYSES = 1`.
-
-## 5. Contratos principales
+## 4. Contratos principales
 
 ```java
-public interface BrowserAnalyzer {
-    AnalysisResult analyze(AnalysisRequest request);
+public interface ScreenAnalysisAdapter {
+    ScreenAnalysisResult analyze(TargetApplication application,
+                                 String username,
+                                 String password);
 }
 
-public interface FileStorage {
-    String save(byte[] content, String path);
-    byte[] read(String path);
+public interface ScreenshotRepository extends JpaRepository<Screenshot, String> {
 }
 ```
 
-Los contratos se mantienen enfocados en análisis, evidencia y documentación editable. No se agregan contratos de IA, workflows ni DOCX al MVP.
+No existen contratos de IA, workflows, DOCX ni almacenamiento de archivos en el MVP.
 
-## 6. API
+## 5. API y configuración
 
-REST es el contrato entre Angular y Spring Boot. `openapi.yaml` define únicamente operaciones para:
+REST conecta Angular con Spring Boot y `openapi.yaml` describe las operaciones implementadas para proyectos, aplicaciones, prueba de acceso, análisis, evidencia y documentos.
 
-- proyectos y sistemas;
-- prueba de acceso;
-- análisis y pantallas;
-- consulta de elementos y screenshots;
-- creación y edición del borrador de manual.
+- Backend: `http://localhost:8080`.
+- Frontend: `http://localhost:4200`.
+- Proxy de desarrollo: `/api` → `http://127.0.0.1:8080`.
+- PostgreSQL Compose: `127.0.0.1:15432`, imagen `postgres:16-alpine`.
+- `ddl-auto=validate`; Flyway V1–V6 gestiona el esquema.
 
-No se publican endpoints de workflows, IA ni exportación DOCX.
+Compose exige `POSTGRES_PASSWORD`. El backend admite `SGF_DB_URL`, `SGF_DB_USERNAME` y `SGF_DB_PASSWORD`, además de la obligatoria `SGF_CREDENTIAL_KEY`. Los flujos fixture/E2E admiten `SGF_BACKEND_URL`, `SGF_FIXTURE_URL`, `FIXTURE_USERNAME` y `FIXTURE_PASSWORD`. Ver `README.md` para defaults y sintaxis POSIX/PowerShell.
 
-## 7. Pruebas mínimas
+## 6. Verificación
 
-### Unitarias
+Resultados ya ejecutados para el estado documentado:
 
-- normalización y validación de URL local;
-- fingerprint;
-- clasificación de riesgo;
-- sanitización de screenshots y evidencia;
-- protección de credenciales.
+| Comando | Resultado |
+| --- | --- |
+| `cd backend && ./mvnw test` | 72 tests pasan |
+| `cd frontend && npm test` | 30 tests pasan |
+| `cd frontend && npm run build` | Pasa |
+| `git diff --check` | Pasa |
+| Fixture/E2E y browser manual | Requiere el stack local; no se ejecutó en esta actualización documental |
 
-### Integración
+## 7. Fuera de alcance
 
-- PostgreSQL y Flyway;
-- filesystem local;
-- Playwright con login tradicional;
-- bloqueo de acciones mutantes y desconocidas.
-
-### E2E
-
-Probar un sistema local con login, SPA, menús, tabs, modales, tablas y navegación segura, verificando que ninguna operación cambie datos.
-
-## 8. Evolución posterior
-
-IA, workflows, captura guiada, DOCX y soporte de producción requieren decisiones y controles adicionales. Se mantienen fuera de la implementación inmediata.
+IA, workflows, captura guiada de operaciones mutantes, DOCX/PDF, sistemas de producción, SSO/OAuth/MFA, colaboración, multiusuario, roles, multi-tenant, análisis de repositorios, microservicios y almacenamiento remoto requieren trabajo futuro.

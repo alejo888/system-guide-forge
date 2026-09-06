@@ -1,89 +1,88 @@
 # SystemGuideForge
-## Arquitectura del MVP
+## Arquitectura implementada del MVP
 
-## 1. Decisión principal
+## 1. Resumen
 
-SystemGuideForge será un Modular Monolith con frontend Angular separado, backend Spring Boot y arquitectura hexagonal pragmática. El MVP opera contra sistemas web locales y usa Playwright Java para el análisis seguro de solo lectura.
-
-## 2. Arquitectura general
+SGF es un monolito modular pragmático: un frontend Angular separado, un backend Spring Boot, PostgreSQL y un adaptador Playwright Java para análisis local de solo lectura. El análisis es síncrono; no hay workers distribuidos.
 
 ```mermaid
 flowchart LR
-    U[Usuario] --> FE[Angular]
-    FE -->|REST| BE[Spring Boot]
-    BE --> DB[(PostgreSQL)]
-    BE --> FS[(Filesystem local)]
+    U[Usuario] --> FE[Angular :4200]
+    FE -->|/api proxy| BE[Spring Boot :8080]
+    BE --> DB[(PostgreSQL :15432)]
     BE --> PW[Playwright Java]
     PW --> APP[Sistema web local]
 ```
 
-No hay integración de IA, DOCX ni workers distribuidos en el MVP.
+No se usa filesystem para screenshots: `ScreenshotRepository` persiste su contenido en una columna PostgreSQL `BYTEA`.
 
-## 3. Frontend
+## 2. Frontend actual
 
-Tecnologías: Angular, TypeScript, Angular Material, Signals y RxJS cuando sea necesario.
+El frontend usa Angular y TypeScript, sin Angular Material ni RxJS como dependencias del MVP. Sus áreas actuales son:
 
 ```text
 frontend/src/app/
 ├── core/
-├── shared/
 └── features/
-    ├── systems/
-    ├── access/
-    ├── analysis/
-    └── documents/
+    ├── dashboard/
+    ├── registration/
+    └── analysis/
 ```
 
-## 4. Backend
+`proxy.conf.json` reenvía `/api` a `http://127.0.0.1:8080` durante `ng serve`.
 
-Tecnologías: Java, Spring Boot, Spring Web, Spring Data JPA y Bean Validation.
+## 3. Backend actual
+
+El código implementado está organizado en tres paquetes principales:
 
 ```text
-backend/src/main/java/.../systemguideforge/
-├── project/
-├── targetapp/
-├── access/
-├── analysis/
-├── crawler/
-├── evidence/
-├── documentation/
-├── storage/
-└── shared/
+backend/src/main/java/com/systemguideforge/backend/
+├── application/   # casos de uso, adaptadores de análisis y protección de credenciales
+├── persistence/   # entidades JPA y repositorios
+└── web/           # controladores REST
 ```
 
-Cada módulo puede organizarse en `domain/`, `application/`, `infrastructure/` y `web/`.
+Esta es la estructura operativa actual. Una separación modular más profunda por dominio (`project`, `targetapp`, `analysis`, `documentation`, etc.) puede evaluarse como trabajo futuro, pero no describe el árbol implementado hoy.
 
-## 5. Puertos y adaptadores
+## 4. Puertos y adaptadores
 
 ```text
-BrowserAnalyzer
-   └── PlaywrightBrowserAnalyzer
+ScreenAnalysisAdapter
+└── PlaywrightScreenAnalysisAdapter
+
+AccessProbe
+├── PlaywrightAccessProbe
+└── SocketAccessProbe
 
 CredentialProtector
-   └── ApplicationCredentialProtector
+└── AesCredentialProtector
 
-FileStorage
-   └── LocalFileStorage
+ScreenshotRepository
+└── PostgreSQL/JPA
 ```
 
-Los adaptadores externos quedan aislados del dominio. No se agrega un puerto de IA ni de renderizado DOCX hasta que esas capacidades entren en alcance.
+El adaptador de análisis se ejecuta de forma síncrona dentro del caso de uso. Solo se recorren enlaces con clasificación `SAFE`; los controles no se ejecutan. `MUTATING` y `UNKNOWN` se bloquean.
 
-## 6. Persistencia
+## 5. Persistencia y migraciones
 
-PostgreSQL almacena proyectos, sistemas, configuraciones de acceso, análisis, pantallas, elementos, screenshots, módulos y documentos editables. Flyway gestiona las migraciones.
+`FunctionalModuleDeriver` deriva los módulos funcionales en memoria a partir de las páginas persistidas; los módulos derivados no se almacenan en PostgreSQL. PostgreSQL almacena las entidades y datos persistidos: proyectos, aplicaciones objetivo, análisis, páginas, elementos, screenshots y documentos editables. Las screenshots se almacenan como `BYTEA` mediante `ScreenshotRepository`, junto con su relación a página y análisis.
 
-Las contraseñas se almacenan cifradas; el material descifrado solo vive durante la operación de acceso y nunca se persiste como evidencia.
+Flyway aplica esta historia, en orden:
 
-## 7. Archivos
+| Migración | Propósito |
+| --- | --- |
+| V1 | Esquema inicial, incluyendo evidencia y screenshots |
+| V2 | Esquema de documentos |
+| V3 | Título del documento |
+| V4 | Configuración del crawler |
+| V5 | Idioma del documento |
+| V6 | Tipo del documento |
 
-```text
-storage/
-└── screenshots/
-```
+Hibernate valida el esquema existente con `ddl-auto=validate`; no lo genera ni lo actualiza.
 
-El filesystem local es suficiente para el MVP. MinIO/S3 queda como evolución futura.
+Las credenciales se almacenan cifradas. El material descifrado solo vive durante la operación correspondiente y no se persiste como evidencia.
 
-## 8. Modelo entidad-relación
+## 6. Modelo principal
 
 ```mermaid
 erDiagram
@@ -92,52 +91,14 @@ erDiagram
     ANALYSIS ||--o{ PAGE : discovers
     PAGE ||--o{ UI_ELEMENT : contains
     PAGE ||--o{ SCREENSHOT : has
-    TARGET_APPLICATION ||--o{ FUNCTIONAL_MODULE : groups
-    FUNCTIONAL_MODULE ||--o{ PAGE : organizes
     TARGET_APPLICATION ||--o{ DOCUMENT : has
     DOCUMENT ||--o{ DOCUMENT_SECTION : contains
 ```
 
-## 9. Entidades principales
+Las secciones del documento conservan referencias a la página y, cuando existe, a su screenshot de origen.
 
-### PROJECT
+## 7. Límites y evolución
 
-`id`, `name`, `description`, `created_at`, `updated_at`.
+El MVP opera contra sistemas web locales autorizados, con login tradicional y navegación de solo lectura. No incluye IA, DOCX/PDF, workflows, producción, SSO/OAuth/MFA, colaboración, multiusuario, microservicios ni almacenamiento remoto.
 
-### TARGET_APPLICATION
-
-`id`, `project_id`, `name`, `base_url`, `login_url`, `username_encrypted`, `password_encrypted`, `excluded_routes_json`.
-
-### ANALYSIS
-
-`id`, `application_id`, `status`, `started_at`, `finished_at`, `pages_discovered`, `error_message`, `config_json`.
-
-### PAGE
-
-`id`, `analysis_id`, `url`, `normalized_url`, `title`, `inferred_name`, `module_name`, `fingerprint`, `depth`, `status`.
-
-### UI_ELEMENT
-
-`id`, `page_id`, `type`, `label`, `accessible_name`, `selector_hint`, `risk_level`, `metadata_json`.
-
-### SCREENSHOT
-
-`id`, `page_id`, `analysis_id`, `storage_path`, `sanitized`.
-
-### DOCUMENT
-
-`id`, `application_id`, `title`, `status`.
-
-### DOCUMENT_SECTION
-
-`id`, `document_id`, `title`, `content`, `sort_order`, `source_page_id`, `screenshot_id`.
-
-## 10. Seguridad y límites
-
-El navegador se ejecuta con contexto aislado y contra hosts locales autorizados. La clasificación de acciones usa tres estados: `SAFE`, `MUTATING` y `UNKNOWN`. Solo `SAFE` puede ejecutarse automáticamente; `MUTATING` y `UNKNOWN` se bloquean por defecto.
-
-Las credenciales se excluyen de logs, screenshots, prompts y objetos de evidencia. No se incorpora IA al flujo MVP; cualquier integración futura deberá recibir evidencia previamente sanitizada.
-
-## 11. Evolución futura
-
-Cuando el MVP esté validado podrán evaluarse IA, workflows y captura guiada, exportación DOCX, sistemas de producción, almacenamiento remoto y procesamiento asíncrono. Ninguna de esas decisiones debe introducirse ahora en el diseño operativo del MVP.
+La modularización futura, la ejecución asíncrona y los almacenamientos alternativos son posibles evoluciones, no capacidades actuales.

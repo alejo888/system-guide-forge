@@ -1,127 +1,112 @@
 # SystemGuideForge
 
-SystemGuideForge (SGF) es una herramienta web de uso personal para analizar sistemas web locales y generar un borrador editable de manual a partir de evidencia real.
+SystemGuideForge (SGF) es una herramienta web de uso personal para analizar sistemas web locales de forma segura y generar un borrador editable de manual a partir de evidencia observada. El MVP no requiere IA.
 
-## Alcance MVP
+## Inicio rápido
 
-El MVP permite:
+### 1. Iniciar PostgreSQL
 
-1. Registrar un sistema local.
-2. Configurar su URL, login tradicional y credenciales de prueba.
-3. Probar el acceso y autenticarse con usuario y contraseña.
-4. Analizar módulos y pantallas en modo seguro y de solo lectura.
-5. Detectar elementos de interfaz y tomar screenshots.
-6. Bloquear acciones mutantes o desconocidas.
-7. Generar un borrador editable de manual.
-
-Las credenciales se protegen desde el ingreso: nunca aparecen en logs, screenshots ni prompts de IA. La IA no es necesaria para el MVP.
-
-## Stack tecnológico
-
-- Frontend: Angular, TypeScript, Angular Material, Signals y RxJS cuando sea necesario.
-- Backend: Java, Spring Boot, Spring Web, Spring Data JPA y Bean Validation.
-- Arquitectura: Modular Monolith con arquitectura hexagonal pragmática.
-- Persistencia: PostgreSQL y Flyway.
-- Automatización: Playwright Java.
-- Archivos MVP: filesystem local.
-- API: REST documentada con OpenAPI.
-- Desarrollo: Docker Compose.
-
-## Estructura del repositorio
-
-La documentación vigente está en la raíz:
-
-```text
-systemguideforge/
-├── frontend/
-├── backend/
-├── test-target/
-├── README.md
-├── specification.md
-├── architecture.md
-├── implementation.md
-└── openapi.yaml
-```
-
-## Fuera del MVP
-
-Quedan como evolución futura, no como requisitos inmediatos: IA, workflows y captura guiada de operaciones mutantes, exportación DOCX, soporte de sistemas en producción, SSO, MFA, colaboración, multiusuario, análisis de repositorios, microservicios y almacenamiento remoto.
-
-## Documentación
-
-- `specification.md`: alcance funcional y criterios del MVP.
-- `architecture.md`: arquitectura, componentes y modelo de datos del MVP.
-- `implementation.md`: flujo técnico, seguridad y reglas de implementación.
-- `openapi.yaml`: contrato REST limitado al MVP.
-
-## Run the backend locally
-
-Local backend persistence uses PostgreSQL and Flyway. Docker is required for the database:
+Docker Compose requiere `POSTGRES_PASSWORD` y no lo toma de `SGF_DB_PASSWORD`. Para que Compose y el backend usen la misma contraseña local, exportá ambas variables con un placeholder de desarrollo:
 
 ```bash
+export POSTGRES_PASSWORD=local-only-postgres-password
+export SGF_DB_PASSWORD="$POSTGRES_PASSWORD"
 docker compose up -d postgres
 ```
 
-Wait until the PostgreSQL healthcheck is healthy, then start the backend with Java 25:
+En PowerShell:
+
+```powershell
+$env:POSTGRES_PASSWORD="local-only-postgres-password"
+$env:SGF_DB_PASSWORD=$env:POSTGRES_PASSWORD
+docker compose up -d postgres
+```
+
+La base queda disponible en `127.0.0.1:15432`. El backend usa las variables `SGF_DB_URL`, `SGF_DB_USERNAME` y `SGF_DB_PASSWORD`; si no exportás `SGF_DB_PASSWORD`, su valor local predeterminado es `systemguideforge` según `application.properties`, por lo que debe coincidir con la contraseña configurada para Compose.
+
+### 2. Iniciar el backend
+
+Se requiere Java 25 y una clave de credenciales. `SGF_CREDENTIAL_KEY` es obligatoria y no tiene valor predeterminado:
 
 ```bash
+export SGF_CREDENTIAL_KEY=local-only-test-key
+cd backend && ./mvnw spring-boot:run
+```
+
+En PowerShell:
+
+```powershell
+$env:SGF_CREDENTIAL_KEY="local-only-test-key"
 cd backend
 ./mvnw spring-boot:run
 ```
 
-Flyway creates the schema on backend startup. Existing H2 files are not imported or migrated; create any required local data again in PostgreSQL.
+El backend escucha en `http://localhost:8080`. Flyway aplica las migraciones V1–V6 al iniciar y Hibernate usa `ddl-auto=validate`.
 
-The default database settings are:
+### 3. Iniciar el frontend
 
-| Variable | Default |
+```bash
+cd frontend
+npm install
+npm start
+```
+
+La aplicación queda en `http://localhost:4200`. El proxy de Angular reenvía las solicitudes `/api` a `http://127.0.0.1:8080`, evitando configurar CORS para el desarrollo local.
+
+## Variables de entorno
+
+| Variable | Requerida | Uso | Valor por defecto |
+| --- | --- | --- | --- |
+| `POSTGRES_PASSWORD` | Sí para Compose | Contraseña del contenedor PostgreSQL | No tiene; Compose falla si falta |
+| `SGF_CREDENTIAL_KEY` | Sí para backend | Cifra las credenciales guardadas | No tiene |
+| `SGF_DB_URL` | No | URL JDBC del backend | `jdbc:postgresql://localhost:15432/systemguideforge` |
+| `SGF_DB_USERNAME` | No | Usuario JDBC | `systemguideforge` |
+| `SGF_DB_PASSWORD` | No | Contraseña JDBC | `systemguideforge` |
+| `SGF_BACKEND_URL` | No | URL del backend para E2E | `http://127.0.0.1:8080` |
+| `SGF_FIXTURE_URL` | No | URL de la fixture para E2E | `http://127.0.0.1:4173` |
+| `FIXTURE_USERNAME` | No | Usuario de la fixture | `fixture-user` |
+| `FIXTURE_PASSWORD` | No | Contraseña de la fixture | `fixture-password` |
+
+Los valores de fixture son datos de prueba. No uses secretos reales en comandos, logs, screenshots ni archivos versionados.
+
+## Fixture local y E2E
+
+La fixture determinista vive en `test-target/` y escucha en `http://127.0.0.1:4173`:
+
+```bash
+cd test-target && npm start
+```
+
+El flujo E2E requiere PostgreSQL, backend, fixture, Java 25 y Chromium de Playwright instalados. Ejecutalo con `cd test-target && npm run e2e` después de levantar esos servicios. Esta documentación no ejecuta la validación manual/browser de ese flujo.
+
+## Alcance del MVP
+
+Incluye registro de sistemas locales, login tradicional, prueba de acceso, análisis síncrono seguro, detección de páginas y elementos, screenshots sanitizados y generación de un manual editable. La edición del MVP se limita al título y las secciones del documento generado; no edita los resultados del análisis.
+
+El análisis ejecuta el adaptador de forma síncrona, recorre únicamente enlaces clasificados como `SAFE` y nunca ejecuta controles. Las acciones `MUTATING` y `UNKNOWN` quedan bloqueadas. No se promete persistencia parcial ni recuperación automática ante fallos.
+
+Fuera de alcance: producción, SSO/OAuth/MFA, workflows, IA, DOCX/PDF, colaboración, multiusuario, roles, multi-tenant, análisis de repositorios, microservicios y almacenamiento remoto.
+
+## Documentación
+
+- `specification.md`: alcance y comportamiento funcional.
+- `architecture.md`: arquitectura implementada y persistencia.
+- `implementation.md`: flujos, seguridad y configuración técnica.
+- `openapi.yaml`: contrato REST del MVP.
+- `docs/agent-guidelines.md`: reglas para inspección segura.
+
+## Verificación ejecutada
+
+| Comprobación | Resultado |
 | --- | --- |
-| `SGF_DB_URL` | `jdbc:postgresql://localhost:15432/systemguideforge` |
-| `SGF_DB_USERNAME` | `systemguideforge` |
-| `SGF_DB_PASSWORD` | `systemguideforge` |
+| `cd backend && ./mvnw test` | 72 tests pasan |
+| `cd frontend && npm test` | 30 tests pasan |
+| `cd frontend && npm run build` | Pasa |
+| `git diff --check` | Pasa |
+| Fixture/E2E y validación manual en navegador | Requiere el stack local; no se ejecutó en esta actualización documental |
 
-The compose database uses these same defaults. The backend remains on port `8080`, and the frontend and fixture workflows remain on ports `4200` and `4173` respectively. Tests use an isolated PostgreSQL Testcontainers instance and do not fall back to H2; Docker must be available to run them.
+## Versiones verificadas
 
-Run backend tests with `./mvnw test` from `backend`.
-
-The backend requires `SGF_CREDENTIAL_KEY` to encrypt credentials; there is no default key. `sgf.credential-key` may be configured explicitly in test/local environments, but must never be shared or used in production.
-
-`POST /applications/{id}/test-access` performs a real traditional login through Playwright using an isolated browser context. Chromium must be installed for Playwright. If the browser is unavailable, the result does not indicate successful authentication.
-
-## Aplicación fixture local
-
-La aplicación determinista para probar SystemGuideForge vive en `test-target/` y usa únicamente Node.js:
-
-```bash
-cd test-target
-npm start
-```
-
-Abrí `http://127.0.0.1:4173`. Credenciales de fixture: `fixture-user` / `fixture-password` (son datos de prueba, no secretos reales). La fixture incluye login, sesión protegida, logout, controles seguros, mutantes y ambiguos, y un campo sensible para validar el masking de screenshots. El smoke test reproducible se ejecuta con `cd test-target && npm test`.
-
-## E2E contra backend y fixture
-
-El smoke test unitario (`npm test`) no requiere backend. El E2E requiere ambos servicios levantados, Chromium de Playwright instalado y Java 25:
-
-Terminal 1:
-
-```bash
-cd test-target
-npm start
-```
-
-Terminal 2 (after `docker compose up -d postgres`):
-
-```bash
-cd backend
-set SGF_CREDENTIAL_KEY=local-only-test-key
-./mvnw spring-boot:run
-```
-
-En PowerShell usar `$env:SGF_CREDENTIAL_KEY="local-only-test-key"` antes de `./mvnw spring-boot:run`. Con ambos servicios activos, ejecutar:
-
-```bash
-cd test-target
-npm run e2e
-```
-
-El backend puede configurarse con `SGF_BACKEND_URL`; la fixture con `SGF_FIXTURE_URL`, `FIXTURE_USERNAME` y `FIXTURE_PASSWORD`. El E2E crea un proyecto y aplicación temporales, ejecuta test-access y analysis, y verifica autenticación, estado `COMPLETED`, páginas, elementos y screenshot PNG.
+- Angular y Angular CLI `21.2.21`; TypeScript `5.9.3`.
+- Java `25`; Spring Boot `3.5.6`; Playwright Java `1.55.0`.
+- PostgreSQL `16-alpine`; Testcontainers `1.21.4`.

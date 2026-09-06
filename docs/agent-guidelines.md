@@ -4,9 +4,9 @@ This repository uses MCP and local agents to inspect local systems safely. Keep 
 
 ## Quick path
 
-1. Use the pinned Playwright MCP server only for local or explicitly authorized test targets.
+1. Use only the pinned Playwright MCP server for local or explicitly authorized targets.
 2. Inspect with read-only browser actions; stop when an action could mutate state or its effect is unclear.
-3. Run the focused test command for the area changed, then remove disposable browser artifacts.
+3. Run the focused validation for the changed area and discard disposable browser artifacts.
 
 ## Authorized usage
 
@@ -22,12 +22,18 @@ This repository uses MCP and local agents to inspect local systems safely. Keep 
 - Do not retain screenshots or logs containing sensitive data. Delete or securely discard them after inspection; do not copy them elsewhere.
 - Use fixture credentials only through the authorized test flow and never treat them as reusable secrets.
 
-## Validation commands
+## Validation
 
-- Backend: `cd backend && ./mvnw test`
-- Fixture smoke test: `cd test-target && npm test`
-- Fixture E2E: `cd test-target && npm run e2e` (requires the documented local services, Chromium, and Java 25)
-- Configuration checks: validate JSON, Markdown frontmatter, and Git exclude syntax before sharing changes.
+| Area | Command | Condition |
+| --- | --- | --- |
+| Backend | `cd backend && ./mvnw test` | 72 tests pass in the recorded verification |
+| Frontend | `cd frontend && npm test` | 30 tests pass in the recorded verification |
+| Frontend build | `cd frontend && npm run build` | Passes in the recorded verification |
+| Fixture smoke test | `cd test-target && npm test` | Does not require the backend |
+| Fixture E2E | `cd test-target && npm run e2e` | Requires PostgreSQL, backend, fixture, Chromium, and Java 25 |
+| Markdown/configuration | `git diff --check` and Markdown/JSON validation | Run according to the change |
+
+Fixture/E2E validation and manual browser inspection require the local stack; they are not considered executed by a documentation-only update.
 
 ## Recommended roles and skills
 
