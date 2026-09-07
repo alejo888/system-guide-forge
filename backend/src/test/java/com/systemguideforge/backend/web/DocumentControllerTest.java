@@ -25,6 +25,8 @@ class DocumentControllerTest {
         assertThat(response.getBody().title()).isEqualTo("Guide");
         assertThat(response.getBody().sections()).extracting(DocumentController.SectionResponse::screenshotId)
                 .containsExactly("shot-1");
+        assertThat(response.getBody().sections()).extracting(DocumentController.SectionResponse::hidden)
+                .containsExactly(false);
     }
 
     @Test
@@ -43,11 +45,12 @@ class DocumentControllerTest {
         when(service.update(eq(document.getId()), any())).thenReturn(document);
 
         var success = controller.update(document.getId(), new DocumentController.UpdateRequest("Guide", List.of(
-                new DocumentController.SectionUpdateRequest("section-1", "Home", "content"))));
+                new DocumentController.SectionUpdateRequest("section-1", "Home", "content", true))));
         var invalid = controller.invalidUpdate(new DocumentService.InvalidDocumentUpdateException("invalid"));
 
         assertThat(success.getStatusCode().value()).isEqualTo(200);
         assertThat(success.getBody().sections()).hasSize(1);
+        verify(service).update(eq(document.getId()), argThat(command -> command.sections().getFirst().hidden()));
         assertThat(invalid.getStatusCode().value()).isEqualTo(400);
         assertThat(invalid.getBody().message()).isEqualTo("invalid");
     }

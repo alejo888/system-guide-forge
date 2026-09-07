@@ -61,7 +61,7 @@ ScreenshotRepository
 └── PostgreSQL/JPA
 ```
 
-El adaptador de análisis se ejecuta de forma síncrona dentro del caso de uso. Solo se recorren enlaces con clasificación `SAFE`; los controles no se ejecutan. `MUTATING` y `UNKNOWN` se bloquean.
+El adaptador de análisis se ejecuta de forma síncrona dentro del caso de uso. Solo se recorren enlaces con clasificación `SAFE`; los controles no se ejecutan. `MUTATING` y `UNKNOWN` se bloquean. La aprobación de inclusión de un elemento `UNKNOWN` es un dato documental independiente: no cambia la clasificación ni el comportamiento del crawler.
 
 ## 5. Persistencia y migraciones
 
@@ -77,6 +77,7 @@ Flyway aplica esta historia, en orden:
 | V4 | Configuración del crawler |
 | V5 | Idioma del documento |
 | V6 | Tipo del documento |
+| V7 | Aprobación de inclusión documental para elementos `UNKNOWN` |
 
 Hibernate valida el esquema existente con `ddl-auto=validate`; no lo genera ni lo actualiza.
 
@@ -95,7 +96,7 @@ erDiagram
     DOCUMENT ||--o{ DOCUMENT_SECTION : contains
 ```
 
-Las secciones del documento conservan referencias a la página y, cuando existe, a su screenshot de origen.
+Las secciones del documento conservan referencias a la página y, cuando existe, a su screenshot de origen. Al cambiar una aprobación de inclusión documental, `AnalysisService` elimina el documento y sus secciones dentro de la transacción; la siguiente generación crea un borrador consistente con las aprobaciones actuales.
 
 ## 7. Límites y evolución
 

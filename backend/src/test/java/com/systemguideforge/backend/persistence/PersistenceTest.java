@@ -105,6 +105,7 @@ class PersistenceTest {
         assertThat(loaded.getType()).isEqualTo(Document.DocumentType.USER_MANUAL);
         assertThat(section.getSourcePageId()).isEqualTo(page.getId());
         assertThat(section.getScreenshotId()).isEqualTo(screenshot.getId());
+        assertThat(section.isHidden()).isFalse();
     }
 
     @Test
@@ -167,8 +168,8 @@ class PersistenceTest {
         DocumentSection second = documentSections.save(new DocumentSection(document.getId(), 1, secondPage.getId(), null, "Second", "second"));
 
         Document updated = documentService.update(document.getId(), new DocumentService.UpdateCommand("Edited", java.util.List.of(
-                new DocumentService.SectionUpdate(second.getId(), "Second edited", "second edited"),
-                new DocumentService.SectionUpdate(first.getId(), "First edited", "first edited"))));
+                new DocumentService.SectionUpdate(second.getId(), "Second edited", "second edited", true),
+                new DocumentService.SectionUpdate(first.getId(), "First edited", "first edited", false))));
 
         Document loaded = documents.findById(document.getId()).orElseThrow();
         assertThat(loaded.getTitle()).isEqualTo("Edited");
@@ -177,6 +178,7 @@ class PersistenceTest {
         DocumentSection loadedSecond = documentSections.findById(second.getId()).orElseThrow();
         assertThat(loadedSecond.getSourcePageId()).isEqualTo(secondPage.getId());
         assertThat(loadedSecond.getScreenshotId()).isNull();
+        assertThat(loadedSecond.isHidden()).isTrue();
         assertThat(updated.getSections()).extracting(DocumentSection::getPosition).containsExactly(0, 1);
     }
 

@@ -17,7 +17,8 @@ Permitir que una persona documente un sistema web local recorriéndolo de forma 
 - Detección de páginas y elementos relevantes.
 - Screenshots sanitizados almacenados en PostgreSQL como `BYTEA`.
 - Bloqueo de controles `MUTATING` y `UNKNOWN`; ningún control se ejecuta durante el análisis.
-- Generación determinista de un manual con idioma `en` o `es` y tipo `user_manual`.
+- Revisión posterior al análisis para aprobar la inclusión documental de elementos `UNKNOWN`, sin habilitar su ejecución.
+- Generación determinista de un manual con idioma `en` o `es` y tipo `user_manual`; incluye controles `SAFE` y elementos `UNKNOWN` aprobados, sin etiquetas de clasificación ni selectores técnicos.
 - Edición del título y de las secciones del documento generado.
 
 ### No incluye
@@ -42,6 +43,8 @@ Ejecutar análisis síncrono y seguro
       ↓
 Revisar páginas y elementos
       ↓
+Aprobar opcionalmente elementos UNKNOWN para documentación
+      ↓
 Generar manual en en/es
       ↓
 Editar título y secciones
@@ -62,6 +65,9 @@ Editar título y secciones
 - **RF11.** Reutilizar el borrador cuando coinciden análisis, idioma y tipo.
 - **RF12.** Al cambiar idioma o tipo, mostrar una advertencia localizada y reemplazar transaccionalmente secciones y contenido editable, destruyendo las ediciones previas.
 - **RF13.** Editar el título y las secciones del manual generado.
+- **RF14.** Permitir aprobar o retirar la inclusión documental de un elemento `UNKNOWN` antes de generar el manual, sin ejecutar el elemento ni ampliar el crawling.
+- **RF15.** Incluir en el manual solo elementos `SAFE` o `UNKNOWN` aprobados, con instrucciones funcionales y sin selectores ni lenguaje técnico de clasificación.
+- **RF16.** Eliminar el borrador existente al cambiar una aprobación de inclusión documental, para exigir una nueva generación sin contenido obsoleto.
 
 ## 5. Requisitos no funcionales
 

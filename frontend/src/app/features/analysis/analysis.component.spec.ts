@@ -6,8 +6,8 @@ import { ApiService, DocumentResponse } from '../../core/api.service';
 const document: DocumentResponse = {
   id: 'doc-1', title: 'Guide', applicationId: 'app-1', sourceAnalysisId: 'analysis-1', status: 'DRAFT', language: 'en', type: 'user_manual',
   sections: [
-    { id: 'section-1', position: 0, sourcePageId: 'page-1', screenshotId: 'shot-1', title: 'First', content: 'Content 1' },
-    { id: 'section-2', position: 1, sourcePageId: 'page-2', screenshotId: null, title: 'Second', content: 'Content 2' },
+    { id: 'section-1', position: 0, sourcePageId: 'page-1', screenshotId: 'shot-1', title: 'First', content: 'Content 1', hidden: false },
+    { id: 'section-2', position: 1, sourcePageId: 'page-2', screenshotId: null, title: 'Second', content: 'Content 2', hidden: true },
   ],
 };
 
@@ -17,7 +17,9 @@ describe('AnalysisComponent document editing', () => {
   let api: jasmine.SpyObj<ApiService>;
 
   beforeEach(async () => { localStorage.setItem('sgf.language', 'en'); spyOn(window, 'confirm').and.returnValue(true);
-    api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getAnalysisModules', 'getPageElements', 'getPageScreenshot', 'generateDocument', 'updateDocument']);
+    api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getAnalysisModules', 'getPageElements', 'getPageScreenshot', 'generateDocument', 'updateDocument', 'updateManualInclusion']);
+        api.getAnalysis.and.resolveTo({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
+        api.getAnalysisPages.and.resolveTo([]);
         api.getAnalysisModules.and.resolveTo([]);
     api.updateDocument.and.resolveTo(document);
     await TestBed.configureTestingModule({ imports: [AnalysisComponent], providers: [
@@ -31,7 +33,7 @@ describe('AnalysisComponent document editing', () => {
     component.editTitle('Edited guide'); component.editSectionTitle('section-1', 'Renamed'); component.editSectionContent('section-1', 'Updated');
     await component.saveDocument();
     expect(api.updateDocument).toHaveBeenCalledWith('doc-1', { title: 'Edited guide', sections: [
-      { id: 'section-1', title: 'Renamed', content: 'Updated' }, { id: 'section-2', title: 'Second', content: 'Content 2' },
+      { id: 'section-1', title: 'Renamed', content: 'Updated', hidden: false }, { id: 'section-2', title: 'Second', content: 'Content 2', hidden: true },
     ] });
     expect(component.editableSections()[0].sourcePageId).toBe('page-1');
     expect(component.editableSections()[0].screenshotId).toBe('shot-1');
@@ -48,6 +50,8 @@ describe('AnalysisComponent document editing', () => {
   });
   it('cancels replacement without calling the API or changing the persisted draft', async () => { component.document.set(document); component.editableTitle.set(document.title); component.setDocumentLanguage('es'); (window.confirm as jasmine.Spy).and.returnValue(false); await component.generateDocument(); expect(api.generateDocument).not.toHaveBeenCalled(); expect(component.document()).toBe(document); expect(component.documentLanguage()).toBe('es'); });
       it('reorders sections by array order', () => { component.moveSection('section-2', -1); expect(component.editableSections().map(section => section.id)).toEqual(['section-2', 'section-1']); });
+    it('keeps hidden sections in the editable array while excluding them from the reader-facing draft', () => { expect(component.visibleSections().map(section => section.id)).toEqual(['section-1']); expect(component.hiddenSections().map(section => section.id)).toEqual(['section-2']); component.setSectionHidden('section-2', false); expect(component.editableSections()[1].hidden).toBeFalse(); });
+    it('renders a traceable hidden management row outside the draft content and contents list', () => { fixture.detectChanges(); expect(fixture.nativeElement.querySelectorAll('.draft-card').length).toBe(1); expect(fixture.nativeElement.querySelector('.hidden-section-row').textContent).toContain('Source page: page-2'); expect(fixture.nativeElement.querySelector('.hidden-section-row').textContent).toContain('Screenshot: Unavailable'); expect(fixture.nativeElement.querySelector('.toc-card').textContent).toContain('First'); expect(fixture.nativeElement.querySelector('.toc-card').textContent).not.toContain('Second'); });
   it('keeps page evidence and document editing available when module loading fails', async () => {
     const analysis = { id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED' as const, startedAt: '', completedAt: null, failureMessage: null };
     const page = { id: 'page-1', analysisId: 'analysis-1', url: 'https://example.test', title: 'Home' };
@@ -80,13 +84,45 @@ describe('AnalysisComponent document editing', () => {
   });
   it('filters pages and sections across searchable evidence fields', () => {
     const page = { id: 'page-1', analysisId: 'analysis-1', url: 'https://example.test/settings', title: 'Settings' };
-    component.pages.set([{ ...page, elements: [{ id: 'element-1', kind: 'button', selector: '#save-settings', accessibleName: 'Save', actionClassification: 'MUTATING' }], screenshotUrl: null }]);
+    component.pages.set([{ ...page, elements: [{ id: 'element-1', kind: 'button', selector: '#save-settings', accessibleName: 'Save', actionClassification: 'MUTATING', manualInclusionApproved: false }], screenshotUrl: null }]);
     component.modules.set([{ key: 'admin', name: 'Administration', pages: [page] }]);
     component.searchQuery.set('save-settings');
     expect(component.filteredModules()[0].pages).toEqual([page]);
     component.searchQuery.set('missing');
     expect(component.filteredModules()).toEqual([]);
     expect(component.filteredSections()).toEqual([]);
+  });
+  it('places UNKNOWN review before generation and generation before draft evidence', () => {
+    const page = { id: 'page-1', analysisId: 'analysis-1', url: 'https://example.test', title: 'Home' };
+    component.pages.set([{ ...page, elements: [{ id: 'element-1', kind: 'button', selector: '#advanced', accessibleName: 'Advanced', actionClassification: 'UNKNOWN' as const, manualInclusionApproved: false }], screenshotUrl: 'blob:screen' }]);
+    component.modules.set([{ key: 'home', name: 'Home', pages: [page] }]);
+    component.analysis.set({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
+    component.state.set('ready');
+    fixture.detectChanges();
+
+    const reviewControl = fixture.nativeElement.querySelector('.manual-review-card input[type="checkbox"]');
+    const manualCard = fixture.nativeElement.querySelector('.generation-card');
+    const draft = fixture.nativeElement.querySelector('.draft-section');
+    const screenshot = fixture.nativeElement.querySelector('.screenshot');
+    expect(reviewControl).not.toBeNull();
+    expect(manualCard).not.toBeNull();
+    expect(draft).not.toBeNull();
+    expect(screenshot).not.toBeNull();
+    expect(reviewControl.compareDocumentPosition(manualCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(manualCard.compareDocumentPosition(draft) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(manualCard.compareDocumentPosition(screenshot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+  it('approves an unknown item for documentation without executing it and clears a stale draft', async () => {
+    const unknown = { id: 'element-1', kind: 'button', selector: '#advanced', accessibleName: 'Advanced', actionClassification: 'UNKNOWN' as const, manualInclusionApproved: false };
+    component.pages.set([{ id: 'page-1', analysisId: 'analysis-1', url: 'https://example.test', title: 'Home', elements: [unknown], screenshotUrl: null }]);
+    api.updateManualInclusion.and.resolveTo({ ...unknown, manualInclusionApproved: true });
+
+    await component.setManualInclusionApproval(unknown.id, true);
+
+    expect(api.updateManualInclusion).toHaveBeenCalledWith(unknown.id, true);
+    expect(component.pages()[0].elements[0].manualInclusionApproved).toBeTrue();
+    expect(component.document()).toBeNull();
+    expect(component.documentState()).toBe('idle');
   });
   it('builds stable anchor ids for navigation', () => {
     expect(component.sectionAnchor('section-1')).toBe('manual-section-section-1');

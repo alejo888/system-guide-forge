@@ -49,8 +49,8 @@ class DocumentServiceTest {
         assertThat(document.getTitle()).isEqualTo("Manual de usuario \"FlowPilot\"");
             assertThat(document.getLanguage()).isEqualTo(Document.DocumentLanguage.ES);
         assertThat(document.getType()).isEqualTo(Document.DocumentType.USER_MANUAL);
-        assertThat(document.getSections().getFirst().getContent()).contains("Esta pantalla", "Pasos seguros para usarla", "1.", "Save", "#save", "Seguridad y límites", "MUTATING", "No ejecutes la acción del control", "Referencia técnica").doesNotContain("Elementos de interfaz observados", "Observed interface elements", "Revisa el control");
-        assertThat(document.getSections().getFirst().getContent()).contains("Save", "#save", "MUTATING");
+        assertThat(document.getSections().getFirst().getContent()).contains("Esta pantalla", "Pasos", "No se identificaron acciones").doesNotContain("Save", "#save", "SAFE", "UNKNOWN", "MUTATING", "clasificación", "Referencia técnica");
+
     }
 
     @Test
@@ -88,9 +88,8 @@ class DocumentServiceTest {
         assertThat(document.getSections().get(0).getSourcePageId()).isEqualTo(alpha.getId());
         assertThat(document.getSections().get(0).getScreenshotId()).isNotNull();
         assertThat(document.getSections().get(0).getContent())
-                    .contains("This screen", "Safe usage steps", "1.", "control", "Save", "MUTATING", "#save", "SAFE", "UNKNOWN", "Safety and limitations", "Do not execute the action", "You can select or open the link", "Verify the effect of the field")
-                    .doesNotContain("Review the Button control")
-                        .doesNotStartWith("button: #save");
+                .contains("This screen", "Steps", "1.", "Help", "Open the link")
+                .doesNotContain("Save", "#save", "#query", "SAFE", "UNKNOWN", "MUTATING", "classification", "Technical reference");
     }
 
     @Test
@@ -122,9 +121,102 @@ class DocumentServiceTest {
 
         assertThat(section.getTitle()).hasSizeLessThanOrEqualTo(255);
         assertThat(section.getContent()).hasSizeLessThanOrEqualTo(10000);
-        assertThat(section.getContent()).contains("MUTATING", "#save");
+        assertThat(section.getContent()).contains("Help").doesNotContain("MUTATING", "#save");
         assertThat(section.getSourcePageId()).isEqualTo(page.getId());
         assertThat(section.getScreenshotId()).isEqualTo(screenshot.getId());
+    }
+
+    @Test
+    void includesOnlySafeAndApprovedUnknownElementsWithoutTechnicalMetadata() {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        Page page = new Page(analysis.getId(), "http://localhost/home", "Home");
+        UIElement safe = new UIElement(page.getId(), "link", "a.help", "Help", ActionClassification.SAFE);
+        UIElement approvedUnknown = new UIElement(page.getId(), "input", "#query", "Search", ActionClassification.UNKNOWN);
+        approvedUnknown.setManualInclusionApproved(true);
+        UIElement unapprovedUnknown = new UIElement(page.getId(), "button", "#advanced", "Advanced", ActionClassification.UNKNOWN);
+        UIElement mutating = new UIElement(page.getId(), "button", "#save", "Save", ActionClassification.MUTATING);
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        UIElementRepository elements = mock(UIElementRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.empty());
+        when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(page));
+        when(elements.findByPageId(page.getId())).thenReturn(List.of(safe, approvedUnknown, unapprovedUnknown, mutating));
+        when(documents.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Document document = service(analyses, pages, elements, mock(ScreenshotRepository.class), documents, sections).generate(analysis.getId());
+
+        assertThat(document.getSections().getFirst().getContent())
+                .contains("Help", "Search")
+                .doesNotContain("Save", "Advanced", "a.help", "#query", "SAFE", "UNKNOWN", "MUTATING", "classification", "Technical reference");
+    }
+
+    @Test
+    void usesNaturalControlSpecificInstructionsInEnglishAndSpanish() {
+        String english = generatedManualContent(Document.DocumentLanguage.EN);
+        assertThat(english).contains(
+                "Open the link \"Help\" to continue.",
+                "Select the button \"Continue\" to continue.",
+                "Select the button \"Submit\" to continue.",
+                "Enter the information in the field \"Email\".",
+                "Write the information in the field \"Notes\".",
+                "Choose an option in \"Country\".",
+                "Choose an option in \"Region\".",
+                "Choose an option in \"Role\".",
+                "Select the option \"Terms\".",
+                "Select the option \"Plan\".",
+                "Use the control \"Custom action\" to continue.",
+                "Use the control \"Approved custom action\" to continue.",
+                "Enter the information in the field \"Approved email\".")
+                .doesNotContain("approved procedure");
+
+        String spanish = generatedManualContent(Document.DocumentLanguage.ES);
+        assertThat(spanish).contains(
+                "Abrí el enlace \"Help\" para continuar.",
+                "Seleccioná el botón \"Continue\" para continuar.",
+                "Seleccioná el botón \"Submit\" para continuar.",
+                "Ingresá la información en el campo \"Email\".",
+                "Escribí la información en el campo \"Notes\".",
+                "Elegí una opción en \"Country\".",
+                "Elegí una opción en \"Region\".",
+                "Elegí una opción en \"Role\".",
+                "Marcá la opción \"Terms\".",
+                "Seleccioná la opción \"Plan\".",
+                "Usá el control \"Custom action\" para continuar.",
+                "Usá el control \"Approved custom action\" para continuar.",
+                "Ingresá la información en el campo \"Approved email\".")
+                .doesNotContain("procedimiento aprobado");
+    }
+
+    @Test
+    void groupsManualInstructionsWithFunctionalContextInEnglishAndSpanish() {
+        String english = groupedManualContent(Document.DocumentLanguage.EN);
+        assertThat(english).contains(
+                "This screen helps you work with \"Catalog\".",
+                "Navigation:\n1. Open the link \"Browse catalog\" to continue.",
+                "Information:\n2. Enter the information in the field \"Search catalog\".",
+                "Actions:\n3. Select the button \"Apply filters\" to continue.\n4. Select the option \"Compact view\".");
+
+        String spanish = groupedManualContent(Document.DocumentLanguage.ES);
+        assertThat(spanish).contains(
+                "Esta pantalla te ayuda a trabajar con \"Catalog\".",
+                "Navegación:\n1. Abrí el enlace \"Browse catalog\" para continuar.",
+                "Información:\n2. Ingresá la información en el campo \"Search catalog\".",
+                "Acciones:\n3. Seleccioná el botón \"Apply filters\" para continuar.\n4. Seleccioná la opción \"Compact view\".");
+    }
+
+    @Test
+    void omitsEmptyInstructionGroups() {
+        String content = groupedManualContent(Document.DocumentLanguage.EN, List.of(
+                new UIElement("page-1", "link", "a.catalog", "Browse catalog", ActionClassification.SAFE)));
+
+        assertThat(content)
+                .contains("Navigation:\n1. Open the link \"Browse catalog\" to continue.")
+                .doesNotContain("Information:", "Actions:");
     }
 
     @Test
@@ -166,14 +258,16 @@ class DocumentServiceTest {
 
         Document result = service(mock(AnalysisRepository.class), mock(PageRepository.class), mock(UIElementRepository.class), mock(ScreenshotRepository.class), documents, sections)
                 .update(document.getId(), new DocumentService.UpdateCommand("Edited document", List.of(
-                        new DocumentService.SectionUpdate(second.getId(), "Reordered", "new content"),
-                        new DocumentService.SectionUpdate(first.getId(), "Updated first", "updated content"))));
+                        new DocumentService.SectionUpdate(second.getId(), "Reordered", "new content", true),
+                        new DocumentService.SectionUpdate(first.getId(), "Updated first", "updated content", false))));
 
         assertThat(result.getTitle()).isEqualTo("Edited document");
         assertThat(result.getSections()).extracting(DocumentSection::getId).containsExactly(second.getId(), first.getId());
         assertThat(result.getSections().get(0).getSourcePageId()).isEqualTo("page-2");
         assertThat(result.getSections().get(0).getScreenshotId()).isNull();
         assertThat(result.getSections().get(0).getTitle()).isEqualTo("Reordered");
+        assertThat(result.getSections().get(0).isHidden()).isTrue();
+        assertThat(result.getSections().get(1).isHidden()).isFalse();
         verify(sections, times(2)).flush();
     }
 
@@ -214,7 +308,7 @@ class DocumentServiceTest {
         when(sections.findByDocumentIdOrderByPositionAsc(document.getId())).thenReturn(List.of(section));
         DocumentService service = service(mock(AnalysisRepository.class), mock(PageRepository.class), mock(UIElementRepository.class), mock(ScreenshotRepository.class), documents, sections);
 
-        assertThatThrownBy(() -> service.update(document.getId(), new DocumentService.UpdateCommand("Valid", List.of(new DocumentService.SectionUpdate("other", "Title", "Content")))))
+        assertThatThrownBy(() -> service.update(document.getId(), new DocumentService.UpdateCommand("Valid", List.of(new DocumentService.SectionUpdate("other", "Title", "Content", false)))))
                 .isInstanceOf(DocumentService.InvalidDocumentUpdateException.class);
     }
 
@@ -236,19 +330,125 @@ class DocumentServiceTest {
     }
 
     @Test
-    void reusesExistingDraftForRepeatedGeneration() {
+    void regeneratesLegacyTechnicalUserManualFromCurrentEvidence() {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        Page page = new Page(analysis.getId(), "http://localhost/home", "Home");
+        Document existing = new Document(analysis.getId(), analysis.getApplicationId());
+        DocumentSection legacySection = new DocumentSection(existing.getId(), 0, page.getId(), null, "Legacy", "Technical reference: classification SAFE; selector: \"a.help\".");
+        UIElement safe = new UIElement(page.getId(), "link", "a.help", "Help", ActionClassification.SAFE);
+        UIElement mutating = new UIElement(page.getId(), "button", "#save", "Save", ActionClassification.MUTATING);
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        UIElementRepository elements = mock(UIElementRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.of(existing));
+        when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(page));
+        when(elements.findByPageId(page.getId())).thenReturn(List.of(safe, mutating));
+        when(sections.findByDocumentIdOrderByPositionAsc(existing.getId())).thenReturn(List.of(legacySection));
+        when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Document result = service(analyses, pages, elements, mock(ScreenshotRepository.class), documents, sections).generate(analysis.getId());
+
+        assertThat(result).isSameAs(existing);
+        assertThat(result.getSections().getFirst().getContent())
+                .contains("Help")
+                .doesNotContain("Technical reference", "classification", "SAFE", "a.help", "#save", "Save", "MUTATING");
+        verify(sections).deleteAll(List.of(legacySection));
+    }
+
+    @Test
+    void reusesCleanExistingDraftForRepeatedGeneration() {
         Analysis analysis = new Analysis("application-1");
         analysis.complete();
         Document existing = new Document(analysis.getId(), analysis.getApplicationId());
+        DocumentSection cleanSection = new DocumentSection(existing.getId(), 0, "page-1", null, "Home", "This screen helps you work with \"Home\".");
         DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
         when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.of(existing));
+        when(sections.findByDocumentIdOrderByPositionAsc(existing.getId())).thenReturn(List.of(cleanSection));
 
         AnalysisRepository analyses = mock(AnalysisRepository.class);
         when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
-        Document result = service(analyses, mock(PageRepository.class), mock(UIElementRepository.class), mock(ScreenshotRepository.class), documents, mock(DocumentSectionRepository.class)).generate(analysis.getId());
+        PageRepository pages = mock(PageRepository.class);
+        Document result = service(analyses, pages, mock(UIElementRepository.class), mock(ScreenshotRepository.class), documents, sections).generate(analysis.getId());
 
         assertThat(result).isSameAs(existing);
+        assertThat(result.getSections()).containsExactly(cleanSection);
         verify(documents, never()).save(any());
+        verify(pages, never()).findByAnalysisId(any());
+        verify(sections, never()).deleteAll(any());
+    }
+
+    private static String groupedManualContent(Document.DocumentLanguage language) {
+        return groupedManualContent(language, List.of(
+                new UIElement("page-1", "link", "a.catalog", "Browse catalog", ActionClassification.SAFE),
+                new UIElement("page-1", "input", "#search", "Search catalog", ActionClassification.SAFE),
+                new UIElement("page-1", "button", "#apply", "Apply filters", ActionClassification.SAFE),
+                new UIElement("page-1", "radio", "#compact", "Compact view", ActionClassification.SAFE)));
+    }
+
+    private static String groupedManualContent(Document.DocumentLanguage language, List<UIElement> manualElements) {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        Page page = new Page(analysis.getId(), "http://localhost/catalog", "Catalog");
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        UIElementRepository elements = mock(UIElementRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.empty());
+        when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(page));
+        when(elements.findByPageId(page.getId())).thenReturn(manualElements.stream()
+                .map(element -> new UIElement(page.getId(), element.getKind(), element.getSelector(), element.getAccessibleName(), element.getActionClassification()))
+                .toList());
+        when(documents.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        return service(analyses, pages, elements, mock(ScreenshotRepository.class), documents, sections)
+                .generate(analysis.getId(), language, Document.DocumentType.USER_MANUAL)
+                .getSections().getFirst().getContent();
+    }
+
+    private static String generatedManualContent(Document.DocumentLanguage language) {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        Page page = new Page(analysis.getId(), "http://localhost/home", "Home");
+        List<UIElement> manualElements = new java.util.ArrayList<>(List.of(
+                new UIElement(page.getId(), "link", "a.help", "Help", ActionClassification.SAFE),
+                new UIElement(page.getId(), "button", "#continue", "Continue", ActionClassification.SAFE),
+                new UIElement(page.getId(), "submit", "#submit", "Submit", ActionClassification.SAFE),
+                new UIElement(page.getId(), "input", "#email", "Email", ActionClassification.SAFE),
+                new UIElement(page.getId(), "textarea", "#notes", "Notes", ActionClassification.SAFE),
+                new UIElement(page.getId(), "select", "#country", "Country", ActionClassification.SAFE),
+                new UIElement(page.getId(), "dropdown", "#region", "Region", ActionClassification.SAFE),
+                new UIElement(page.getId(), "combobox", "#role", "Role", ActionClassification.SAFE),
+                new UIElement(page.getId(), "checkbox", "#terms", "Terms", ActionClassification.SAFE),
+                new UIElement(page.getId(), "radio", "#plan", "Plan", ActionClassification.SAFE),
+                new UIElement(page.getId(), "custom", "#custom", "Custom action", ActionClassification.SAFE)));
+        UIElement approvedUnknown = new UIElement(page.getId(), "custom", "#approved-custom", "Approved custom action", ActionClassification.UNKNOWN);
+        approvedUnknown.setManualInclusionApproved(true);
+        UIElement approvedUnknownInput = new UIElement(page.getId(), "input", "#approved-email", "Approved email", ActionClassification.UNKNOWN);
+        approvedUnknownInput.setManualInclusionApproved(true);
+        manualElements.addAll(List.of(approvedUnknown, approvedUnknownInput));
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        UIElementRepository elements = mock(UIElementRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.empty());
+        when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(page));
+        when(elements.findByPageId(page.getId())).thenReturn(manualElements);
+        when(documents.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        return service(analyses, pages, elements, mock(ScreenshotRepository.class), documents, sections)
+                .generate(analysis.getId(), language, Document.DocumentType.USER_MANUAL)
+                .getSections().getFirst().getContent();
     }
 
     private static TargetApplicationRepository testApplications() {

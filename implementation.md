@@ -36,6 +36,9 @@ La generación es determinista y usa únicamente la evidencia observada:
 - Idiomas admitidos: `en` y `es`.
 - Tipo admitido: `user_manual`.
 - Si ya existe un documento con el mismo análisis, idioma y tipo, la solicitud devuelve ese borrador y conserva las ediciones.
+- Antes de generar el manual, una persona puede aprobar o retirar la inclusión documental de un elemento `UNKNOWN`. Esta decisión no cambia su clasificación ni autoriza crawling o ejecución.
+- El manual incluye controles `SAFE` y elementos `UNKNOWN` aprobados, con instrucciones funcionales; omite acciones mutantes, elementos desconocidos sin aprobar, selectores y lenguaje técnico de clasificación.
+- Al cambiar una aprobación de inclusión, el sistema elimina transaccionalmente el borrador y sus secciones para impedir reutilizar un borrador obsoleto. La interfaz informa que se debe generar uno nuevo.
 - Si cambia el idioma o el tipo, el sistema muestra una advertencia localizada y reemplaza transaccionalmente las secciones y el contenido editable. **Las ediciones anteriores se destruyen.**
 - La edición posterior se limita al título y a las secciones del documento; los resultados del análisis no son editables desde este flujo.
 
@@ -45,7 +48,7 @@ La generación es determinista y usa únicamente la evidencia observada:
 | --- | --- |
 | `SAFE` | Puede habilitar el crawling de un enlace de navegación de solo lectura. |
 | `MUTATING` | Se bloquea; nunca se ejecuta. |
-| `UNKNOWN` | Se bloquea por defecto; nunca se ejecuta. |
+| `UNKNOWN` | Se bloquea por defecto; puede aprobarse solo para incluir instrucciones en el manual, sin ejecutarse. |
 
 El análisis no adivina el efecto de un control ni envía formularios, confirma operaciones, modifica datos o descarga contenido cuyo efecto no sea claramente de solo lectura.
 
@@ -80,7 +83,7 @@ REST conecta Angular con Spring Boot y `openapi.yaml` describe las operaciones i
 - Frontend: `http://localhost:4200`.
 - Proxy de desarrollo: `/api` → `http://127.0.0.1:8080`.
 - PostgreSQL Compose: `127.0.0.1:15432`, imagen `postgres:16-alpine`.
-- `ddl-auto=validate`; Flyway V1–V6 gestiona el esquema.
+- `ddl-auto=validate`; Flyway V1–V7 gestiona el esquema.
 
 Compose exige `POSTGRES_PASSWORD`. El backend admite `SGF_DB_URL`, `SGF_DB_USERNAME` y `SGF_DB_PASSWORD`, además de la obligatoria `SGF_CREDENTIAL_KEY`. Los flujos fixture/E2E admiten `SGF_BACKEND_URL`, `SGF_FIXTURE_URL`, `FIXTURE_USERNAME` y `FIXTURE_PASSWORD`. Ver `README.md` para defaults y sintaxis POSIX/PowerShell.
 

@@ -74,7 +74,8 @@ class AnalysisServiceTest {
         var duplicate = new ScreenAnalysisAdapter.DiscoveredPage("http://localhost/child", "Duplicate", List.of(), null, 1, ActionClassification.SAFE);
         var deep = new ScreenAnalysisAdapter.DiscoveredPage("http://localhost/deep", "Deep", List.of(), null, AnalysisService.MAX_CRAWL_DEPTH + 1, ActionClassification.SAFE);
         var blocked = new ScreenAnalysisAdapter.DiscoveredPage("http://localhost/delete", "Delete", List.of(), null, 1, ActionClassification.MUTATING);
-        when(adapter.analyze(any(), any(), any())).thenReturn(new ScreenAnalysisAdapter.ScreenAnalysisResult("http://localhost/home", "Home", List.of(), null, List.of(child, duplicate, deep, blocked)));
+        var unknown = new ScreenAnalysisAdapter.DiscoveredPage("http://localhost/advanced", "Advanced", List.of(), null, 1, ActionClassification.UNKNOWN);
+        when(adapter.analyze(any(), any(), any())).thenReturn(new ScreenAnalysisAdapter.ScreenAnalysisResult("http://localhost/home", "Home", List.of(), null, List.of(child, duplicate, deep, blocked, unknown)));
         Analysis result=new AnalysisService(analyses,pages,elements,screenshots,apps,protector,adapter).start(app.getId());
         assertThat(result.getStatus()).isEqualTo(AnalysisStatus.COMPLETED); verify(pages, times(2)).save(any(Page.class));
     }
@@ -111,6 +112,42 @@ class AnalysisServiceTest {
         ScreenAnalysisAdapter adapter=mock(ScreenAnalysisAdapter.class); when(adapter.analyze(any(),any(),any())).thenThrow(new RuntimeException("browser startup failed: password=supersecret https://target.test/home?token=secret"));
         Analysis result=new AnalysisService(analyses,mock(PageRepository.class),mock(UIElementRepository.class),mock(ScreenshotRepository.class),apps,mock(CredentialProtector.class),adapter).start(app.getId());
         assertThat(result.getStatus()).isEqualTo(AnalysisStatus.FAILED); assertThat(result.getFailureMessage()).contains("browser startup failed").doesNotContain("supersecret").doesNotContain("https://target.test/home?token=secret");
+    }
+
+    @Test
+    void approvesUnknownElementForManualDocumentationAndInvalidatesItsDraft() {
+        Page page = new Page("analysis-1", "http://localhost/home", "Home");
+        UIElement element = new UIElement(page.getId(), "button", "#advanced", "Advanced", ActionClassification.UNKNOWN);
+        Document document = new Document(page.getAnalysisId(), "application-1");
+        UIElementRepository elements = mock(UIElementRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(elements.findById(element.getId())).thenReturn(java.util.Optional.of(element));
+        when(elements.save(element)).thenReturn(element);
+        when(pages.findById(page.getId())).thenReturn(java.util.Optional.of(page));
+        when(documents.findBySourceAnalysisId(page.getAnalysisId())).thenReturn(java.util.Optional.of(document));
+        when(sections.findByDocumentIdOrderByPositionAsc(document.getId())).thenReturn(List.of());
+
+        UIElement approved = new AnalysisService(mock(AnalysisRepository.class), pages, elements, mock(ScreenshotRepository.class), mock(TargetApplicationRepository.class), mock(CredentialProtector.class), mock(ScreenAnalysisAdapter.class), documents, sections)
+                .setManualInclusionApproval(element.getId(), true);
+
+        assertThat(approved.isManualInclusionApproved()).isTrue();
+        verify(elements).save(element);
+        verify(sections).deleteAll(List.of());
+        verify(documents).delete(document);
+    }
+
+    @Test
+    void rejectsManualDocumentationApprovalForNonUnknownElements() {
+        UIElement element = new UIElement("page-1", "button", "#save", "Save", ActionClassification.MUTATING);
+        UIElementRepository elements = mock(UIElementRepository.class);
+        when(elements.findById(element.getId())).thenReturn(java.util.Optional.of(element));
+
+        AnalysisService service = new AnalysisService(mock(AnalysisRepository.class), mock(PageRepository.class), elements, mock(ScreenshotRepository.class), mock(TargetApplicationRepository.class), mock(CredentialProtector.class), mock(ScreenAnalysisAdapter.class), mock(DocumentRepository.class), mock(DocumentSectionRepository.class));
+
+        assertThatThrownBy(() -> service.setManualInclusionApproval(element.getId(), true))
+                .isInstanceOf(AnalysisService.InvalidManualInclusionApprovalException.class);
     }
 
     @Test

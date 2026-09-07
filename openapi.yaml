@@ -275,6 +275,39 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /elements/{elementId}/manual-inclusion:
+    put:
+      tags: [Analyses]
+      summary: Set whether an unknown action is included in generated documentation
+      description: >-
+        Documentation-only approval for an UNKNOWN action. It never permits crawler
+        execution. When the value changes, any existing draft for the source analysis
+        is deleted so a stale draft cannot be reused; generate a new draft afterward.
+      operationId: updateManualInclusion
+      parameters:
+        - $ref: '#/components/parameters/ElementId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualInclusionRequest'
+      responses:
+        '200':
+          description: Updated detected element.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ElementResponse'
+        '400':
+          description: The request is invalid or the element is not UNKNOWN.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /pages/{pageId}/screenshot:
     get:
       tags: [Analyses]
@@ -399,6 +432,13 @@ components:
     PageId:
       in: path
       name: pageId
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ElementId:
+      in: path
+      name: elementId
       required: true
       schema:
         type: string
@@ -606,7 +646,7 @@ components:
     ElementResponse:
       type: object
       additionalProperties: false
-      required: [id, kind, selector, actionClassification]
+      required: [id, kind, selector, actionClassification, manualInclusionApproved]
       properties:
         id:
           type: string
@@ -621,6 +661,17 @@ components:
         actionClassification:
           type: string
           enum: [SAFE, MUTATING, UNKNOWN]
+        manualInclusionApproved:
+          type: boolean
+          description: Whether this UNKNOWN action is included in generated documentation only.
+
+    ManualInclusionRequest:
+      type: object
+      additionalProperties: false
+      required: [approved]
+      properties:
+        approved:
+          type: boolean
 
     DocumentGenerateRequest:
       type: object
@@ -650,11 +701,12 @@ components:
     DocumentSectionUpdateRequest:
       type: object
       additionalProperties: false
-      required: [id, title, content]
+      required: [id, title, content, hidden]
       properties:
         id: { type: string, format: uuid }
         title: { type: string, minLength: 1, maxLength: 255 }
         content: { type: string, minLength: 1, maxLength: 10000 }
+        hidden: { type: boolean }
 
     DocumentResponse:
       type: object
@@ -676,7 +728,7 @@ components:
     DocumentSectionResponse:
       type: object
       additionalProperties: false
-      required: [id, position, sourcePageId, title, content]
+      required: [id, position, sourcePageId, title, content, hidden]
       properties:
         id: { type: string, format: uuid }
         position: { type: integer, minimum: 0 }
@@ -684,6 +736,7 @@ components:
         screenshotId: { type: string, format: uuid, nullable: true }
         title: { type: string }
         content: { type: string }
+        hidden: { type: boolean }
 
     ErrorResponse:
       type: object

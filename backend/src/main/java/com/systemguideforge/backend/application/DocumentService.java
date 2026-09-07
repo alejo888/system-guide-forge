@@ -47,7 +47,7 @@ public class DocumentService {
         Analysis analysis = analyses.findById(analysisId).orElseThrow(AnalysisNotFoundException::new);
         if (analysis.getStatus() != AnalysisStatus.COMPLETED) throw new AnalysisNotCompletedException();
         Optional<Document> existing = documents.findBySourceAnalysisId(analysisId);
-        if (existing.isPresent() && language == existing.get().getLanguage() && type == existing.get().getType()) return load(existing.get());
+        if (existing.isPresent() && language == existing.get().getLanguage() && type == existing.get().getType() && !isLegacyTechnicalUserManual(existing.get())) return load(existing.get());
         Document document = existing.orElseGet(() -> {
             String applicationId = analysis.getApplicationId();
             return documents.saveAndFlush(new Document(analysisId, applicationId, language, type));
@@ -85,37 +85,78 @@ public class DocumentService {
     private String describePage(Page page, List<UIElement> pageElements, Document.DocumentLanguage language) {
         boolean spanish = language == Document.DocumentLanguage.ES;
         StringBuilder result = new StringBuilder();
-        result.append(spanish ? "Propósito: usa esta guía para consultar la pantalla y seguir solo las instrucciones permitidas por la clasificación observada.\n\nEsta pantalla sirve para consultar la sección \"" : "Purpose: use this guide to review the screen and follow only instructions permitted by the observed classification.\n\nThis screen is for reviewing the \"")
-                .append(boundedText(pageTitle(page, language), 3000)).append(spanish ? "\" (ruta: " : "\" (route: ").append(boundedText(moduleDeriver.routeFor(page.getUrl()), 3000)).append(").\n\n")
-                .append(spanish ? "Pasos seguros para usarla:\n" : "Safe usage steps:\n");
-        if (pageElements.isEmpty()) result.append(spanish ? "1. No hay controles interactivos observados; usa la pantalla solo para consultar la información visible.\n" : "1. No interactive controls were observed; use this screen only to review visible information.\n");
-        else { int step = 1; for (UIElement element : pageElements) { String instruction = instructionFor(element, step, spanish); if (result.length() + instruction.length() + 1 > CONTENT_LIMIT) break; result.append(instruction).append('\n'); step++; } }
-        result.append('\n').append(spanish ? "Seguridad y límites:\nSAFE: la evidencia observada permite consultar el control; en los enlaces también permite navegar.\nMUTATING: no ejecutes la acción porque puede modificar datos.\nUNKNOWN: verifica manualmente el efecto antes de usar o completar el control; no se considera seguro por la evidencia observada." : "Safety and limitations:\nSAFE: the observed evidence permits reviewing the control; links may also be opened for navigation.\nMUTATING: do not execute the action because it may change data.\nUNKNOWN: verify the effect manually before using or filling the control; it is not considered safe from the observed evidence.");
+        result.append(spanish ? "Esta pantalla te ayuda a trabajar con \"" : "This screen helps you work with \"")
+                .append(boundedText(pageTitle(page, language), 3000)).append("\".\n\n")
+                .append(spanish ? "Pasos:\n" : "Steps:\n");
+        int step = 1;
+        for (InstructionGroup group : InstructionGroup.values()) {
+            List<UIElement> groupElements = pageElements.stream()
+                    .filter(this::isIncludedInManual)
+                    .filter(element -> instructionGroupFor(element) == group)
+                    .toList();
+            boolean groupStarted = false;
+            for (UIElement element : groupElements) {
+                String instruction = instructionFor(element, step, spanish);
+                String prefix = groupStarted ? "" : instructionGroupTitle(group, spanish) + "\n";
+                if (result.length() + prefix.length() + instruction.length() + 1 > CONTENT_LIMIT) return boundedText(result.toString(), CONTENT_LIMIT);
+                result.append(prefix).append(instruction).append('\n');
+                groupStarted = true;
+                step++;
+            }
+        }
+        if (step == 1) result.append(spanish ? "No se identificaron acciones para documentar; consultá la información visible en esta pantalla.\n" : "No actions were identified for this guide; review the visible information on this screen.\n");
         return boundedText(result.toString(), CONTENT_LIMIT);
     }
-    private String instructionFor(UIElement element, int step, boolean spanish) {
-        String name = "\"" + boundedText(displayName(element), 3000) + "\""; boolean input = isInput(element.getKind()); boolean link = isLink(element.getKind()); String instruction;
-        switch (classification(element)) {
-            case SAFE -> instruction = input ? (spanish ? "Puedes consultar el campo " + name + " sin completarlo." : "You can review the field " + name + " without filling it.") : link ? (spanish ? "Puedes seleccionar o abrir el enlace " + name + " para navegar o consultarlo." : "You can select or open the link " + name + " to navigate or consult it.") : (spanish ? "Puedes usar o seleccionar el control " + name + " para una consulta segura." : "You can use or select the control " + name + " for safe consultation.");
-            case MUTATING -> instruction = input ? (spanish ? "No completes ni uses el campo " + name + " porque puede cambiar datos." : "Do not fill or use the field " + name + " because it may change data.") : (spanish ? "No ejecutes la acción del control " + name + " porque puede cambiar datos." : "Do not execute the action of the control " + name + " because it may change data.");
-            case UNKNOWN -> instruction = input ? (spanish ? "Verifica manualmente el efecto del campo " + name + " antes de completarlo o usarlo; no se considera seguro." : "Verify the effect of the field " + name + " manually before filling or using it; it is not considered safe.") : (spanish ? "Verifica manualmente el efecto del control " + name + " antes de usarlo; no se considera seguro." : "Verify the effect of the control " + name + " manually before using it; it is not considered safe.");
-            default -> throw new IllegalStateException("Unsupported action classification");
-        }
-        return step + ". " + instruction + (spanish ? " Referencia técnica: clasificación " : " Technical reference: classification ") + classification(element) + (spanish ? "; selector: \"" : "; selector: \"") + boundedText(element.getSelector(), 3000) + "\".";
+    private InstructionGroup instructionGroupFor(UIElement element) {
+        return switch (normalizedKind(element.getKind())) {
+            case "link" -> InstructionGroup.NAVIGATION;
+            case "input", "textarea", "select", "dropdown", "combobox" -> InstructionGroup.INFORMATION;
+            default -> InstructionGroup.ACTIONS;
+        };
     }
-    private boolean isLink(String kind) { return kind != null && kind.equalsIgnoreCase("link"); }
-    private boolean isInput(String kind) { return kind != null && (kind.equalsIgnoreCase("input") || kind.equalsIgnoreCase("textarea")); }
-    private String displayName(UIElement element) { return element.getAccessibleName() != null && !element.getAccessibleName().isBlank() ? element.getAccessibleName() : element.getSelector(); }
+    private String instructionGroupTitle(InstructionGroup group, boolean spanish) {
+        return switch (group) {
+            case NAVIGATION -> spanish ? "Navegación:" : "Navigation:";
+            case INFORMATION -> spanish ? "Información:" : "Information:";
+            case ACTIONS -> spanish ? "Acciones:" : "Actions:";
+        };
+    }
+    private String instructionFor(UIElement element, int step, boolean spanish) {
+        String name = "\"" + boundedText(displayName(element, spanish), 3000) + "\"";
+        String instruction = switch (normalizedKind(element.getKind())) {
+            case "link" -> spanish ? "Abrí el enlace " + name + " para continuar." : "Open the link " + name + " to continue.";
+            case "button", "submit" -> spanish ? "Seleccioná el botón " + name + " para continuar." : "Select the button " + name + " to continue.";
+            case "input" -> spanish ? "Ingresá la información en el campo " + name + "." : "Enter the information in the field " + name + ".";
+            case "textarea" -> spanish ? "Escribí la información en el campo " + name + "." : "Write the information in the field " + name + ".";
+            case "select", "dropdown", "combobox" -> spanish ? "Elegí una opción en " + name + "." : "Choose an option in " + name + ".";
+            case "checkbox" -> spanish ? "Marcá la opción " + name + "." : "Select the option " + name + ".";
+            case "radio" -> spanish ? "Seleccioná la opción " + name + "." : "Select the option " + name + ".";
+            default -> spanish ? "Usá el control " + name + " para continuar." : "Use the control " + name + " to continue.";
+        };
+        return step + ". " + instruction;
+    }
+    private boolean isIncludedInManual(UIElement element) { return classification(element) == ActionClassification.SAFE || (classification(element) == ActionClassification.UNKNOWN && element.isManualInclusionApproved()); }
+    private enum InstructionGroup { NAVIGATION, INFORMATION, ACTIONS }
+    private boolean isLegacyTechnicalUserManual(Document document) {
+        if (document.getType() != Document.DocumentType.USER_MANUAL) return false;
+        return sections.findByDocumentIdOrderByPositionAsc(document.getId()).stream()
+                .map(DocumentSection::getContent)
+                .anyMatch(content -> content != null && (content.contains("Technical reference: classification") || content.contains("Referencia técnica: clasificación")));
+    }
+    private String normalizedKind(String kind) { return kind == null ? "" : kind.trim().toLowerCase(Locale.ROOT); }
+    private String displayName(UIElement element, boolean spanish) { return element.getAccessibleName() != null && !element.getAccessibleName().isBlank() ? element.getAccessibleName() : (spanish ? "este control" : "this control"); }
     private ActionClassification classification(UIElement element) { return element.getActionClassification() == null ? ActionClassification.UNKNOWN : element.getActionClassification(); }
     private static String boundedText(String value, int limit) { if (value == null) return ""; if (value.length() <= limit) return value; if (limit <= 3) return value.substring(0, limit); int prefixLength = (limit - 3) / 2; return value.substring(0, prefixLength) + "..." + value.substring(value.length() - (limit - 3 - prefixLength)); }
     public Document get(String documentId) { return documents.findById(documentId).map(this::load).orElseThrow(DocumentNotFoundException::new); }
     public Document update(String documentId, UpdateCommand command) { return transactions.execute(status -> updateInTransaction(documentId, command)); }
-    private Document updateInTransaction(String documentId, UpdateCommand command) { Document document = documents.findByIdForUpdate(documentId).orElseThrow(DocumentNotFoundException::new); List<DocumentSection> current = sections.findByDocumentIdOrderByPositionAsc(documentId); validate(command, current); Map<String, DocumentSection> byId = current.stream().collect(Collectors.toMap(DocumentSection::getId, s -> s)); document.updateTitle(command.title()); for (int i = 0; i < current.size(); i++) current.get(i).updateEditableFields(current.get(i).getTitle(), current.get(i).getContent(), -(i + 1)); sections.saveAll(current); sections.flush(); List<DocumentSection> reordered = new ArrayList<>(); for (int position = 0; position < command.sections().size(); position++) { SectionUpdate requested = command.sections().get(position); DocumentSection section = byId.get(requested.id()); section.updateEditableFields(requested.title(), requested.content(), position); reordered.add(section); } sections.saveAll(reordered); sections.flush(); document.replaceSections(reordered); return document; }
+    private Document updateInTransaction(String documentId, UpdateCommand command) { Document document = documents.findByIdForUpdate(documentId).orElseThrow(DocumentNotFoundException::new); List<DocumentSection> current = sections.findByDocumentIdOrderByPositionAsc(documentId); validate(command, current); Map<String, DocumentSection> byId = current.stream().collect(Collectors.toMap(DocumentSection::getId, s -> s)); document.updateTitle(command.title()); for (int i = 0; i < current.size(); i++) current.get(i).updateEditableFields(current.get(i).getTitle(), current.get(i).getContent(), -(i + 1), current.get(i).isHidden()); sections.saveAll(current); sections.flush(); List<DocumentSection> reordered = new ArrayList<>(); for (int position = 0; position < command.sections().size(); position++) { SectionUpdate requested = command.sections().get(position); DocumentSection section = byId.get(requested.id()); section.updateEditableFields(requested.title(), requested.content(), position, requested.hidden()); reordered.add(section); } sections.saveAll(reordered); sections.flush(); document.replaceSections(reordered); return document; }
     private void validate(UpdateCommand command, List<DocumentSection> current) { if (command == null || blankOrTooLong(command.title(), TITLE_LIMIT)) throw new InvalidDocumentUpdateException("Document title is required and must be at most 255 characters"); if (command.sections() == null || command.sections().size() != current.size()) throw new InvalidDocumentUpdateException("Sections must include exactly the document's current sections"); Set<String> ids = current.stream().map(DocumentSection::getId).collect(Collectors.toSet()); Set<String> requested = new HashSet<>(); for (SectionUpdate section : command.sections()) { if (section == null || section.id() == null || !requested.add(section.id()) || !ids.contains(section.id())) throw new InvalidDocumentUpdateException("Sections must contain unique IDs belonging to this document"); if (blankOrTooLong(section.title(), TITLE_LIMIT)) throw new InvalidDocumentUpdateException("Section title is required and must be at most 255 characters"); if (blankOrTooLong(section.content(), CONTENT_LIMIT)) throw new InvalidDocumentUpdateException("Section content is required and must be at most 10000 characters"); } }
     private static boolean blankOrTooLong(String value, int limit) { return value == null || value.isBlank() || value.length() > limit; }
     private Document load(Document document) { document.replaceSections(sections.findByDocumentIdOrderByPositionAsc(document.getId())); return document; }
     public record UpdateCommand(String title, List<SectionUpdate> sections) {}
-    public record SectionUpdate(String id, String title, String content) {}
+    public record SectionUpdate(String id, String title, String content, boolean hidden) {
+        public SectionUpdate(String id, String title, String content) { this(id, title, content, false); }
+    }
     public static class AnalysisNotFoundException extends RuntimeException { public AnalysisNotFoundException() { super("Analysis not found"); } }
     public static class ApplicationNotFoundException extends RuntimeException { public ApplicationNotFoundException() { super("Application not found"); } }
     public static class AnalysisNotCompletedException extends RuntimeException { public AnalysisNotCompletedException() { super("Documents can only be generated from completed analyses"); } }

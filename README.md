@@ -81,9 +81,9 @@ El flujo E2E requiere PostgreSQL, backend, fixture, Java 25 y Chromium de Playwr
 
 ## Alcance del MVP
 
-Incluye registro de sistemas locales, login tradicional, prueba de acceso, análisis síncrono seguro, detección de páginas y elementos, screenshots sanitizados y generación de un manual editable. La edición del MVP se limita al título y las secciones del documento generado; no edita los resultados del análisis.
+Incluye registro de sistemas locales, login tradicional, prueba de acceso, análisis síncrono seguro, detección de páginas y elementos, screenshots sanitizados y generación de un manual editable. Antes de generar el manual, una persona puede incluir un elemento `UNKNOWN` en la documentación; esa aprobación solo afecta el contenido del manual y nunca habilita su ejecución. La edición del MVP se limita al título y las secciones del documento generado; no edita los resultados del análisis.
 
-El análisis ejecuta el adaptador de forma síncrona, recorre únicamente enlaces clasificados como `SAFE` y nunca ejecuta controles. Las acciones `MUTATING` y `UNKNOWN` quedan bloqueadas. No se promete persistencia parcial ni recuperación automática ante fallos.
+El análisis ejecuta el adaptador de forma síncrona, recorre únicamente enlaces clasificados como `SAFE` y nunca ejecuta controles. Las acciones `MUTATING` y `UNKNOWN` quedan bloqueadas. Si cambia una aprobación de inclusión manual, se elimina el borrador existente para que se genere uno nuevo y no se reutilice contenido obsoleto. No se promete persistencia parcial ni recuperación automática ante fallos.
 
 Fuera de alcance: producción, SSO/OAuth/MFA, workflows, IA, DOCX/PDF, colaboración, multiusuario, roles, multi-tenant, análisis de repositorios, microservicios y almacenamiento remoto.
 
