@@ -41,7 +41,7 @@ cd backend
 ./mvnw spring-boot:run
 ```
 
-El backend escucha en `http://localhost:8080`. Flyway aplica las migraciones V1–V6 al iniciar y Hibernate usa `ddl-auto=validate`.
+El backend escucha en `http://localhost:8080`. Flyway aplica las migraciones V1–V8 al iniciar y Hibernate usa `ddl-auto=validate`.
 
 ### 3. Iniciar el frontend
 
@@ -81,7 +81,7 @@ El flujo E2E requiere PostgreSQL, backend, fixture, Java 25 y Chromium de Playwr
 
 ## Alcance del MVP
 
-Incluye registro de sistemas locales, login tradicional, prueba de acceso, análisis síncrono seguro, detección de páginas y elementos, screenshots sanitizados y generación de un manual editable. Antes de generar el manual, una persona puede incluir un elemento `UNKNOWN` en la documentación; esa aprobación solo afecta el contenido del manual y nunca habilita su ejecución. La edición del MVP se limita al título y las secciones del documento generado; no edita los resultados del análisis.
+Incluye registro de sistemas locales, login tradicional, prueba de acceso, análisis síncrono seguro, detección de páginas y elementos, screenshots sanitizados y generación de un manual editable. Antes de generar el manual, una persona puede incluir un elemento `UNKNOWN` en la documentación; esa aprobación solo afecta el contenido del manual y nunca habilita su ejecución. La edición del MVP permite cambiar el título y, en cada sección, el título, contenido, orden y visibilidad; no edita los resultados del análisis.
 
 El análisis ejecuta el adaptador de forma síncrona, recorre únicamente enlaces clasificados como `SAFE` y nunca ejecuta controles. Las acciones `MUTATING` y `UNKNOWN` quedan bloqueadas. Si cambia una aprobación de inclusión manual, se elimina el borrador existente para que se genere uno nuevo y no se reutilice contenido obsoleto. No se promete persistencia parcial ni recuperación automática ante fallos.
 
@@ -95,15 +95,15 @@ Fuera de alcance: producción, SSO/OAuth/MFA, workflows, IA, DOCX/PDF, colaborac
 - `openapi.yaml`: contrato REST del MVP.
 - `docs/agent-guidelines.md`: reglas para inspección segura.
 
-## Verificación ejecutada
+## Evidencia de verificación disponible
 
-| Comprobación | Resultado |
+| Comprobación | Evidencia actual |
 | --- | --- |
-| `cd backend && ./mvnw test` | 72 tests pasan |
-| `cd frontend && npm test` | 30 tests pasan |
-| `cd frontend && npm run build` | Pasa |
-| `git diff --check` | Pasa |
-| Fixture/E2E y validación manual en navegador | Requiere el stack local; no se ejecutó en esta actualización documental |
+| `cd backend && ./mvnw test` | Los informes Surefire locales registran 86 pruebas, 0 fallos, 0 errores y 0 omitidas. No se ejecutó durante esta actualización documental. |
+| `cd frontend && npm test` | El script está definido y hay 34 casos `it` declarados; no hay un informe de ejecución disponible. |
+| `cd frontend && npm run build` | El script está definido; no hay un resultado de build disponible. |
+| `git diff --check` | Pasa; Git solo informó la normalización habitual de finales de línea LF/CRLF. |
+| `cd test-target && npm run e2e` y validación manual en navegador | E2E pasa: autenticación correcta, análisis `COMPLETED`, 2 páginas, 14 elementos, screenshot PNG y manual generado. La validación manual en navegador no se realizó. |
 
 ## Versiones verificadas
 

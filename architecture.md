@@ -78,6 +78,7 @@ Flyway aplica esta historia, en orden:
 | V5 | Idioma del documento |
 | V6 | Tipo del documento |
 | V7 | Aprobación de inclusión documental para elementos `UNKNOWN` |
+| V8 | Indicador `hidden` para secciones del documento |
 
 Hibernate valida el esquema existente con `ddl-auto=validate`; no lo genera ni lo actualiza.
 
@@ -96,7 +97,7 @@ erDiagram
     DOCUMENT ||--o{ DOCUMENT_SECTION : contains
 ```
 
-Las secciones del documento conservan referencias a la página y, cuando existe, a su screenshot de origen. Al cambiar una aprobación de inclusión documental, `AnalysisService` elimina el documento y sus secciones dentro de la transacción; la siguiente generación crea un borrador consistente con las aprobaciones actuales.
+Las secciones del documento conservan referencias a la página y, cuando existe, a su screenshot de origen, además de un indicador persistido `hidden` (con valor predeterminado `false`). Las secciones ocultas se mantienen para edición y trazabilidad, pero no se muestran en el borrador orientado a lectura. Al cambiar una aprobación de inclusión documental, `AnalysisService` elimina el documento y sus secciones dentro de la transacción; la siguiente generación crea un borrador consistente con las aprobaciones actuales.
 
 ## 7. Límites y evolución
 

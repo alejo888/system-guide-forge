@@ -40,7 +40,7 @@ La generación es determinista y usa únicamente la evidencia observada:
 - El manual incluye controles `SAFE` y elementos `UNKNOWN` aprobados, con instrucciones funcionales; omite acciones mutantes, elementos desconocidos sin aprobar, selectores y lenguaje técnico de clasificación.
 - Al cambiar una aprobación de inclusión, el sistema elimina transaccionalmente el borrador y sus secciones para impedir reutilizar un borrador obsoleto. La interfaz informa que se debe generar uno nuevo.
 - Si cambia el idioma o el tipo, el sistema muestra una advertencia localizada y reemplaza transaccionalmente las secciones y el contenido editable. **Las ediciones anteriores se destruyen.**
-- La edición posterior se limita al título y a las secciones del documento; los resultados del análisis no son editables desde este flujo.
+- La edición posterior permite cambiar el título y, para cada sección, el título, contenido, orden y visibilidad. Una sección marcada como `hidden` se conserva para edición y trazabilidad, pero se excluye del borrador orientado a lectura; los resultados del análisis no son editables desde este flujo.
 
 ## 2. Política de acciones
 
@@ -83,21 +83,21 @@ REST conecta Angular con Spring Boot y `openapi.yaml` describe las operaciones i
 - Frontend: `http://localhost:4200`.
 - Proxy de desarrollo: `/api` → `http://127.0.0.1:8080`.
 - PostgreSQL Compose: `127.0.0.1:15432`, imagen `postgres:16-alpine`.
-- `ddl-auto=validate`; Flyway V1–V7 gestiona el esquema.
+- `ddl-auto=validate`; Flyway V1–V8 gestiona el esquema.
 
 Compose exige `POSTGRES_PASSWORD`. El backend admite `SGF_DB_URL`, `SGF_DB_USERNAME` y `SGF_DB_PASSWORD`, además de la obligatoria `SGF_CREDENTIAL_KEY`. Los flujos fixture/E2E admiten `SGF_BACKEND_URL`, `SGF_FIXTURE_URL`, `FIXTURE_USERNAME` y `FIXTURE_PASSWORD`. Ver `README.md` para defaults y sintaxis POSIX/PowerShell.
 
 ## 6. Verificación
 
-Resultados ya ejecutados para el estado documentado:
+Evidencia disponible en el árbol de trabajo:
 
-| Comando | Resultado |
+| Comando | Evidencia actual |
 | --- | --- |
-| `cd backend && ./mvnw test` | 72 tests pasan |
-| `cd frontend && npm test` | 30 tests pasan |
-| `cd frontend && npm run build` | Pasa |
-| `git diff --check` | Pasa |
-| Fixture/E2E y browser manual | Requiere el stack local; no se ejecutó en esta actualización documental |
+| `cd backend && ./mvnw test` | Los informes Surefire locales registran 86 pruebas, 0 fallos, 0 errores y 0 omitidas. No se ejecutó durante esta actualización documental. |
+| `cd frontend && npm test` | El script está definido y hay 34 casos `it` declarados; no hay un informe de ejecución disponible. |
+| `cd frontend && npm run build` | El script está definido; no hay un resultado de build disponible. |
+| `git diff --check` | Pasa; Git solo informó la normalización habitual de finales de línea LF/CRLF. |
+| `cd test-target && npm run e2e` y browser manual | E2E pasa: autenticación correcta, análisis `COMPLETED`, 2 páginas, 14 elementos, screenshot PNG y manual generado. La validación manual en navegador no se realizó. |
 
 ## 7. Fuera de alcance
 

@@ -22,7 +22,7 @@ export class RegistrationComponent {
     name: this.editMode ? (this.existingApplication?.name ?? '') : '',
     baseUrl: this.editMode ? (this.existingApplication?.baseUrl ?? '') : '',
     loginUrl: this.editMode ? (this.existingApplication?.loginUrl ?? '') : '', username: '', password: '',
-    maxCrawlDepth: this.existingApplication?.maxCrawlDepth ?? 2,
+    maxCrawlDepth: this.editMode ? (this.existingApplication?.maxCrawlDepth ?? 0) : 0,
     excludedRoutes: this.existingApplication?.excludedRoutes ?? []
   });
   readonly registrationForm = form(this.model, path => {
@@ -34,7 +34,7 @@ export class RegistrationComponent {
   readonly applicationId = signal(this.existingApplication?.id ?? '');
   readonly localUrlsValid = computed(() => this.isLocalUrl(this.model().baseUrl) && this.isLocalUrl(this.model().loginUrl));
   readonly crawlerConfigurationValid = computed(() => {
-    const { maxCrawlDepth = 2, excludedRoutes = [] } = this.model();
+    const { maxCrawlDepth = 0, excludedRoutes = [] } = this.model();
     return Number.isInteger(maxCrawlDepth) && maxCrawlDepth >= 0 && maxCrawlDepth <= 5 && excludedRoutes.every(route => this.isExcludedRoute(route));
   });
 
@@ -58,7 +58,7 @@ export class RegistrationComponent {
     try {
       const value = this.model();
       const { projectName: _, ...application } = value;
-      application.maxCrawlDepth ??= 2; application.excludedRoutes = this.normalizeExcludedRoutes(application.excludedRoutes ?? []);
+      application.maxCrawlDepth ??= 0; application.excludedRoutes = this.normalizeExcludedRoutes(application.excludedRoutes ?? []);
       const saved = this.editMode
         ? await this.api.updateApplication(this.applicationId(), application)
         : await this.createApplication(value.projectName, application);
