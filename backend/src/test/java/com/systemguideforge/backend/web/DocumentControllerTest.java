@@ -4,11 +4,16 @@ import com.systemguideforge.backend.application.DocumentService;
 import com.systemguideforge.backend.persistence.Document;
 import com.systemguideforge.backend.persistence.DocumentSection;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class DocumentControllerTest {
     private final DocumentService service = mock(DocumentService.class);
@@ -27,6 +32,18 @@ class DocumentControllerTest {
                 .containsExactly("shot-1");
         assertThat(response.getBody().sections()).extracting(DocumentController.SectionResponse::hidden)
                 .containsExactly(false);
+    }
+
+    @Test
+    void serializesHiddenSectionState() throws Exception {
+        Document document = document();
+        document.getSections().getFirst().updateEditableFields("Home", "content", 0, true);
+        when(service.get(document.getId())).thenReturn(document);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mvc.perform(get("/api/documents/" + document.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sections[0].hidden").value(true));
     }
 
     @Test

@@ -55,7 +55,11 @@ public class AnalysisService {
         }
         return elements.save(element);
     }
-    public Optional<Analysis> get(String id){return analyses.findById(id);} public List<Page> pages(String id){return pages.findByAnalysisId(id);} public List<FunctionalModuleDeriver.Module> modules(String id){ analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); return new FunctionalModuleDeriver().derive(pages.findByAnalysisId(id)); } public List<UIElement> elements(String id){return elements.findByPageId(id);} public Optional<Screenshot> screenshot(String pageId){return screenshots.findByPageId(pageId);}
+    public Optional<Analysis> get(String id){return analyses.findById(id);}
+    public List<Page> pages(String id){analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); return pages.findByAnalysisId(id);}
+    public List<FunctionalModuleDeriver.Module> modules(String id){ analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); return new FunctionalModuleDeriver().derive(pages.findByAnalysisId(id)); }
+    public List<UIElement> elements(String id){pages.findById(id).orElseThrow(java.util.NoSuchElementException::new); return elements.findByPageId(id);}
+    public Optional<Screenshot> screenshot(String pageId){return screenshots.findByPageId(pageId);}
     public List<AnalysisSummary> history(String applicationId) {
         if (!applications.existsById(applicationId)) throw new NoSuchElementException();
         return analyses.findByApplicationIdOrderByStartedAtDescIdDesc(applicationId).stream()

@@ -45,6 +45,28 @@ class AnalysisServiceTest {
     }
 
     @Test
+    void rejectsPageListingForAnUnknownAnalysis() {
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        when(analyses.findById("missing")).thenReturn(java.util.Optional.empty());
+        AnalysisService service = new AnalysisService(analyses, pages, mock(UIElementRepository.class), mock(ScreenshotRepository.class), mock(TargetApplicationRepository.class), mock(CredentialProtector.class), mock(ScreenAnalysisAdapter.class));
+
+        assertThatThrownBy(() -> service.pages("missing")).isInstanceOf(java.util.NoSuchElementException.class);
+        verifyNoInteractions(pages);
+    }
+
+    @Test
+    void rejectsElementListingForAnUnknownPage() {
+        PageRepository pages = mock(PageRepository.class);
+        UIElementRepository elements = mock(UIElementRepository.class);
+        when(pages.findById("missing")).thenReturn(java.util.Optional.empty());
+        AnalysisService service = new AnalysisService(mock(AnalysisRepository.class), pages, elements, mock(ScreenshotRepository.class), mock(TargetApplicationRepository.class), mock(CredentialProtector.class), mock(ScreenAnalysisAdapter.class));
+
+        assertThatThrownBy(() -> service.elements("missing")).isInstanceOf(java.util.NoSuchElementException.class);
+        verifyNoInteractions(elements);
+    }
+
+    @Test
     void rejectsHistoryForAnUnknownApplication() {
         AnalysisRepository analyses = mock(AnalysisRepository.class);
         TargetApplicationRepository applications = mock(TargetApplicationRepository.class);
