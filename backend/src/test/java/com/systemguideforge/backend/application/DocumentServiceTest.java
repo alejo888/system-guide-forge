@@ -49,7 +49,7 @@ class DocumentServiceTest {
         assertThat(document.getTitle()).isEqualTo("Manual de usuario \"FlowPilot\"");
             assertThat(document.getLanguage()).isEqualTo(Document.DocumentLanguage.ES);
         assertThat(document.getType()).isEqualTo(Document.DocumentType.USER_MANUAL);
-        assertThat(document.getSections().getFirst().getContent()).contains("Esta pantalla", "Pasos", "No se identificaron acciones").doesNotContain("Save", "#save", "SAFE", "UNKNOWN", "MUTATING", "clasificación", "Referencia técnica");
+        assertThat(document.getSections().getFirst().getContent()).contains("La ruta /admin muestra la página \"Panel\".", "Pasos", "No se identificaron acciones").doesNotContain("Save", "#save", "SAFE", "UNKNOWN", "MUTATING", "clasificación", "Referencia técnica");
 
     }
 
@@ -88,7 +88,7 @@ class DocumentServiceTest {
         assertThat(document.getSections().get(0).getSourcePageId()).isEqualTo(alpha.getId());
         assertThat(document.getSections().get(0).getScreenshotId()).isNotNull();
         assertThat(document.getSections().get(0).getContent())
-                .contains("This screen", "Steps", "1.", "Help", "Open the link")
+                .contains("The /admin/users route displays the \"FlowPilot\" page.", "Steps", "1.", "Help", "Open the link")
                 .doesNotContain("Save", "#save", "#query", "SAFE", "UNKNOWN", "MUTATING", "classification", "Technical reference");
     }
 
@@ -196,17 +196,44 @@ class DocumentServiceTest {
     void groupsManualInstructionsWithFunctionalContextInEnglishAndSpanish() {
         String english = groupedManualContent(Document.DocumentLanguage.EN);
         assertThat(english).contains(
-                "This screen helps you work with \"Catalog\".",
+                "The /catalog route displays the \"Catalog\" page.",
                 "Navigation:\n1. Open the link \"Browse catalog\" to continue.",
                 "Information:\n2. Enter the information in the field \"Search catalog\".",
                 "Actions:\n3. Select the button \"Apply filters\" to continue.\n4. Select the option \"Compact view\".");
 
         String spanish = groupedManualContent(Document.DocumentLanguage.ES);
         assertThat(spanish).contains(
-                "Esta pantalla te ayuda a trabajar con \"Catalog\".",
+                "La ruta /catalog muestra la página \"Catalog\".",
                 "Navegación:\n1. Abrí el enlace \"Browse catalog\" para continuar.",
                 "Información:\n2. Ingresá la información en el campo \"Search catalog\".",
                 "Acciones:\n3. Seleccioná el botón \"Apply filters\" para continuar.\n4. Seleccioná la opción \"Compact view\".");
+    }
+
+    @Test
+    void usesEachPageRouteAndTitleToCreateDistinctEvidenceBasedIntroductions() {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        Page catalog = new Page(analysis.getId(), "http://localhost/catalog", "FlowPilot");
+        Page reports = new Page(analysis.getId(), "http://localhost/reports", "FlowPilot");
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        UIElementRepository elements = mock(UIElementRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.empty());
+        when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(catalog, reports));
+        when(elements.findByPageId(any())).thenReturn(List.of());
+        when(documents.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Document document = service(analyses, pages, elements, mock(ScreenshotRepository.class), documents, sections).generate(analysis.getId());
+
+        assertThat(document.getSections().get(0).getContent()).startsWith("The /catalog route displays the \"FlowPilot\" page.");
+            assertThat(document.getSections().get(1).getContent()).startsWith("The /reports route displays the \"FlowPilot\" page.");
+            assertThat(document.getSections()).extracting(DocumentSection::getContent)
+                .allSatisfy(content -> assertThat(content).contains("route displays"))
+                .noneMatch(content -> content.contains("This screen helps you work with"));
     }
 
     @Test

@@ -6,6 +6,8 @@ import com.systemguideforge.backend.persistence.TargetApplication;
 import org.springframework.stereotype.Component;
 import java.net.URI;
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /** Runs one authenticated, isolated browser context and never performs discovered actions. */
 @Component
@@ -61,10 +63,38 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                 discovered.add(new DiscoveredPage(current.url(), current.title(), current.elements(), current.sanitizedScreenshot(), link.depth, ActionClassification.SAFE));
                 if (link.depth < application.getMaxCrawlDepth()) queue.addAll(links(page, application, link.depth + 1, budget));
             }
-            return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), discovered);
+            return withSharedNavigationIncludedOnce(first, discovered);
         } catch (Exception e) {
                 throw new IllegalStateException("Screen analysis unavailable or failed: " + Analysis.sanitizeFailureMessage(e.getMessage()));
             }
+    }
+
+    private ScreenAnalysisResult withSharedNavigationIncludedOnce(ScreenAnalysisResult first, List<DiscoveredPage> discovered) {
+        Set<String> sharedNavigation = sharedNavigationKeys(Stream.concat(
+                Stream.of(first.elements()), discovered.stream().map(DiscoveredPage::elements)).toList());
+        if (sharedNavigation.isEmpty()) return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), discovered);
+        List<DiscoveredPage> withoutRepeatedNavigation = discovered.stream()
+                .map(page -> new DiscoveredPage(page.url(), page.title(),
+                        page.elements().stream().filter(element -> !sharedNavigation.contains(navigationKey(element))).toList(),
+                        page.sanitizedScreenshot(), page.depth(), ActionClassification.SAFE))
+                .toList();
+        return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), withoutRepeatedNavigation);
+    }
+
+    static Set<String> sharedNavigationKeys(List<List<DetectedElement>> pageElements) {
+        if (pageElements.size() < 2) return Set.of();
+        Map<String, Integer> occurrences = new HashMap<>();
+        for (List<DetectedElement> elements : pageElements) {
+            elements.stream().map(PlaywrightScreenAnalysisAdapter::navigationKey).filter(Objects::nonNull).distinct()
+                    .forEach(key -> occurrences.merge(key, 1, Integer::sum));
+        }
+        return occurrences.entrySet().stream().filter(entry -> entry.getValue() == pageElements.size())
+                .map(Map.Entry::getKey).collect(Collectors.toUnmodifiableSet());
+    }
+
+    static String navigationKey(DetectedElement element) {
+        if (element == null || !"a".equalsIgnoreCase(element.kind()) || element.accessibleName() == null || element.accessibleName().isBlank()) return null;
+        return "a\u0000" + element.accessibleName().trim().toLowerCase(Locale.ROOT);
     }
 
     private ScreenAnalysisResult analyzeCurrentPage(com.microsoft.playwright.Page page, TargetApplication app, int depth) {

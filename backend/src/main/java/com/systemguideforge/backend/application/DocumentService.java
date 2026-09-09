@@ -85,8 +85,7 @@ public class DocumentService {
     private String describePage(Page page, List<UIElement> pageElements, Document.DocumentLanguage language) {
         boolean spanish = language == Document.DocumentLanguage.ES;
         StringBuilder result = new StringBuilder();
-        result.append(spanish ? "Esta pantalla te ayuda a trabajar con \"" : "This screen helps you work with \"")
-                .append(boundedText(pageTitle(page, language), 3000)).append("\".\n\n")
+        result.append(pageIntroduction(page, language)).append("\n\n")
                 .append(spanish ? "Pasos:\n" : "Steps:\n");
         int step = 1;
         for (InstructionGroup group : InstructionGroup.values()) {
@@ -106,6 +105,13 @@ public class DocumentService {
         }
         if (step == 1) result.append(spanish ? "No se identificaron acciones para documentar; consultá la información visible en esta pantalla.\n" : "No actions were identified for this guide; review the visible information on this screen.\n");
         return boundedText(result.toString(), CONTENT_LIMIT);
+    }
+    private String pageIntroduction(Page page, Document.DocumentLanguage language) {
+        String title = boundedText(pageTitle(page, language), 3000);
+        String route = boundedText(moduleDeriver.routeFor(page.getUrl()), 3000);
+        return language == Document.DocumentLanguage.ES
+                ? "La ruta " + route + " muestra la página \"" + title + "\"."
+                : "The " + route + " route displays the \"" + title + "\" page.";
     }
     private InstructionGroup instructionGroupFor(UIElement element) {
         return switch (normalizedKind(element.getKind())) {

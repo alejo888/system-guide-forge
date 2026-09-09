@@ -4,6 +4,7 @@ import com.systemguideforge.backend.persistence.TargetApplication;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import java.util.List;
 
 class PlaywrightScreenAnalysisAdapterTest {
     @Test
@@ -26,6 +27,19 @@ class PlaywrightScreenAnalysisAdapterTest {
         String selector = PlaywrightScreenAnalysisAdapter.SENSITIVE_FIELD_SELECTOR;
         assertThat(selector).contains("input[type='password']").contains("[autocomplete='current-password']").contains("[name*='token' i]").contains("[data-sensitive]");
     }
+    @Test
+    void identifiesOnlyNamedLinksPresentOnEveryPageAsSharedNavigation() {
+        ScreenAnalysisAdapter.DetectedElement home = new ScreenAnalysisAdapter.DetectedElement("a", "a:nth-of-type(1)", "Home", ActionClassification.SAFE);
+        ScreenAnalysisAdapter.DetectedElement reports = new ScreenAnalysisAdapter.DetectedElement("a", "a:nth-of-type(2)", "Reports", ActionClassification.SAFE);
+        ScreenAnalysisAdapter.DetectedElement pageAction = new ScreenAnalysisAdapter.DetectedElement("button", "button:nth-of-type(1)", "Refresh", ActionClassification.SAFE);
+
+        assertThat(PlaywrightScreenAnalysisAdapter.sharedNavigationKeys(List.of(
+                List.of(home, reports, pageAction),
+                List.of(new ScreenAnalysisAdapter.DetectedElement("a", "a:nth-of-type(4)", "Home", ActionClassification.SAFE), reports),
+                List.of(new ScreenAnalysisAdapter.DetectedElement("a", "a:nth-of-type(2)", "Home", ActionClassification.SAFE), pageAction))))
+                .containsExactly(PlaywrightScreenAnalysisAdapter.navigationKey(home));
+    }
+
     @Test
     void authenticatesOnlyAfterSameOriginRedirectAwayFromLogin() {
         TargetApplication app = new TargetApplication("p", "app", "http://localhost:8080", "http://localhost:8080/login", "u", "p");

@@ -92,7 +92,7 @@ describe('AnalysisComponent document editing', () => {
     expect(component.filteredModules()).toEqual([]);
     expect(component.filteredSections()).toEqual([]);
   });
-  it('places UNKNOWN review before generation and generation before draft evidence', () => {
+  it('places manual generation before the collapsed UNKNOWN review and page evidence', () => {
     const page = { id: 'page-1', analysisId: 'analysis-1', url: 'https://example.test', title: 'Home' };
     component.pages.set([{ ...page, elements: [{ id: 'element-1', kind: 'button', selector: '#advanced', accessibleName: 'Advanced', actionClassification: 'UNKNOWN' as const, manualInclusionApproved: false }], screenshotUrl: 'blob:screen' }]);
     component.modules.set([{ key: 'home', name: 'Home', pages: [page] }]);
@@ -100,16 +100,18 @@ describe('AnalysisComponent document editing', () => {
     component.state.set('ready');
     fixture.detectChanges();
 
-    const reviewControl = fixture.nativeElement.querySelector('.manual-review-card input[type="checkbox"]');
+    const review = fixture.nativeElement.querySelector('.manual-review-card');
     const manualCard = fixture.nativeElement.querySelector('.generation-card');
     const draft = fixture.nativeElement.querySelector('.draft-section');
     const screenshot = fixture.nativeElement.querySelector('.screenshot');
-    expect(reviewControl).not.toBeNull();
+    expect(review).not.toBeNull();
+        expect(review.open).toBeFalse();
+        expect(review.textContent).toContain('1 uncertain items');
     expect(manualCard).not.toBeNull();
     expect(draft).not.toBeNull();
     expect(screenshot).not.toBeNull();
-    expect(reviewControl.compareDocumentPosition(manualCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(manualCard.compareDocumentPosition(draft) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(manualCard.compareDocumentPosition(review) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(review.compareDocumentPosition(draft) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(manualCard.compareDocumentPosition(screenshot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
   it('approves an unknown item for documentation without executing it and clears a stale draft', async () => {
@@ -124,7 +126,14 @@ describe('AnalysisComponent document editing', () => {
     expect(component.document()).toBeNull();
     expect(component.documentState()).toBe('idle');
   });
-  it('builds stable anchor ids for navigation', () => {
+  it('uses route labels when discovered pages repeat the same title', () => {
+        const first = { id: 'page-1', analysisId: 'analysis-1', url: 'https://example.test/admin/users', title: 'FlowPilot' };
+        const second = { id: 'page-2', analysisId: 'analysis-1', url: 'https://example.test/reports', title: 'FlowPilot' };
+        component.pages.set([{ ...first, elements: [], screenshotUrl: null }, { ...second, elements: [], screenshotUrl: null }]);
+        expect(component.pageLabel(first)).toBe('FlowPilot · /admin/users');
+        expect(component.pageLabel(second)).toBe('FlowPilot · /reports');
+      });
+      it('builds stable anchor ids for navigation', () => {
     expect(component.sectionAnchor('section-1')).toBe('manual-section-section-1');
     expect(component.pageAnchor('page-1')).toBe('discovered-page-page-1');
     expect(component.moduleAnchor('Admin Users')).toBe('module-admin-users');
