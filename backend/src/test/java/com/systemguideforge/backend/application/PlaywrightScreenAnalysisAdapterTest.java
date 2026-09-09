@@ -1,10 +1,19 @@
 package com.systemguideforge.backend.application;
 
+import com.sun.net.httpserver.HttpServer;
 import com.systemguideforge.backend.persistence.TargetApplication;
 import org.junit.jupiter.api.Test;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import java.util.List;
 
 class PlaywrightScreenAnalysisAdapterTest {
     @Test
@@ -26,6 +35,68 @@ class PlaywrightScreenAnalysisAdapterTest {
     void sanitizationPolicyMasksPasswordAndSensitiveFields() {
         String selector = PlaywrightScreenAnalysisAdapter.SENSITIVE_FIELD_SELECTOR;
         assertThat(selector).contains("input[type='password']").contains("[autocomplete='current-password']").contains("[name*='token' i]").contains("[data-sensitive]");
+    }
+
+    @Test
+    void sanitizesSensitiveFieldsInBrowserScreenshotWhilePreservingNonSensitiveContent() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/login", exchange -> {
+            if ("POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Location", "/dashboard");
+                exchange.sendResponseHeaders(302, -1);
+                exchange.close();
+                return;
+            }
+            respondHtml(exchange, """
+                    <!doctype html><html><body><form method="post">
+                    <input name="username" type="text"><input name="password" type="password">
+                    <button type="submit">Sign in</button></form></body></html>
+                    """);
+        });
+        server.createContext("/dashboard", exchange -> respondHtml(exchange, """
+                <!doctype html><html><head><style>
+                body { margin: 0; font-family: sans-serif; }
+                #safe-marker { width: 320px; height: 80px; background: rgb(1, 123, 45); color: white; }
+                input, [data-sensitive] { display: block; width: 320px; height: 32px; margin-top: 12px; }
+                </style></head><body><main><div id="safe-marker">PUBLIC DASHBOARD MARKER</div>
+                <input type="password" name="accountPassword" value="password-value">
+                <input type="text" name="accessToken" value="token-value">
+                <div data-sensitive>private sensitive data</div>
+                </main></body></html>
+                """));
+        server.start();
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            TargetApplication application = new TargetApplication("project", "app", baseUrl, baseUrl + "/login", "stored-user", "stored-password");
+
+            byte[] screenshot = new PlaywrightScreenAnalysisAdapter().analyze(application, "browser-user", "browser-password").sanitizedScreenshot();
+
+            assertThat(screenshot).isNotEmpty();
+            BufferedImage image = ImageIO.read(new ByteArrayInputStream(screenshot));
+            assertThat(image).isNotNull();
+            assertThat(pixelCount(image, 0xFF00FF)).isGreaterThan(100);
+            assertThat(pixelCount(image, 0x017B2D)).isGreaterThan(1_000);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void respondHtml(com.sun.net.httpserver.HttpExchange exchange, String html) throws IOException {
+        byte[] body = html.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+        exchange.sendResponseHeaders(200, body.length);
+        exchange.getResponseBody().write(body);
+        exchange.close();
+    }
+
+    private static long pixelCount(BufferedImage image, int rgb) {
+        long count = 0;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                if ((image.getRGB(x, y) & 0xFFFFFF) == rgb) count++;
+            }
+        }
+        return count;
     }
     @Test
     void identifiesOnlyNamedLinksPresentOnEveryPageAsSharedNavigation() {
