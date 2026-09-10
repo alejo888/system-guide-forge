@@ -23,11 +23,11 @@
 2. Crear `ANALYSIS` en estado `RUNNING`.
 3. Ejecutar el `ScreenAnalysisAdapter` de forma síncrona.
 4. Persistir la pantalla inicial y las páginas descubiertas por el adaptador.
-5. Continuar únicamente con enlaces clasificados como `SAFE`, respetando los límites de profundidad y páginas.
+5. Continuar únicamente con enlaces de mismo origen clasificados como `SAFE`, respetando la profundidad configurada y los límites de captura.
 6. Persistir elementos y screenshots sanitizados en PostgreSQL; `ScreenshotRepository` guarda los bytes como `BYTEA`.
 7. Finalizar como `COMPLETED` o `FAILED`.
 
-No se persisten resultados parciales ni existe recuperación automática si la ejecución falla. El análisis no ejecuta controles: enlaces no `SAFE`, botones, formularios y acciones `MUTATING` o `UNKNOWN` no se ejecutan.
+La ejecución no ofrece recuperación automática: si falla después de persistir una o más páginas, esas evidencias pueden quedar asociadas a un análisis `FAILED`; el backend no promete rollback de toda la evidencia. El análisis no ejecuta controles: enlaces no `SAFE`, botones, formularios y acciones `MUTATING` o `UNKNOWN` no se ejecutan. La profundidad válida es de 0 a 5 (2 por defecto si la API omite el valor), con un máximo de 100 páginas persistidas incluida la inicial y un presupuesto global de 500 enlaces evaluados. Por página, la detección inspecciona hasta 500 `button`, 500 `a`, 500 `input` y 500 `textarea`; se toma una captura PNG de página completa después de enmascarar los campos sensibles.
 
 ### Generar y editar el manual
 
@@ -58,7 +58,7 @@ El análisis no adivina el efecto de un control ni envía formularios, confirma 
 - Mantener secretos descifrados solo durante la operación de acceso/análisis.
 - No escribir credenciales, cookies, tokens ni headers sensibles en logs, screenshots, respuestas API o evidencia.
 - Usar contextos de navegador aislados y limpiar cada contexto al finalizar.
-- Restringir navegación a sistemas locales autorizados y rechazar destinos no permitidos.
+- Restringir navegación a sistemas locales autorizados y rechazar destinos no permitidos: el backend admite HTTP(S) solo en `localhost`, `127.0.0.1` y `::1`/`[::1]`.
 
 ## 4. Contratos principales
 
@@ -85,7 +85,7 @@ REST conecta Angular con Spring Boot y `openapi.yaml` describe las operaciones i
 - PostgreSQL Compose: `127.0.0.1:15432`, imagen `postgres:16-alpine`.
 - `ddl-auto=validate`; Flyway V1–V8 gestiona el esquema.
 
-Compose exige `POSTGRES_PASSWORD`. El backend admite `SGF_DB_URL`, `SGF_DB_USERNAME` y `SGF_DB_PASSWORD`, además de la obligatoria `SGF_CREDENTIAL_KEY`. Los flujos fixture/E2E admiten `SGF_BACKEND_URL`, `SGF_FIXTURE_URL`, `FIXTURE_USERNAME` y `FIXTURE_PASSWORD`. Ver `README.md` para defaults y sintaxis POSIX/PowerShell.
+Compose exige `POSTGRES_PASSWORD`. El backend admite `SGF_DB_URL`, `SGF_DB_USERNAME` y `SGF_DB_PASSWORD`; la clave de credenciales debe configurarse mediante `SGF_CREDENTIAL_KEY` o la propiedad Spring `sgf.credential-key`, sin valor predeterminado. Los flujos fixture/E2E admiten `SGF_BACKEND_URL`, `SGF_FIXTURE_URL`, `FIXTURE_USERNAME` y `FIXTURE_PASSWORD`. El adaptador requiere Chromium de Playwright instalado. Ver `README.md` para defaults y sintaxis POSIX/PowerShell.
 
 ## 6. Verificación
 
@@ -93,11 +93,11 @@ Evidencia disponible en el árbol de trabajo:
 
 | Comando | Evidencia actual |
 | --- | --- |
-| `cd backend && ./mvnw test` | Los informes Surefire locales registran 86 pruebas, 0 fallos, 0 errores y 0 omitidas. No se ejecutó durante esta actualización documental. |
-| `cd frontend && npm test` | El script está definido y hay 34 casos `it` declarados; no hay un informe de ejecución disponible. |
-| `cd frontend && npm run build` | El script está definido; no hay un resultado de build disponible. |
-| `git diff --check` | Pasa; Git solo informó la normalización habitual de finales de línea LF/CRLF. |
-| `cd test-target && npm run e2e` y browser manual | E2E pasa: autenticación correcta, análisis `COMPLETED`, 2 páginas, 14 elementos, screenshot PNG y manual generado. La validación manual en navegador no se realizó. |
+| `cd backend && ./mvnw test` | Los informes Surefire presentes registran 89 pruebas, 0 fallos, 0 errores y 0 omitidas. No se ejecutó en esta actualización documental. |
+| `cd frontend && npm test` | Hay 36 casos `it` declarados; no se ejecutaron en esta actualización documental. |
+| `cd frontend && npm run build` | El script está definido; no se ejecutó en esta actualización documental. |
+| `git diff --check` | Debe ejecutarse para validar formato; no se afirma un resultado previo. |
+| `cd test-target && npm run e2e` y browser manual | Requieren el stack local; no se afirma una ejecución durante esta actualización. |
 
 ## 7. Fuera de alcance
 

@@ -26,22 +26,25 @@ La base queda disponible en `127.0.0.1:15432`. El backend usa las variables `SGF
 
 ### 2. Iniciar el backend
 
-Se requiere Java 25 y una clave de credenciales. `SGF_CREDENTIAL_KEY` es obligatoria y no tiene valor predeterminado:
+Se requieren Java 25, una clave de credenciales y Chromium de Playwright. Instalá Chromium una vez después de resolver las dependencias del backend:
 
 ```bash
+cd backend
+./mvnw exec:java -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install chromium"
 export SGF_CREDENTIAL_KEY=local-only-test-key
-cd backend && ./mvnw spring-boot:run
+./mvnw spring-boot:run
 ```
 
 En PowerShell:
 
 ```powershell
+Set-Location backend
+.\mvnw.cmd exec:java '-Dexec.mainClass=com.microsoft.playwright.CLI' '-Dexec.args=install chromium'
 $env:SGF_CREDENTIAL_KEY="local-only-test-key"
-cd backend
-./mvnw spring-boot:run
+.\mvnw.cmd spring-boot:run
 ```
 
-El backend escucha en `http://localhost:8080`. Flyway aplica las migraciones V1–V8 al iniciar y Hibernate usa `ddl-auto=validate`.
+`SGF_CREDENTIAL_KEY` y la propiedad Spring `sgf.credential-key` son alternativas para configurar la misma clave; al menos una debe estar definida y no hay valor predeterminado. Por ejemplo, también se puede pasar `--sgf.credential-key=local-only-test-key` como argumento de la aplicación Spring Boot. El backend escucha en `http://localhost:8080`. Flyway aplica las migraciones V1–V8 al iniciar y Hibernate usa `ddl-auto=validate`.
 
 ### 3. Iniciar el frontend
 
@@ -51,14 +54,22 @@ npm install
 npm start
 ```
 
-La aplicación queda en `http://localhost:4200`. El proxy de Angular reenvía las solicitudes `/api` a `http://127.0.0.1:8080`, evitando configurar CORS para el desarrollo local.
+En PowerShell:
+
+```powershell
+Set-Location frontend
+npm install
+npm start
+```
+
+La aplicación queda en `http://localhost:4200`. El proxy de Angular reenvía las solicitudes `/api` a `http://127.0.0.1:8080`, evitando configurar CORS para el desarrollo local. El navegador conserva solo la última aplicación seleccionada y las preferencias de idioma en `localStorage`; la evidencia y los documentos permanecen en el backend.
 
 ## Variables de entorno
 
 | Variable | Requerida | Uso | Valor por defecto |
 | --- | --- | --- | --- |
 | `POSTGRES_PASSWORD` | Sí para Compose | Contraseña del contenedor PostgreSQL | No tiene; Compose falla si falta |
-| `SGF_CREDENTIAL_KEY` | Sí para backend | Cifra las credenciales guardadas | No tiene |
+| `SGF_CREDENTIAL_KEY` | Sí, salvo que se use `sgf.credential-key` | Cifra las credenciales guardadas | No tiene |
 | `SGF_DB_URL` | No | URL JDBC del backend | `jdbc:postgresql://localhost:15432/systemguideforge` |
 | `SGF_DB_USERNAME` | No | Usuario JDBC | `systemguideforge` |
 | `SGF_DB_PASSWORD` | No | Contraseña JDBC | `systemguideforge` |
@@ -67,7 +78,7 @@ La aplicación queda en `http://localhost:4200`. El proxy de Angular reenvía la
 | `FIXTURE_USERNAME` | No | Usuario de la fixture | `fixture-user` |
 | `FIXTURE_PASSWORD` | No | Contraseña de la fixture | `fixture-password` |
 
-Los valores de fixture son datos de prueba. No uses secretos reales en comandos, logs, screenshots ni archivos versionados.
+La propiedad Spring `sgf.credential-key` es la alternativa de configuración a `SGF_CREDENTIAL_KEY`; no se combinan ni tienen valor por defecto. Los valores de fixture son datos de prueba. No uses secretos reales en comandos, logs, screenshots ni archivos versionados.
 
 ## Fixture local y E2E
 
@@ -77,13 +88,22 @@ La fixture determinista vive en `test-target/` y escucha en `http://127.0.0.1:41
 cd test-target && npm start
 ```
 
-El flujo E2E requiere PostgreSQL, backend, fixture, Java 25 y Chromium de Playwright instalados. Ejecutalo con `cd test-target && npm run e2e` después de levantar esos servicios. Esta documentación no ejecuta la validación manual/browser de ese flujo.
+En PowerShell:
+
+```powershell
+Set-Location test-target
+npm start
+```
+
+El flujo E2E requiere PostgreSQL, backend, fixture, Java 25 y Chromium de Playwright instalado para el backend. Ejecutalo, después de levantar esos servicios, con `cd test-target && npm run e2e` en POSIX o `Set-Location test-target; npm run e2e` en PowerShell. Esta documentación no ejecuta la validación manual/browser de ese flujo.
 
 ## Alcance del MVP
 
 Incluye registro de sistemas locales, login tradicional, prueba de acceso, análisis síncrono seguro, detección de páginas y elementos, screenshots sanitizados y generación de un manual editable. Antes de generar el manual, una persona puede incluir un elemento `UNKNOWN` en la documentación; esa aprobación solo afecta el contenido del manual y nunca habilita su ejecución. La edición del MVP permite cambiar el título y, en cada sección, el título, contenido, orden y visibilidad; no edita los resultados del análisis.
 
-El análisis ejecuta el adaptador de forma síncrona, recorre únicamente enlaces clasificados como `SAFE` y nunca ejecuta controles. Las acciones `MUTATING` y `UNKNOWN` quedan bloqueadas. Si cambia una aprobación de inclusión manual, se elimina el borrador existente para que se genere uno nuevo y no se reutilice contenido obsoleto. No se promete persistencia parcial ni recuperación automática ante fallos.
+El análisis ejecuta el adaptador de forma síncrona, recorre únicamente enlaces de mismo origen clasificados como `SAFE` y nunca ejecuta controles. Las acciones `MUTATING` y `UNKNOWN` quedan bloqueadas. El backend admite profundidad de 0 a 5 (2 si se omite en la API; la interfaz actual envía 0 inicialmente), hasta 100 páginas incluyendo la inicial y un presupuesto global de 500 enlaces evaluados. Las rutas excluidas son prefijos de ruta y también excluyen descendientes. Si cambia una aprobación de inclusión manual, se elimina el borrador existente para que se genere uno nuevo y no se reutilice contenido obsoleto. No se promete persistencia parcial ni recuperación automática ante fallos.
+
+Las URLs configuradas deben usar HTTP(S) y los únicos hosts que acepta el backend son `localhost`, `127.0.0.1` y el loopback IPv6 `::1` (normalmente escrito como `[::1]` en una URL). La validación actual del formulario del frontend solo permite `localhost` y `127.0.0.1`. Por cada página persistida se guarda una captura PNG de página completa, con campos sensibles enmascarados; se inspeccionan como máximo 500 elementos de cada uno de los tipos `button`, `a`, `input` y `textarea` por página.
 
 Fuera de alcance: producción, SSO/OAuth/MFA, workflows, IA, DOCX/PDF, colaboración, multiusuario, roles, multi-tenant, análisis de repositorios, microservicios y almacenamiento remoto.
 
@@ -99,11 +119,11 @@ Fuera de alcance: producción, SSO/OAuth/MFA, workflows, IA, DOCX/PDF, colaborac
 
 | Comprobación | Evidencia actual |
 | --- | --- |
-| `cd backend && ./mvnw test` | Los informes Surefire locales registran 86 pruebas, 0 fallos, 0 errores y 0 omitidas. No se ejecutó durante esta actualización documental. |
-| `cd frontend && npm test` | El script está definido y hay 34 casos `it` declarados; no hay un informe de ejecución disponible. |
-| `cd frontend && npm run build` | El script está definido; no hay un resultado de build disponible. |
-| `git diff --check` | Pasa; Git solo informó la normalización habitual de finales de línea LF/CRLF. |
-| `cd test-target && npm run e2e` y validación manual en navegador | E2E pasa: autenticación correcta, análisis `COMPLETED`, 2 páginas, 14 elementos, screenshot PNG y manual generado. La validación manual en navegador no se realizó. |
+| `cd backend && ./mvnw test` | Los informes Surefire presentes registran 89 pruebas, 0 fallos, 0 errores y 0 omitidas. No se ejecutó en esta actualización documental. |
+| `cd frontend && npm test` | Hay 36 casos `it` declarados en los tests actuales; no se ejecutaron en esta actualización documental. |
+| `cd frontend && npm run build` | El script está definido; no se ejecutó en esta actualización documental. |
+| `git diff --check` | Debe ejecutarse para validar cambios de formato; no se afirma un resultado previo. |
+| `cd test-target && npm run e2e` y validación manual en navegador | Requieren el stack local. El código E2E comprueba autenticación, `COMPLETED`, páginas, elementos, PNG y manual, pero no se afirma que se haya ejecutado en esta actualización. |
 
 ## Versiones verificadas
 

@@ -86,8 +86,6 @@ paths:
                 $ref: '#/components/schemas/ApplicationResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
 
   /applications/{applicationId}:
     put:
@@ -300,7 +298,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/ElementResponse'
         '400':
-          description: The request is invalid or the element is not UNKNOWN.
+          description: >-
+            The request body is absent or missing `approved` (the response may be empty),
+            or the element is not UNKNOWN (an ErrorResponse is returned).
           content:
             application/json:
               schema:
@@ -489,11 +489,11 @@ components:
         baseUrl:
           type: string
           format: uri
-          description: Local base URL, such as http://localhost:3000.
+          description: Local HTTP(S) base URL, such as http://localhost:3000. The host must be localhost, 127.0.0.1, or the IPv6 loopback address [::1].
         loginUrl:
           type: string
           format: uri
-          description: Local login form URL.
+          description: Local HTTP(S) login form URL. The host must be localhost, 127.0.0.1, or the IPv6 loopback address [::1]; the configured login flow must remain within the allowed local target.
         username:
           type: string
           minLength: 1
@@ -512,10 +512,16 @@ components:
         excludedRoutes:
           type: array
           default: []
+          maxItems: 50
           items:
             type: string
+            maxLength: 200
             pattern: '^/(?:[^/?#%]+(?:/[^/?#%]+)*)?/?$'
-          description: Absolute route prefixes excluded along with their descendants.
+          description: >-
+            Up to 50 absolute path prefixes, each at most 200 characters; query,
+            fragment, and percent-encoded paths are rejected. Trailing slashes are
+            removed except from `/`, duplicates are removed preserving first-seen order,
+            and each prefix excludes its descendants.
 
     ApplicationResponse:
       type: object
@@ -543,9 +549,12 @@ components:
           default: 2
         excludedRoutes:
           type: array
+          maxItems: 50
           items:
             type: string
+            maxLength: 200
             pattern: '^/(?:[^/?#%]+(?:/[^/?#%]+)*)?/?$'
+          description: Normalized, deduplicated absolute path prefixes in first-seen order.
 
     AccessTestResult:
       type: object
@@ -627,21 +636,22 @@ components:
             $ref: '#/components/schemas/PageResponse'
 
     PageResponse:
-          type: object
-          additionalProperties: false
-          required: [id, analysisId, url, title]
-          properties:
-            id:
-              type: string
-              format: uuid
-            analysisId:
-              type: string
-              format: uuid
-            url:
-              type: string
-              format: uri
-            title:
-              type: string
+      type: object
+      additionalProperties: false
+      required: [id, analysisId, url]
+      properties:
+        id:
+          type: string
+          format: uuid
+        analysisId:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        title:
+          type: string
+          nullable: true
 
     ElementResponse:
       type: object
@@ -695,6 +705,10 @@ components:
         title: { type: string, minLength: 1, maxLength: 255 }
         sections:
           type: array
+          description: >-
+            Must contain exactly the document's current sections. Every section ID must
+            be unique and belong to that document; array order becomes the persisted
+            section order (positions 0 through n-1).
           items:
             $ref: '#/components/schemas/DocumentSectionUpdateRequest'
 

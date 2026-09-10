@@ -26,12 +26,12 @@ This repository uses MCP and local agents to inspect local systems safely. Keep 
 
 | Area | Command | Condition |
 | --- | --- | --- |
-| Backend | `cd backend && ./mvnw test` | 72 tests pass in the recorded verification |
-| Frontend | `cd frontend && npm test` | 30 tests pass in the recorded verification |
-| Frontend build | `cd frontend && npm run build` | Passes in the recorded verification |
+| Backend | `cd backend && ./mvnw test` | Present Surefire reports record 89 tests, 0 failures, 0 errors, and 0 skipped; this is not a command execution claim for the current session |
+| Frontend | `cd frontend && npm test` | The current source declares 36 `it` cases; this is not a command execution claim for the current session |
+| Frontend build | `cd frontend && npm run build` | Run when the frontend changes; no current-session result is asserted |
 | Fixture smoke test | `cd test-target && npm test` | Does not require the backend |
-| Fixture E2E | `cd test-target && npm run e2e` | Requires PostgreSQL, backend, fixture, Chromium, and Java 25 |
-| Markdown/configuration | `git diff --check` and Markdown/JSON validation | Run according to the change |
+| Fixture E2E | `cd test-target && npm run e2e` | Requires PostgreSQL, backend, fixture, Java 25, and Chromium installed with the Playwright Java CLI |
+| Markdown/configuration | `git diff --check` and Markdown/YAML validation | Run according to the change |
 
 Fixture/E2E validation and manual browser inspection require the local stack; they are not considered executed by a documentation-only update.
 

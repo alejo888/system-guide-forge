@@ -29,7 +29,7 @@ frontend/src/app/
     └── analysis/
 ```
 
-`proxy.conf.json` reenvía `/api` a `http://127.0.0.1:8080` durante `ng serve`.
+`proxy.conf.json` reenvía `/api` a `http://127.0.0.1:8080` durante `ng serve`. El navegador conserva únicamente tres preferencias o referencias locales: `sgf.language`, `sgf.document-language` y la última respuesta de aplicación en `sgf.application`. Esta última no contiene credenciales; puede quedar desactualizada y solo sirve para reabrir la configuración o cargar su historial. La evidencia, los análisis y los documentos no se persisten en el navegador: viven en PostgreSQL o en el estado de la vista mientras está abierta.
 
 ## 3. Backend actual
 
@@ -61,7 +61,9 @@ ScreenshotRepository
 └── PostgreSQL/JPA
 ```
 
-El adaptador de análisis se ejecuta de forma síncrona dentro del caso de uso. Solo se recorren enlaces con clasificación `SAFE`; los controles no se ejecutan. `MUTATING` y `UNKNOWN` se bloquean. La aprobación de inclusión de un elemento `UNKNOWN` es un dato documental independiente: no cambia la clasificación ni el comportamiento del crawler.
+El adaptador de análisis se ejecuta de forma síncrona dentro del caso de uso. Solo se recorren enlaces de mismo origen con clasificación `SAFE`; los controles no se ejecutan. `MUTATING` y `UNKNOWN` se bloquean. La aprobación de inclusión de un elemento `UNKNOWN` es un dato documental independiente: no cambia la clasificación ni el comportamiento del crawler.
+
+La profundidad configurada es de 0 a 5 (2 por defecto en el backend si se omite); el servicio persiste como máximo 100 páginas, incluida la inicial. El adaptador tiene además un presupuesto global de 500 enlaces evaluados y examina como máximo 500 elementos de cada tipo `button`, `a`, `input` y `textarea` en cada página visitada. Cada página persistida puede tener una captura PNG de página completa; Playwright enmascara los campos sensibles antes de capturarla. Las rutas excluidas son prefijos normalizados y bloquean también sus descendientes.
 
 ## 5. Persistencia y migraciones
 
@@ -101,6 +103,6 @@ Las secciones del documento conservan referencias a la página y, cuando existe,
 
 ## 7. Límites y evolución
 
-El MVP opera contra sistemas web locales autorizados, con login tradicional y navegación de solo lectura. No incluye IA, DOCX/PDF, workflows, producción, SSO/OAuth/MFA, colaboración, multiusuario, microservicios ni almacenamiento remoto.
+El MVP opera contra sistemas web locales autorizados, con login tradicional y navegación de solo lectura. El backend acepta URLs HTTP(S) solo en `localhost`, `127.0.0.1` o el loopback IPv6 `::1`/`[::1]`; el validador del formulario Angular actual solo admite los dos primeros. No incluye IA, DOCX/PDF, workflows, producción, SSO/OAuth/MFA, colaboración, multiusuario, microservicios ni almacenamiento remoto.
 
 La modularización futura, la ejecución asíncrona y los almacenamientos alternativos son posibles evoluciones, no capacidades actuales.
