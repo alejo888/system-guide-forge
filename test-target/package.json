@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test test/smoke.test.js",
-    "e2e": "node test/e2e-backend.js"
+    "e2e": "node test/e2e-backend.js",
+    "e2e:stack": "node test/e2e-stack.js"
   }
 }
