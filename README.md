@@ -95,7 +95,42 @@ Set-Location test-target
 npm start
 ```
 
-El flujo E2E requiere PostgreSQL, backend, fixture, Java 25 y Chromium de Playwright instalado para el backend. Ejecutalo, después de levantar esos servicios, con `cd test-target && npm run e2e` en POSIX o `Set-Location test-target; npm run e2e` en PowerShell. Esta documentación no ejecuta la validación manual/browser de ese flujo.
+El flujo E2E requiere PostgreSQL, backend, fixture, Java 25 y Chromium de Playwright instalado para el backend. Para iniciar el stack local, esperar su disponibilidad, ejecutar la suite y detener únicamente los servicios que inició el comando, usá:
+
+```bash
+cd test-target && npm run e2e:stack
+```
+
+En PowerShell:
+
+```powershell
+Set-Location test-target
+npm run e2e:stack
+```
+
+`e2e:stack` usa `POSTGRES_PASSWORD`, `SGF_DB_PASSWORD` y `SGF_CREDENTIAL_KEY` cuando están definidas; si no, usa los placeholders locales `systemguideforge` y `local-only-test-key`. Si definís ambas contraseñas, deben coincidir. El comando falla en lugar de reutilizar procesos existentes en los puertos 8080 o 4173, o un proceso ajeno en 15432; un contenedor `postgres` ya iniciado por Docker Compose se conserva. Para iniciar los servicios manualmente, conservá los comandos de las secciones anteriores y ejecutá después `cd test-target && npm run e2e` en POSIX o `Set-Location test-target; npm run e2e` en PowerShell.
+
+### E2E de navegador
+
+El E2E de API anterior (`npm run e2e`) verifica el contrato REST directamente; no inicia Angular ni recorre la interfaz. El E2E de navegador usa Playwright contra Angular y cubre el registro, la prueba de acceso y la evidencia renderizada del fixture. Usa el canal instalado de Microsoft Edge; requiere Node.js, Microsoft Edge y las dependencias del frontend. No requiere descargar Chromium administrado por Playwright para este flujo:
+
+```bash
+npm --prefix frontend install
+```
+
+Con backend, fixture y Angular ya iniciados manualmente, ejecutá:
+
+```bash
+npm --prefix frontend run e2e:browser
+```
+
+Para ejecutar primero el E2E de API y luego el navegador con el stack administrado, usá:
+
+```bash
+npm --prefix test-target run e2e:stack -- --browser
+```
+
+En modo `--browser`, el runner conserva el comportamiento de servicios del E2E de API, inicia Angular en `127.0.0.1:4200` si ese puerto está libre y solo detiene la instancia de Angular que inició. Si Angular ya estaba iniciada manualmente en el puerto 4200, la reutiliza y la conserva.
 
 ## Alcance del MVP
 
