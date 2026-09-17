@@ -17,7 +17,12 @@ let frontendProcess;
 let e2eProcess;
 let browserE2eProcess;
 let startedPostgres = false;
+let e2eDatabaseNeedsCleanup = false;
 let cleaningUp = false;
+let postgresPassword;
+
+const e2eDatabaseName = 'systemguideforge_e2e';
+const e2eDatabaseUrl = `jdbc:postgresql://127.0.0.1:15432/${e2eDatabaseName}`;
 
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -38,6 +43,12 @@ function runCommand(command, arguments_, options = {}) {
     child.stderr?.on('data', (chunk) => { stderr += chunk; });
     child.once('error', reject);
     child.once('exit', (code, signal) => resolve({ code, signal, stdout, stderr }));
+  });
+}
+
+function runCompose(arguments_) {
+  return runCommand('docker', ['compose', ...arguments_], {
+    env: { ...process.env, POSTGRES_PASSWORD: postgresPassword }
   });
 }
 
@@ -99,11 +110,20 @@ async function waitFor(description, probe) {
 }
 
 async function isComposePostgresRunning() {
-  const result = await runCommand('docker', ['compose', 'ps', '--status', 'running', '-q', 'postgres']);
+  const result = await runCompose(['ps', '--status', 'running', '-q', 'postgres']);
   if (result.code !== 0) {
     throw new Error(`Unable to inspect PostgreSQL with docker compose: ${result.stderr.trim() || result.stdout.trim() || `exit ${result.code}`}`);
   }
   return result.stdout.trim().length > 0;
+}
+
+async function isComposePostgresReady() {
+  const result = await runCompose([
+    'exec', '-T', 'postgres', 'pg_isready',
+    '--username', 'systemguideforge',
+    '--dbname', 'postgres'
+  ]);
+  return result.code === 0;
 }
 
 async function assertInitialPorts(postgresAlreadyRunning) {
@@ -117,6 +137,39 @@ async function assertInitialPorts(postgresAlreadyRunning) {
     throw new Error(
       `Refusing to reuse existing services on port(s) ${unexpectedPorts.join(', ')}. Stop the unrelated or stale service(s) before running e2e:stack.`
     );
+  }
+}
+
+async function runE2eDatabaseCommand(command, arguments_ = []) {
+  return runCompose([
+    'exec', '-T', 'postgres', command,
+    ...arguments_,
+    '--username', 'systemguideforge',
+    '--maintenance-db', 'postgres',
+    e2eDatabaseName
+  ]);
+}
+
+async function recreateE2eDatabase() {
+  const dropResult = await runE2eDatabaseCommand('dropdb', ['--if-exists', '--force']);
+  if (dropResult.code !== 0) {
+    throw new Error(`Unable to reset E2E database: ${dropResult.stderr.trim() || dropResult.stdout.trim() || `docker compose exited ${dropResult.code}`}`);
+  }
+
+  const createResult = await runE2eDatabaseCommand('createdb');
+  if (createResult.code !== 0) {
+    throw new Error(`Unable to create E2E database: ${createResult.stderr.trim() || createResult.stdout.trim() || `docker compose exited ${createResult.code}`}`);
+  }
+}
+
+async function dropE2eDatabase() {
+  try {
+    const result = await runE2eDatabaseCommand('dropdb', ['--if-exists', '--force']);
+    if (result.code !== 0) {
+      console.error(`Could not drop E2E database: ${result.stderr.trim() || result.stdout.trim() || `docker compose exited ${result.code}`}`);
+    }
+  } catch (error) {
+    console.error(`Could not drop E2E database: ${error.message}`);
   }
 }
 
@@ -148,8 +201,12 @@ async function cleanup() {
     stopProcess(frontendProcess, 'frontend')
   ]);
 
+  if (e2eDatabaseNeedsCleanup) {
+    await dropE2eDatabase();
+  }
+
   if (startedPostgres) {
-    const result = await runCommand('docker', ['compose', 'stop', 'postgres']);
+    const result = await runCompose(['stop', 'postgres']);
     if (result.code !== 0) {
       console.error(`Could not stop PostgreSQL: ${result.stderr.trim() || result.stdout.trim() || `docker compose exited ${result.code}`}`);
     }
@@ -180,7 +237,9 @@ async function runBrowserE2e() {
 
 async function main() {
   const browserMode = process.argv.slice(2).includes('--browser');
-  const postgresPassword = process.env.POSTGRES_PASSWORD || process.env.SGF_DB_PASSWORD || 'systemguideforge';
+  const hasExplicitPostgresPassword = Boolean(process.env.POSTGRES_PASSWORD);
+  const hasExplicitDatabasePassword = Boolean(process.env.SGF_DB_PASSWORD);
+  postgresPassword = process.env.POSTGRES_PASSWORD || process.env.SGF_DB_PASSWORD || 'systemguideforge';
   const databasePassword = process.env.SGF_DB_PASSWORD || postgresPassword;
   const credentialKey = process.env.SGF_CREDENTIAL_KEY || 'local-only-test-key';
   if (process.env.SGF_DB_PASSWORD && process.env.SGF_DB_PASSWORD !== postgresPassword) {
@@ -188,18 +247,24 @@ async function main() {
   }
 
   const postgresAlreadyRunning = await isComposePostgresRunning();
+  if (postgresAlreadyRunning && !hasExplicitPostgresPassword && !hasExplicitDatabasePassword) {
+    throw new Error(
+      'Compose PostgreSQL is already running, but no database password was explicitly supplied. Set POSTGRES_PASSWORD and SGF_DB_PASSWORD to the existing systemguideforge role password (or set one; if both are set, they must match) before running e2e:stack. Docker Compose does not change credentials in an existing volume.'
+    );
+  }
   await assertInitialPorts(postgresAlreadyRunning);
 
   if (!postgresAlreadyRunning) {
-    const result = await runCommand('docker', ['compose', 'up', '-d', 'postgres'], {
-      env: { ...process.env, POSTGRES_PASSWORD: postgresPassword }
-    });
+    const result = await runCompose(['up', '-d', 'postgres']);
     if (result.code !== 0) {
       throw new Error(`Unable to start PostgreSQL: ${result.stderr.trim() || result.stdout.trim() || `docker compose exited ${result.code}`}`);
     }
     startedPostgres = true;
   }
   await waitFor('PostgreSQL on port 15432', () => isPortOccupied(15432));
+  await waitFor('PostgreSQL connections inside Docker Compose', isComposePostgresReady);
+  e2eDatabaseNeedsCleanup = true;
+  await recreateE2eDatabase();
 
   backendProcess = startProcess(isWindows ? 'mvnw.cmd' : './mvnw', ['spring-boot:run'], {
     cwd: backendDirectory,
@@ -207,6 +272,7 @@ async function main() {
     env: {
       ...process.env,
       POSTGRES_PASSWORD: postgresPassword,
+      SGF_DB_URL: e2eDatabaseUrl,
       SGF_DB_PASSWORD: databasePassword,
       SGF_CREDENTIAL_KEY: credentialKey
     }

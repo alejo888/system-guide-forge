@@ -108,7 +108,7 @@ Set-Location test-target
 npm run e2e:stack
 ```
 
-`e2e:stack` usa `POSTGRES_PASSWORD`, `SGF_DB_PASSWORD` y `SGF_CREDENTIAL_KEY` cuando están definidas; si no, usa los placeholders locales `systemguideforge` y `local-only-test-key`. Si definís ambas contraseñas, deben coincidir. El comando falla en lugar de reutilizar procesos existentes en los puertos 8080 o 4173, o un proceso ajeno en 15432; un contenedor `postgres` ya iniciado por Docker Compose se conserva. Para iniciar los servicios manualmente, conservá los comandos de las secciones anteriores y ejecutá después `cd test-target && npm run e2e` en POSIX o `Set-Location test-target; npm run e2e` en PowerShell.
+`e2e:stack` usa `POSTGRES_PASSWORD`, `SGF_DB_PASSWORD` y `SGF_CREDENTIAL_KEY` cuando están definidas; si no, usa los placeholders locales `systemguideforge` y `local-only-test-key`. Si definís ambas contraseñas, deben coincidir. **Advertencia al reutilizar PostgreSQL de Docker Compose:** si el contenedor ya está iniciado, configurá explícitamente `POSTGRES_PASSWORD` y `SGF_DB_PASSWORD` con la contraseña real del rol `systemguideforge` (con valores consistentes; también podés declarar solo una). Docker Compose no cambia las credenciales de un volumen existente, por lo que el runner falla antes de preparar el E2E si no recibe una contraseña explícita. Antes de ejecutar los comandos de ciclo de vida de la base, espera tanto el puerto publicado como que PostgreSQL dentro del contenedor acepte conexiones. Luego, antes de iniciar el backend, recrea exclusivamente la base `systemguideforge_e2e`, configura el backend para usarla y la elimina después de detener el backend. Así, las fases de API y navegador de una misma invocación `e2e:stack -- --browser` comparten datos aislados sin modificar la base normal `systemguideforge`. El comando falla en lugar de reutilizar procesos existentes en los puertos 8080 o 4173, o un proceso ajeno en 15432; un contenedor `postgres` ya iniciado por Docker Compose se conserva. Para iniciar los servicios manualmente, conservá los comandos de las secciones anteriores y ejecutá después `cd test-target && npm run e2e` en POSIX o `Set-Location test-target; npm run e2e` en PowerShell.
 
 ### E2E de navegador
 
@@ -130,7 +130,7 @@ Para ejecutar primero el E2E de API y luego el navegador con el stack administra
 npm --prefix test-target run e2e:stack -- --browser
 ```
 
-En modo `--browser`, el runner conserva el comportamiento de servicios del E2E de API, inicia Angular en `127.0.0.1:4200` si ese puerto está libre y solo detiene la instancia de Angular que inició. Si Angular ya estaba iniciada manualmente en el puerto 4200, la reutiliza y la conserva.
+En modo `--browser`, el runner conserva el comportamiento de servicios del E2E de API, inicia Angular en `127.0.0.1:4200` si ese puerto está libre y solo detiene la instancia de Angular que inició. Si Angular ya estaba iniciada manualmente en el puerto 4200, la reutiliza y la conserva. La ejecución directa `npm --prefix frontend run e2e:browser` sigue siendo externa al stack: usa el backend que ya esté iniciado y no crea ni limpia una base aislada.
 
 ## Alcance del MVP
 
@@ -158,7 +158,8 @@ Fuera de alcance: producción, SSO/OAuth/MFA, workflows, IA, DOCX/PDF, colaborac
 | `cd frontend && npm test` | Hay 36 casos `it` declarados en los tests actuales; no se ejecutaron en esta actualización documental. |
 | `cd frontend && npm run build` | El script está definido; no se ejecutó en esta actualización documental. |
 | `git diff --check` | Debe ejecutarse para validar cambios de formato; no se afirma un resultado previo. |
-| `cd test-target && npm run e2e` y validación manual en navegador | Requieren el stack local. El código E2E comprueba autenticación, `COMPLETED`, páginas, elementos, PNG y manual, pero no se afirma que se haya ejecutado en esta actualización. |
+| `cd test-target && npm run e2e` | Ejecutado correctamente contra el stack local: autenticación, `COMPLETED`, páginas, elementos, PNG y manual verificados. |
+| `npm --prefix test-target run e2e:stack -- --browser` | Ejecutado correctamente con Microsoft Edge: registro, login, prueba de acceso, análisis completado y evidencia renderizada verificados. |
 
 ## Versiones verificadas
 
