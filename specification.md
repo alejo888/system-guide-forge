@@ -24,7 +24,7 @@ Permitir que una persona documente un sistema web local recorriéndolo de forma 
 ### No incluye
 
 - Edición de resultados del análisis.
-- Recuperación automática de análisis fallidos; una falla puede dejar evidencia parcial asociada al análisis fallido.
+- Recuperación automática o reintento sobre el mismo identificador de análisis. Una falla puede dejar evidencia parcial asociada al análisis fallido; ese registro se conserva para inspección y se marca como incompleto. La persona puede iniciar un análisis nuevo con la configuración actual de la aplicación, sin alterar ni eliminar el registro fallido.
 - Sistemas de producción o accesibles fuera del entorno local.
 - SSO, OAuth, MFA, workflows, captura guiada de operaciones mutantes o validación automática de funcionalidades.
 - IA como requisito, exportación DOCX/PDF, colaboración, multiusuario, roles, multi-tenant o versionado avanzado.
@@ -70,6 +70,7 @@ Editar título y secciones
 - **RF16.** Eliminar el borrador existente al cambiar una aprobación de inclusión documental, para exigir una nueva generación sin contenido obsoleto.
 - **RF17.** Conservar en el navegador únicamente la última aplicación seleccionada y las preferencias de idioma; la evidencia y los documentos deben permanecer en el backend.
 - **RF18.** Normalizar las rutas excluidas como prefijos absolutos, quitar barras finales salvo en `/`, eliminar duplicados preservando el primer orden y rechazar consultas, fragmentos, escapes porcentuales, más de 50 rutas o rutas de más de 200 caracteres.
+- **RF19.** Cuando un análisis falle, conservar el registro y la evidencia parcial visibles, marcarlos como incompletos y permitir iniciar mediante el endpoint de creación existente un análisis nuevo que use la configuración actual de la aplicación. La generación de documentos permanece bloqueada para análisis `FAILED`.
 
 ## 5. Requisitos no funcionales
 

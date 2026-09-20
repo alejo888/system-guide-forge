@@ -1,14 +1,15 @@
 import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiError, ApiService, AnalysisResponse, DocumentResponse, DocumentSectionResponse, ElementResponse, FunctionalModule, PageResponse, LocalizationService, DocumentLanguage, DocumentType } from '../../core/api.service';
 
 interface PageEvidence extends PageResponse { elements: ElementResponse[]; screenshotUrl: string | null; }
 interface ManualReviewGroup { page: PageEvidence; elements: ElementResponse[]; }
 type SaveState = 'idle' | 'saving' | 'success' | 'error';
+type RetryState = 'idle' | 'starting' | 'error';
 
 @Component({ selector: 'sgf-analysis', standalone: true, imports: [RouterLink], templateUrl: './analysis.component.html', styleUrl: './analysis.component.css' })
 export class AnalysisComponent implements OnInit {
-  private readonly api = inject(ApiService); private readonly route = inject(ActivatedRoute); readonly localization = inject(LocalizationService); readonly t = (key: string): string => this.localization.t(key); private readonly destroyRef = inject(DestroyRef);
+  private readonly api = inject(ApiService); private readonly route = inject(ActivatedRoute); private readonly router = inject(Router); readonly localization = inject(LocalizationService); readonly t = (key: string): string => this.localization.t(key); private readonly destroyRef = inject(DestroyRef);
   readonly analysis = signal<AnalysisResponse | null>(null); readonly pages = signal<PageEvidence[]>([]); readonly modules = signal<FunctionalModule[]>([]); readonly document = signal<DocumentResponse | null>(null);
   readonly editableTitle = signal(''); readonly documentLanguage = signal<DocumentLanguage>(this.readDocumentLanguage()); readonly documentType = signal<DocumentType>('user_manual'); readonly editableSections = signal<DocumentSectionResponse[]>([]);
   readonly searchQuery = signal(''); readonly selectedModule = signal('all');
@@ -19,7 +20,7 @@ export class AnalysisComponent implements OnInit {
   readonly unknownElementCount = computed(() => this.unknownReviewGroups().reduce((count, group) => count + group.elements.length, 0));
   readonly approvedUnknownElementCount = computed(() => this.unknownReviewGroups().reduce((count, group) => count + group.elements.filter(element => element.manualInclusionApproved).length, 0));
   readonly filteredModules = computed(() => { const query = this.normalizedSearch(); const selected = this.selectedModule(); return this.modules().map(module => { const moduleMatches = !query || this.searchText(module.name, module.key).includes(query); if (selected !== 'all' && module.key !== selected) return null; const pages = module.pages.filter(page => moduleMatches || this.pageMatches(page, query)); return pages.length ? { ...module, pages } : null; }).filter((module): module is FunctionalModule => module !== null); });
-  readonly state = signal<'loading' | 'ready' | 'error'>('loading'); readonly moduleState = signal<'loading' | 'ready' | 'error'>('loading'); readonly documentState = signal<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle'); readonly saveState = signal<SaveState>('idle'); readonly manualInclusionState = signal<'idle' | 'saving' | 'error'>('idle'); readonly manualInclusionMessage = signal(''); readonly errorMessage = signal('');
+  readonly state = signal<'loading' | 'ready' | 'error'>('loading'); readonly moduleState = signal<'loading' | 'ready' | 'error'>('loading'); readonly documentState = signal<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle'); readonly saveState = signal<SaveState>('idle'); readonly manualInclusionState = signal<'idle' | 'saving' | 'error'>('idle'); readonly manualInclusionMessage = signal(''); readonly retryState = signal<RetryState>('idle'); readonly retryErrorMessage = signal(''); readonly errorMessage = signal('');
 
   ngOnInit(): void { const id = this.route.snapshot.paramMap.get('id'); if (!id) { this.fail(this.t('no-analysis-selected')); return; } void this.load(id); this.destroyRef.onDestroy(() => this.pages().forEach(p => p.screenshotUrl && URL.revokeObjectURL(p.screenshotUrl))); }
   private async load(id: string): Promise<void> { try { const analysis = await this.api.getAnalysis(id); this.analysis.set(analysis); this.moduleState.set('loading'); const [pages, moduleResult] = await Promise.all([this.api.getAnalysisPages(id), this.api.getAnalysisModules(id).then(modules => ({ modules, failed: false })).catch(() => ({ modules: [], failed: true }))]); const pageEvidence = await Promise.all(pages.map(p => this.loadPage(p))); this.pages.set(pageEvidence); this.modules.set(moduleResult.failed ? (pages.length ? [{ key: 'unassigned', name: this.t('unassigned-pages'), pages }] : []) : moduleResult.modules); this.moduleState.set(moduleResult.failed ? 'error' : 'ready'); this.state.set('ready'); } catch { this.fail(this.t('analysis-load-error')); } }
@@ -37,6 +38,20 @@ export class AnalysisComponent implements OnInit {
   setSearchQuery(query: string): void { this.searchQuery.set(query); }
   setSelectedModule(module: string): void { this.selectedModule.set(module); }
   private async loadPage(page: PageResponse): Promise<PageEvidence> { const [elements, screenshot] = await Promise.all([this.api.getPageElements(page.id).catch(() => [] as ElementResponse[]), this.api.getPageScreenshot(page.id).catch(() => null)]); return { ...page, elements, screenshotUrl: screenshot ? URL.createObjectURL(screenshot) : null }; }
+  async retryAnalysis(): Promise<void> {
+    const failedAnalysis = this.analysis();
+    if (!failedAnalysis || failedAnalysis.status !== 'FAILED') return;
+    if (!window.confirm(this.t('retry-analysis-confirmation'))) return;
+    this.retryState.set('starting');
+    this.retryErrorMessage.set('');
+    try {
+      const analysis = await this.api.startAnalysis(failedAnalysis.applicationId);
+      await this.router.navigate(['/analysis', analysis.id]);
+    } catch {
+      this.retryState.set('error');
+      this.retryErrorMessage.set(this.t('retry-analysis-error'));
+    }
+  }
   async generateDocument(): Promise<void> {
     const id = this.analysis()?.id;
     if (!id) return;
