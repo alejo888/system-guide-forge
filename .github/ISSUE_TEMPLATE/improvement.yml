@@ -1,0 +1,27 @@
+name: Improvement or maintenance
+description: Track an agreed product improvement, consistency fix, or maintenance task.
+title: "[Improvement]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: Describe the behavior, inconsistency, or maintenance need.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-change
+    attributes:
+      label: Proposed change
+      description: Describe the intended outcome and relevant scope.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List the observable conditions that define completion.
+    validations:
+      required: true
