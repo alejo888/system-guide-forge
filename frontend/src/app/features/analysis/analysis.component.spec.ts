@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { AnalysisComponent } from './analysis.component';
 import { ApiError, ApiService, DocumentResponse } from '../../core/api.service';
 
@@ -15,18 +15,76 @@ describe('AnalysisComponent document editing', () => {
   let fixture: ComponentFixture<AnalysisComponent>;
   let component: AnalysisComponent;
   let api: jasmine.SpyObj<ApiService>;
+  let router: jasmine.SpyObj<Router>;
 
   beforeEach(async () => { localStorage.setItem('sgf.language', 'en'); spyOn(window, 'confirm').and.returnValue(true);
-    api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getAnalysisModules', 'getPageElements', 'getPageScreenshot', 'generateDocument', 'updateDocument', 'updateManualInclusion']);
+    api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getAnalysisModules', 'getPageElements', 'getPageScreenshot', 'generateDocument', 'updateDocument', 'updateManualInclusion', 'startAnalysis']);
+    router = jasmine.createSpyObj<Router>('Router', ['navigate']);
+    router.navigate.and.resolveTo(true);
         api.getAnalysis.and.resolveTo({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
         api.getAnalysisPages.and.resolveTo([]);
         api.getAnalysisModules.and.resolveTo([]);
     api.updateDocument.and.resolveTo(document);
     await TestBed.configureTestingModule({ imports: [AnalysisComponent], providers: [
-      { provide: ApiService, useValue: api }, { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => 'analysis-1' } } } },
+      { provide: ApiService, useValue: api }, { provide: Router, useValue: router }, { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => 'analysis-1' } } } },
     ] }).compileComponents();
     fixture = TestBed.createComponent(AnalysisComponent); component = fixture.componentInstance;
     component.analysis.set({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null }); component.document.set(document); component.documentState.set('ready'); component.state.set('ready'); component.editTitle(document.title); component.editableSections.set(document.sections); fixture.detectChanges();
+  });
+
+  it('retries a failed analysis with the current application configuration and opens the new analysis', async () => {
+    component.analysis.set({ id: 'analysis-failed', applicationId: 'app-1', status: 'FAILED', startedAt: '', completedAt: '', failureMessage: 'Crawler failed' });
+    api.startAnalysis.and.resolveTo({ id: 'analysis-new', applicationId: 'app-1', status: 'RUNNING', startedAt: '', completedAt: null, failureMessage: null });
+
+    await component.retryAnalysis();
+
+    expect(api.startAnalysis).toHaveBeenCalledOnceWith('app-1');
+    expect(router.navigate).toHaveBeenCalledOnceWith(['/analysis', 'analysis-new']);
+    expect(component.analysis()?.id).toBe('analysis-failed');
+  });
+
+  it('cancels a failed-analysis retry without changing the failed analysis', async () => {
+    component.analysis.set({ id: 'analysis-failed', applicationId: 'app-1', status: 'FAILED', startedAt: '', completedAt: '', failureMessage: 'Crawler failed' });
+    (window.confirm as jasmine.Spy).and.returnValue(false);
+
+    await component.retryAnalysis();
+
+    expect(api.startAnalysis).not.toHaveBeenCalled();
+    expect(router.navigate).not.toHaveBeenCalled();
+    expect(component.analysis()?.id).toBe('analysis-failed');
+  });
+
+  it('surfaces a retry error while retaining the failed analysis and its evidence', async () => {
+    component.analysis.set({ id: 'analysis-failed', applicationId: 'app-1', status: 'FAILED', startedAt: '', completedAt: '', failureMessage: 'Crawler failed' });
+    component.pages.set([{ id: 'page-1', analysisId: 'analysis-failed', url: 'https://example.test', title: 'Home', elements: [], screenshotUrl: null }]);
+    api.startAnalysis.and.rejectWith(new Error('offline'));
+
+    await component.retryAnalysis();
+
+    expect(component.retryState()).toBe('error');
+    expect(component.retryErrorMessage()).toBe('Could not start a new analysis. The failed analysis and its evidence remain available.');
+    expect(component.analysis()?.id).toBe('analysis-failed');
+    expect(component.pages()).toHaveSize(1);
+  });
+
+  it('shows an incomplete-evidence warning and retry action for failed analyses', () => {
+    component.analysis.set({ id: 'analysis-failed', applicationId: 'app-1', status: 'FAILED', startedAt: '', completedAt: '', failureMessage: 'Crawler failed' });
+    component.state.set('ready');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.failed-analysis-warning').textContent).toContain('Any evidence below may be incomplete');
+    expect(fixture.nativeElement.querySelector('.retry-analysis-button').textContent).toContain('Retry analysis');
+    expect(fixture.nativeElement.querySelector('.generation-card')).toBeNull();
+  });
+
+  it('localizes the failed-analysis warning and retry action in Spanish', () => {
+    component.localization.setLanguage('es');
+    component.analysis.set({ id: 'analysis-failed', applicationId: 'app-1', status: 'FAILED', startedAt: '', completedAt: '', failureMessage: 'Crawler failed' });
+    component.state.set('ready');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.failed-analysis-warning').textContent).toContain('puede estar incompleta');
+    expect(fixture.nativeElement.querySelector('.retry-analysis-button').textContent).toContain('Reintentar análisis');
   });
 
   it('edits fields and sends the ordered editable payload without traceability fields', async () => {
