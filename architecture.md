@@ -103,6 +103,6 @@ Las secciones del documento conservan referencias a la página y, cuando existe,
 
 ## 7. Límites y evolución
 
-El MVP opera contra sistemas web locales autorizados, con login tradicional y navegación de solo lectura. El backend acepta URLs HTTP(S) solo en `localhost`, `127.0.0.1` o el loopback IPv6 `::1`/`[::1]`; el validador del formulario Angular actual solo admite los dos primeros. No incluye IA, DOCX/PDF, workflows, producción, SSO/OAuth/MFA, colaboración, multiusuario, microservicios ni almacenamiento remoto.
+El MVP opera contra sistemas web locales autorizados, con login tradicional y navegación de solo lectura. El backend y el validador del formulario Angular aceptan URLs HTTP(S) solo en `localhost`, `127.0.0.1` o el loopback IPv6 `::1`/`[::1]`. No incluye IA, DOCX/PDF, workflows, producción, SSO/OAuth/MFA, colaboración, multiusuario, microservicios ni almacenamiento remoto.
 
 La modularización futura, la ejecución asíncrona y los almacenamientos alternativos son posibles evoluciones, no capacidades actuales.

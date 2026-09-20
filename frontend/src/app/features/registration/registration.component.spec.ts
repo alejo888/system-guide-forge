@@ -42,6 +42,22 @@ describe('RegistrationComponent crawler configuration', () => {
     expect(fixture.nativeElement.querySelector('#crawler-validation')?.getAttribute('role')).toBe('alert');
   });
 
+  it('accepts IPv6 loopback URLs and rejects remote hosts', () => {
+    expect(component.isLocalUrl('http://[::1]:3000')).toBeTrue();
+    expect(component.isLocalUrl('https://[::1]/login')).toBeTrue();
+    expect(component.isLocalUrl('https://example.com')).toBeFalse();
+  });
+
+  it('describes IPv6 loopback in English and Spanish validation messages', () => {
+    expect(component.t('local-url-error')).toBe('Use an HTTP(S) URL on localhost, 127.0.0.1, or [::1].');
+    expect(component.t('local-url-validation')).toBe('Use an HTTP(S) URL on localhost, 127.0.0.1, or [::1].');
+
+    component.localization.setLanguage('es');
+
+    expect(component.t('local-url-error')).toBe('Usá una URL HTTP(S) en localhost, 127.0.0.1 o [::1].');
+    expect(component.t('local-url-validation')).toBe('Usá una URL HTTP(S) en localhost, 127.0.0.1 o [::1].');
+  });
+
   it('accepts root and trailing-slash routes and rejects malformed routes', () => {
     component.model.update(value => ({ ...value, maxCrawlDepth: 6, excludedRoutes: ['/admin', 'admin', '/'] }));
     expect(component.crawlerConfigurationValid()).toBeFalse();
