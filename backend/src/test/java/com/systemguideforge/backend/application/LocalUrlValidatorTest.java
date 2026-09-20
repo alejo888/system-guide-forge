@@ -10,6 +10,7 @@ class LocalUrlValidatorTest {
         assertTrue(LocalUrlValidator.isLocal("http://localhost:3000"));
         assertTrue(LocalUrlValidator.isLocal("https://127.0.0.1/login"));
         assertTrue(LocalUrlValidator.isLocal("http://[::1]:8080"));
+        assertTrue(LocalUrlValidator.isLocal("https://[::1]/login"));
     }
 
     @Test
