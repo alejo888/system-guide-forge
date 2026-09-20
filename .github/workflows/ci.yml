@@ -91,10 +91,18 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Configure headless Chrome
+        run: |
+          cat > "$RUNNER_TEMP/chrome-no-sandbox" <<'EOF'
+          #!/usr/bin/env bash
+          exec "${{ steps.chrome.outputs.chrome-path }}" --no-sandbox "$@"
+          EOF
+          chmod +x "$RUNNER_TEMP/chrome-no-sandbox"
+
       - name: Run frontend tests
         working-directory: frontend
         env:
-          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+          CHROME_BIN: ${{ runner.temp }}/chrome-no-sandbox
         run: npm test
 
       - name: Build frontend
