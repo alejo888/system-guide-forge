@@ -16,7 +16,10 @@ export type DocumentType = 'user_manual';
 export interface DocumentSectionResponse { id: string; position: number; sourcePageId: string; screenshotId: string | null; title: string; content: string; hidden: boolean; }
 export interface DocumentResponse { id: string; title: string; applicationId: string; sourceAnalysisId: string; status: 'DRAFT'; language: DocumentLanguage; type: DocumentType; sections: DocumentSectionResponse[]; }
 export interface DocumentUpdatePayload { title: string; sections: Array<{ id: string; title: string; content: string; hidden: boolean }>; }
-    export interface DocumentGeneratePayload { language: DocumentLanguage; type: DocumentType; }
+    export interface DocumentGeneratePayload { language: DocumentLanguage; type: DocumentType; confirmReplacement?: boolean; }
+export class ApiError extends Error {
+  constructor(readonly status: number, message: string, readonly code?: string) { super(message); this.name = 'ApiError'; }
+}
 export interface ProjectInput { name: string; }
 export interface ApplicationInput { name: string; baseUrl: string; loginUrl: string; username: string; password: string; maxCrawlDepth?: number; excludedRoutes?: string[]; }
 
@@ -66,5 +69,14 @@ export class ApiService {
   getDocument(documentId: string): Promise<DocumentResponse> { return this.request(`/documents/${documentId}`); }
   updateDocument(documentId: string, payload: DocumentUpdatePayload): Promise<DocumentResponse> { return this.request(`/documents/${documentId}`, false, { method: 'PUT', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } }); }
   private async post<T>(path: string, body: unknown): Promise<T> { return this.request(path, false, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }); }
-  private async request<T>(path: string, blob = false, options: RequestInit = {}): Promise<T> { const response = await fetch(`${this.apiUrl}${path}`, options); if (!response.ok) throw new Error(`API request failed with status ${response.status}`); return (blob ? response.blob() : response.json()) as Promise<T>; }
+  private async request<T>(path: string, blob = false, options: RequestInit = {}): Promise<T> {
+    const response = await fetch(`${this.apiUrl}${path}`, options);
+    if (!response.ok) {
+      const error = await response.json().catch(() => null) as { message?: unknown; code?: unknown } | null;
+      const message = typeof error?.message === 'string' ? error.message : `API request failed with status ${response.status}`;
+      const code = typeof error?.code === 'string' ? error.code : undefined;
+      throw new ApiError(response.status, message, code);
+    }
+    return (blob ? response.blob() : response.json()) as Promise<T>;
+  }
 }

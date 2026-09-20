@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute } from '@angular/router';
 import { AnalysisComponent } from './analysis.component';
-import { ApiService, DocumentResponse } from '../../core/api.service';
+import { ApiError, ApiService, DocumentResponse } from '../../core/api.service';
 
 const document: DocumentResponse = {
   id: 'doc-1', title: 'Guide', applicationId: 'app-1', sourceAnalysisId: 'analysis-1', status: 'DRAFT', language: 'en', type: 'user_manual',
@@ -44,11 +44,37 @@ describe('AnalysisComponent document editing', () => {
     component.analysis.set({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
     component.setDocumentLanguage('es');
     await component.generateDocument();
-    expect(api.generateDocument).toHaveBeenCalledWith('analysis-1', { language: 'es', type: 'user_manual' });
+    expect(api.generateDocument).toHaveBeenCalledWith('analysis-1', { language: 'es', type: 'user_manual', confirmReplacement: true });
     expect(component.documentLanguage()).toBe('en');
     expect(component.documentType()).toBe('user_manual');
   });
   it('cancels replacement without calling the API or changing the persisted draft', async () => { component.document.set(document); component.editableTitle.set(document.title); component.setDocumentLanguage('es'); (window.confirm as jasmine.Spy).and.returnValue(false); await component.generateDocument(); expect(api.generateDocument).not.toHaveBeenCalled(); expect(component.document()).toBe(document); expect(component.documentLanguage()).toBe('es'); });
+  it('confirms once and explicitly retries when the backend requires replacement confirmation', async () => {
+    component.setDocumentLanguage('en');
+    api.generateDocument.and.callFake((_analysisId, payload) => payload.confirmReplacement
+      ? Promise.resolve({ ...document, language: 'es' as const })
+      : Promise.reject(new ApiError(409, 'Replacing an existing draft with a different language or type requires confirmation', 'DRAFT_REPLACEMENT_CONFIRMATION_REQUIRED')));
+
+    await component.generateDocument();
+
+    expect(window.confirm).toHaveBeenCalledTimes(1);
+    expect(api.generateDocument.calls.allArgs()).toEqual([
+      ['analysis-1', { language: 'en', type: 'user_manual', confirmReplacement: false }],
+      ['analysis-1', { language: 'en', type: 'user_manual', confirmReplacement: true }],
+    ]);
+    expect(component.documentLanguage()).toBe('es');
+  });
+  it('preserves the loaded draft when backend-required replacement confirmation is cancelled', async () => {
+    api.generateDocument.and.rejectWith(new ApiError(409, 'Replacing an existing draft with a different language or type requires confirmation', 'DRAFT_REPLACEMENT_CONFIRMATION_REQUIRED'));
+    (window.confirm as jasmine.Spy).and.returnValue(false);
+
+    await component.generateDocument();
+
+    expect(window.confirm).toHaveBeenCalledTimes(1);
+    expect(api.generateDocument).toHaveBeenCalledOnceWith('analysis-1', { language: 'en', type: 'user_manual', confirmReplacement: false });
+    expect(component.document()).toBe(document);
+    expect(component.documentState()).toBe('ready');
+  });
       it('reorders sections by array order', () => { component.moveSection('section-2', -1); expect(component.editableSections().map(section => section.id)).toEqual(['section-2', 'section-1']); });
     it('keeps hidden sections in the editable array while excluding them from the reader-facing draft', () => { expect(component.visibleSections().map(section => section.id)).toEqual(['section-1']); expect(component.hiddenSections().map(section => section.id)).toEqual(['section-2']); component.setSectionHidden('section-2', false); expect(component.editableSections()[1].hidden).toBeFalse(); });
     it('renders a traceable hidden management row outside the draft content and contents list', () => { fixture.detectChanges(); expect(fixture.nativeElement.querySelectorAll('.draft-card').length).toBe(1); expect(fixture.nativeElement.querySelector('.hidden-section-row').textContent).toContain('Source page: page-2'); expect(fixture.nativeElement.querySelector('.hidden-section-row').textContent).toContain('Screenshot: Unavailable'); expect(fixture.nativeElement.querySelector('.toc-card').textContent).toContain('First'); expect(fixture.nativeElement.querySelector('.toc-card').textContent).not.toContain('Second'); });

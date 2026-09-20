@@ -329,8 +329,9 @@ paths:
       summary: Generate or replace the deterministic manual document draft
       description: >-
         Generates the requested draft from a completed analysis. An existing draft is
-        reused when language and type match; otherwise it is transactionally replaced,
-        including its sections and editable content.
+        reused when language and type match. Replacing a draft with different language
+        or type requires `confirmReplacement: true` and transactionally replaces its
+        sections and editable content.
       operationId: generateDocument
       parameters:
         - $ref: '#/components/parameters/AnalysisId'
@@ -342,7 +343,7 @@ paths:
               $ref: '#/components/schemas/DocumentGenerateRequest'
       responses:
         '201':
-          description: Draft generated, or the existing matching draft reused; a mismatched draft is replaced.
+          description: Draft generated, the matching existing draft reused, or a confirmed mismatched draft replaced.
           content:
             application/json:
               schema:
@@ -356,7 +357,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: The analysis is not completed.
+          description: The analysis is not completed, or replacing a mismatched existing draft requires explicit confirmation.
           content:
             application/json:
               schema:
@@ -696,6 +697,10 @@ components:
           type: string
           enum: [user_manual]
           description: Type for the persisted manual draft.
+        confirmReplacement:
+          type: boolean
+          default: false
+          description: Must be true to replace an existing draft with different language or type.
 
     DocumentUpdateRequest:
       type: object
@@ -759,3 +764,7 @@ components:
       properties:
         message:
           type: string
+        code:
+          type: string
+          enum: [DRAFT_REPLACEMENT_CONFIRMATION_REQUIRED]
+          description: Present when a mismatched existing draft requires explicit replacement confirmation.
