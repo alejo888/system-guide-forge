@@ -1,6 +1,6 @@
 import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { ApiService, AnalysisResponse, DocumentResponse, DocumentSectionResponse, ElementResponse, FunctionalModule, PageResponse, LocalizationService, DocumentLanguage, DocumentType } from '../../core/api.service';
+import { ApiError, ApiService, AnalysisResponse, DocumentResponse, DocumentSectionResponse, ElementResponse, FunctionalModule, PageResponse, LocalizationService, DocumentLanguage, DocumentType } from '../../core/api.service';
 
 interface PageEvidence extends PageResponse { elements: ElementResponse[]; screenshotUrl: string | null; }
 interface ManualReviewGroup { page: PageEvidence; elements: ElementResponse[]; }
@@ -37,7 +37,36 @@ export class AnalysisComponent implements OnInit {
   setSearchQuery(query: string): void { this.searchQuery.set(query); }
   setSelectedModule(module: string): void { this.selectedModule.set(module); }
   private async loadPage(page: PageResponse): Promise<PageEvidence> { const [elements, screenshot] = await Promise.all([this.api.getPageElements(page.id).catch(() => [] as ElementResponse[]), this.api.getPageScreenshot(page.id).catch(() => null)]); return { ...page, elements, screenshotUrl: screenshot ? URL.createObjectURL(screenshot) : null }; }
-  async generateDocument(): Promise<void> { const id = this.analysis()?.id; if (!id) return; const current = this.document(); const language = this.documentLanguage(); const type = this.documentType(); if (current && (current.language !== language || current.type !== type) && !window.confirm(this.documentReplacementWarning())) return; this.documentState.set('loading'); try { const generated = await this.api.generateDocument(id, { language, type }); this.setEditableDocument(generated); this.documentState.set(generated.sections.length ? 'ready' : 'empty'); } catch { this.documentState.set('error'); } }
+  async generateDocument(): Promise<void> {
+    const id = this.analysis()?.id;
+    if (!id) return;
+    const current = this.document();
+    const language = this.documentLanguage();
+    const type = this.documentType();
+    const replacementConfirmed = !!current && (current.language !== language || current.type !== type);
+    if (replacementConfirmed && !window.confirm(this.documentReplacementWarning())) return;
+    const priorDocumentState = this.documentState();
+    this.documentState.set('loading');
+    try {
+      const generated = await this.api.generateDocument(id, { language, type, confirmReplacement: replacementConfirmed });
+      this.setGeneratedDocument(generated);
+    } catch (error) {
+      if (!replacementConfirmed && this.isReplacementConfirmationRequired(error)) {
+        if (!window.confirm(this.documentReplacementWarning())) {
+          this.documentState.set(priorDocumentState);
+          return;
+        }
+        try {
+          const generated = await this.api.generateDocument(id, { language, type, confirmReplacement: true });
+          this.setGeneratedDocument(generated);
+        } catch {
+          this.documentState.set('error');
+        }
+        return;
+      }
+      this.documentState.set('error');
+    }
+  }
   async setManualInclusionApproval(elementId: string, approved: boolean): Promise<void> { this.manualInclusionState.set('saving'); this.manualInclusionMessage.set(''); try { const updated = await this.api.updateManualInclusion(elementId, approved); this.pages.update(pages => pages.map(page => ({ ...page, elements: page.elements.map(element => element.id === elementId ? updated : element) }))); if (this.document()) { this.document.set(null); this.editableTitle.set(''); this.editableSections.set([]); this.documentState.set('idle'); this.saveState.set('idle'); this.manualInclusionMessage.set(this.t('draft-invalidated')); } else this.manualInclusionMessage.set(this.t('manual-inclusion-updated')); this.manualInclusionState.set('idle'); } catch { this.manualInclusionState.set('error'); this.manualInclusionMessage.set(this.t('manual-inclusion-error')); } }
   editTitle(title: string): void { this.ensureEditable(); this.editableTitle.set(title); }
   editSectionTitle(id: string, title: string): void { this.updateSection(id, section => ({ ...section, title })); }
@@ -51,6 +80,8 @@ export class AnalysisComponent implements OnInit {
   setDocumentType(type: DocumentType): void { this.documentType.set(type); }
   private readDocumentLanguage(): DocumentLanguage { return localStorage.getItem('sgf.document-language') === 'es' ? 'es' : 'en'; }
   private setEditableDocument(document: DocumentResponse): void { this.document.set(document); this.documentLanguage.set(document.language); this.documentType.set(document.type); this.editableTitle.set(document.title); this.editableSections.set(document.sections.map((section, index) => ({ ...section, position: index }))); }
+  private setGeneratedDocument(document: DocumentResponse): void { this.setEditableDocument(document); this.documentState.set(document.sections.length ? 'ready' : 'empty'); }
+  private isReplacementConfirmationRequired(error: unknown): boolean { return error instanceof ApiError && error.status === 409 && error.code === 'DRAFT_REPLACEMENT_CONFIRMATION_REQUIRED'; }
   private documentReplacementWarning(): string { return this.localization.language() === 'es' ? 'Este borrador editable existente se eliminará y se reemplazará. ¿Querés continuar?' : 'The existing editable draft will be destroyed and replaced. Do you want to continue?'; }
   private fail(message: string): void { this.state.set('error'); this.errorMessage.set(message); }
 }

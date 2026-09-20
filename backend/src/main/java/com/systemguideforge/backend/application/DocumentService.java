@@ -29,11 +29,12 @@ public class DocumentService {
 
     public Document generate(String analysisId) { return generate(analysisId, Document.DocumentLanguage.EN, Document.DocumentType.USER_MANUAL); }
     public Document generate(String analysisId, Document.DocumentLanguage language) { return generate(analysisId, language, Document.DocumentType.USER_MANUAL); }
-    public Document generate(String analysisId, Document.DocumentLanguage language, Document.DocumentType type) {
+    public Document generate(String analysisId, Document.DocumentLanguage language, Document.DocumentType type) { return generate(analysisId, language, type, false); }
+    public Document generate(String analysisId, Document.DocumentLanguage language, Document.DocumentType type, boolean confirmReplacement) {
         validateGeneration(analysisId, language, type);
-        try { return transactions.execute(status -> generateInTransaction(analysisId, language, type)); }
+        try { return transactions.execute(status -> generateInTransaction(analysisId, language, type, confirmReplacement)); }
         catch (DataIntegrityViolationException duplicate) {
-            return transactions.execute(status -> generateInTransaction(analysisId, language, type));
+            return transactions.execute(status -> generateInTransaction(analysisId, language, type, confirmReplacement));
         }
     }
 
@@ -43,11 +44,12 @@ public class DocumentService {
         if (type == null) throw new InvalidGenerationRequestException("Document type is required");
     }
 
-    private Document generateInTransaction(String analysisId, Document.DocumentLanguage language, Document.DocumentType type) {
+    private Document generateInTransaction(String analysisId, Document.DocumentLanguage language, Document.DocumentType type, boolean confirmReplacement) {
         Analysis analysis = analyses.findById(analysisId).orElseThrow(AnalysisNotFoundException::new);
         if (analysis.getStatus() != AnalysisStatus.COMPLETED) throw new AnalysisNotCompletedException();
         Optional<Document> existing = documents.findBySourceAnalysisId(analysisId);
         if (existing.isPresent() && language == existing.get().getLanguage() && type == existing.get().getType() && !isLegacyTechnicalUserManual(existing.get())) return load(existing.get());
+        if (existing.isPresent() && !confirmReplacement) throw new DraftReplacementConfirmationRequiredException();
         Document document = existing.orElseGet(() -> {
             String applicationId = analysis.getApplicationId();
             return documents.saveAndFlush(new Document(analysisId, applicationId, language, type));
@@ -166,6 +168,7 @@ public class DocumentService {
     public static class AnalysisNotFoundException extends RuntimeException { public AnalysisNotFoundException() { super("Analysis not found"); } }
     public static class ApplicationNotFoundException extends RuntimeException { public ApplicationNotFoundException() { super("Application not found"); } }
     public static class AnalysisNotCompletedException extends RuntimeException { public AnalysisNotCompletedException() { super("Documents can only be generated from completed analyses"); } }
+    public static class DraftReplacementConfirmationRequiredException extends RuntimeException { public DraftReplacementConfirmationRequiredException() { super("Replacing an existing draft with a different language or type requires confirmation"); } }
     public static class InvalidGenerationRequestException extends RuntimeException { public InvalidGenerationRequestException(String message) { super(message); } }
     public static class DocumentNotFoundException extends RuntimeException { public DocumentNotFoundException() { super("Document not found"); } }
     public static class InvalidDocumentUpdateException extends RuntimeException { public InvalidDocumentUpdateException(String message) { super(message); } }

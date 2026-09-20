@@ -75,7 +75,7 @@ class DocumentControllerTest {
     @Test
     void mapsGenerationErrorsAndCreatedResponse() {
         Document document = document();
-        when(service.generate("analysis-1", Document.DocumentLanguage.EN, Document.DocumentType.USER_MANUAL)).thenReturn(document);
+        when(service.generate("analysis-1", Document.DocumentLanguage.EN, Document.DocumentType.USER_MANUAL, false)).thenReturn(document);
 
         var created = controller.generate("analysis-1", new DocumentController.GenerateRequest("en", "user_manual"));
         var notFound = controller.analysisNotFound(new DocumentService.AnalysisNotFoundException());
@@ -88,6 +88,26 @@ class DocumentControllerTest {
         assertThat(notFound.getStatusCode().value()).isEqualTo(404);
         assertThat(incomplete.getStatusCode().value()).isEqualTo(409);
         assertThat(incomplete.getBody().message()).contains("completed analyses");
+    }
+
+    @Test
+    void forwardsExplicitReplacementConfirmationToTheService() {
+        Document document = document();
+        when(service.generate("analysis-1", Document.DocumentLanguage.ES, Document.DocumentType.USER_MANUAL, true)).thenReturn(document);
+
+        var response = controller.generate("analysis-1", new DocumentController.GenerateRequest("es", "user_manual", true));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(201);
+        verify(service).generate("analysis-1", Document.DocumentLanguage.ES, Document.DocumentType.USER_MANUAL, true);
+    }
+
+    @Test
+    void mapsMissingReplacementConfirmationToConflict() {
+        var response = controller.draftReplacementConfirmationRequired(new DocumentService.DraftReplacementConfirmationRequiredException());
+
+        assertThat(response.getStatusCode().value()).isEqualTo(409);
+        assertThat(response.getBody().message()).contains("requires confirmation");
+        assertThat(response.getBody().code()).isEqualTo("DRAFT_REPLACEMENT_CONFIRMATION_REQUIRED");
     }
 
     private static Document document() {

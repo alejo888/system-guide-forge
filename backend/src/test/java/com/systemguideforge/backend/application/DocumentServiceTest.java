@@ -27,6 +27,48 @@ class DocumentServiceTest {
     }
 
     @Test
+    void requiresExplicitConfirmationBeforeReplacingADraftWithDifferentGenerationSettings() {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        Document existing = new Document(analysis.getId(), analysis.getApplicationId());
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.of(existing));
+
+        DocumentService service = service(analyses, mock(PageRepository.class), mock(UIElementRepository.class), mock(ScreenshotRepository.class), documents, sections);
+
+        assertThatThrownBy(() -> service.generate(analysis.getId(), Document.DocumentLanguage.ES, Document.DocumentType.USER_MANUAL))
+                .isInstanceOf(DocumentService.DraftReplacementConfirmationRequiredException.class);
+        verify(sections, never()).deleteAll(any());
+    }
+
+    @Test
+    void replacesADraftWithDifferentGenerationSettingsAfterExplicitConfirmation() {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        Document existing = new Document(analysis.getId(), analysis.getApplicationId());
+        Page page = new Page(analysis.getId(), "http://localhost/home", "Home");
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.of(existing));
+        when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(page));
+        when(sections.findByDocumentIdOrderByPositionAsc(existing.getId())).thenReturn(List.of());
+        when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Document result = service(analyses, pages, mock(UIElementRepository.class), mock(ScreenshotRepository.class), documents, sections)
+                .generate(analysis.getId(), Document.DocumentLanguage.ES, Document.DocumentType.USER_MANUAL, true);
+
+        assertThat(result).isSameAs(existing);
+        assertThat(result.getLanguage()).isEqualTo(Document.DocumentLanguage.ES);
+        verify(sections).deleteAll(List.of());
+    }
+
+    @Test
     void generatesSpanishUserManualWithApplicationTitleAndGuidance() {
         Analysis analysis = new Analysis("application-1");
         analysis.complete();
@@ -377,7 +419,8 @@ class DocumentServiceTest {
         when(sections.findByDocumentIdOrderByPositionAsc(existing.getId())).thenReturn(List.of(legacySection));
         when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        Document result = service(analyses, pages, elements, mock(ScreenshotRepository.class), documents, sections).generate(analysis.getId());
+        Document result = service(analyses, pages, elements, mock(ScreenshotRepository.class), documents, sections)
+                .generate(analysis.getId(), Document.DocumentLanguage.EN, Document.DocumentType.USER_MANUAL, true);
 
         assertThat(result).isSameAs(existing);
         assertThat(result.getSections().getFirst().getContent())
