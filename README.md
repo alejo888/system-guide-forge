@@ -140,7 +140,7 @@ El análisis ejecuta el adaptador de forma síncrona, recorre únicamente enlace
 
 Las URLs configuradas deben usar HTTP(S) y los únicos hosts que aceptan el backend y el formulario del frontend son `localhost`, `127.0.0.1` y el loopback IPv6 `::1` (escrito como `[::1]` en una URL). Por cada página persistida se guarda una captura PNG de página completa, con campos sensibles enmascarados; se inspeccionan como máximo 500 elementos de cada uno de los tipos `button`, `a`, `input` y `textarea` por página.
 
-Fuera de alcance: producción, SSO/OAuth/MFA, workflows, IA, DOCX/PDF, colaboración, multiusuario, roles, multi-tenant, análisis de repositorios, microservicios y almacenamiento remoto.
+Fuera de alcance: PDF, producción, SSO/OAuth/MFA, workflows, IA, colaboración, multiusuario, roles, multi-tenant, análisis de repositorios, microservicios y almacenamiento remoto. Los manuales guardados pueden exportarse a DOCX desde la vista del análisis.
 
 ## Documentación
 

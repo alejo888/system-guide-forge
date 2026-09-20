@@ -1,9 +1,11 @@
 package com.systemguideforge.backend.web;
 
 import com.systemguideforge.backend.application.DocumentService;
+import com.systemguideforge.backend.application.ManualExporter;
 import com.systemguideforge.backend.persistence.Document;
 import com.systemguideforge.backend.persistence.DocumentSection;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -17,7 +19,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class DocumentControllerTest {
     private final DocumentService service = mock(DocumentService.class);
-    private final DocumentController controller = new DocumentController(service);
+    private final ManualExporter exporter = mock(ManualExporter.class);
+    private final DocumentController controller = new DocumentController(service, exporter);
 
     @Test
     void getsDocumentWithTraceableSections() {
@@ -44,6 +47,23 @@ class DocumentControllerTest {
         mvc.perform(get("/api/documents/" + document.getId()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sections[0].hidden").value(true));
+    }
+
+    @Test
+    void exportsDocxWithSafeFilenameAndMapsInvalidRequests() {
+        when(exporter.export("document-1")).thenReturn(new ManualExporter.ExportedManual("Saved / guide", new byte[]{'P', 'K'}));
+
+        var exported = controller.export("document-1", "docx");
+        var invalidFormat = controller.export("document-1", "pdf");
+        when(exporter.export("missing")).thenThrow(new DocumentService.DocumentNotFoundException());
+        var missing = controller.export("missing", "docx");
+
+        assertThat(exported.getStatusCode().value()).isEqualTo(200);
+        assertThat(exported.getHeaders().getContentType().toString()).isEqualTo("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        assertThat(exported.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION)).isEqualTo("attachment; filename=Saved-guide.docx");
+        assertThat((byte[]) exported.getBody()).containsExactly((byte) 'P', (byte) 'K');
+        assertThat(invalidFormat.getStatusCode().value()).isEqualTo(400);
+        assertThat(missing.getStatusCode().value()).isEqualTo(404);
     }
 
     @Test

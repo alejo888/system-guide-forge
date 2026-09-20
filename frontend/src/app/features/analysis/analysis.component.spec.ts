@@ -18,7 +18,7 @@ describe('AnalysisComponent document editing', () => {
   let router: jasmine.SpyObj<Router>;
 
   beforeEach(async () => { localStorage.setItem('sgf.language', 'en'); spyOn(window, 'confirm').and.returnValue(true);
-    api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getAnalysisModules', 'getPageElements', 'getPageScreenshot', 'generateDocument', 'updateDocument', 'updateManualInclusion', 'startAnalysis']);
+    api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getAnalysisModules', 'getPageElements', 'getPageScreenshot', 'generateDocument', 'updateDocument', 'updateManualInclusion', 'startAnalysis', 'exportDocument']);
     router = jasmine.createSpyObj<Router>('Router', ['navigate']);
     router.navigate.and.resolveTo(true);
         api.getAnalysis.and.resolveTo({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
@@ -95,6 +95,22 @@ describe('AnalysisComponent document editing', () => {
     ] });
     expect(component.editableSections()[0].sourcePageId).toBe('page-1');
     expect(component.editableSections()[0].screenshotId).toBe('shot-1');
+  });
+
+  it('downloads the latest persisted draft as a DOCX Blob without saving client-unsaved edits', async () => {
+    api.exportDocument.and.resolveTo(new Blob(['docx'], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+    const createObjectUrl = spyOn(URL, 'createObjectURL').and.returnValue('blob:manual');
+    const revokeObjectUrl = spyOn(URL, 'revokeObjectURL');
+    const click = spyOn(HTMLAnchorElement.prototype, 'click');
+    component.editTitle('Client-only unsaved title');
+
+    await component.downloadDocx();
+
+    expect(api.exportDocument).toHaveBeenCalledOnceWith('doc-1');
+    expect(api.updateDocument).not.toHaveBeenCalled();
+    expect(createObjectUrl).toHaveBeenCalled();
+    expect(click).toHaveBeenCalled();
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:manual');
   });
 
   it('sends the selected language and manual type and reflects persisted values', async () => {

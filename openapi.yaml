@@ -363,6 +363,46 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /documents/{documentId}/export:
+    get:
+      tags: [Analyses]
+      summary: Download the latest persisted manual draft as DOCX
+      description: >-
+        Generates a DOCX response from the saved document title and visible sections in
+        persisted position order. Sanitized PNG screenshots are embedded when available;
+        missing screenshots are omitted. The export never contacts the target system and
+        is not persisted.
+      operationId: exportDocument
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+        - name: format
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [docx]
+      responses:
+        '200':
+          description: DOCX generated from the latest persisted draft.
+          headers:
+            Content-Disposition:
+              description: Attachment filename sanitized from the persisted document title.
+              schema:
+                type: string
+          content:
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: The export format is missing or unsupported.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /documents/{documentId}:
     put:
       tags: [Analyses]
