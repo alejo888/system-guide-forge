@@ -18,7 +18,7 @@ test('registers and analyzes the deterministic fixture through the browser', asy
     await page.getByLabel('Base URL').fill(fixtureUrl);
     await page.getByLabel('Login URL').fill(`${fixtureUrl}/login.html`);
     await page.getByLabel('Username').fill(fixtureUsername);
-    await page.getByLabel('Password').fill(fixturePassword);
+    await page.getByLabel('Password', { exact: true }).fill(fixturePassword);
     await page.getByLabel('Maximum crawl depth').fill('1');
     await page.getByRole('button', { name: 'Register & test access' }).click();
 
