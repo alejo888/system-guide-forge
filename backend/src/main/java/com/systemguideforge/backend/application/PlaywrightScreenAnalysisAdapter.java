@@ -81,16 +81,22 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         return "Browser operation failed";
     }
 
-    private ScreenAnalysisResult withSharedNavigationIncludedOnce(ScreenAnalysisResult first, List<DiscoveredPage> discovered) {
+    static ScreenAnalysisResult withSharedNavigationIncludedOnce(ScreenAnalysisResult first, List<DiscoveredPage> discovered) {
         Set<String> sharedNavigation = sharedNavigationKeys(Stream.concat(
                 Stream.of(first.elements()), discovered.stream().map(DiscoveredPage::elements)).toList());
         if (sharedNavigation.isEmpty()) return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), discovered);
         List<DiscoveredPage> withoutRepeatedNavigation = discovered.stream()
                 .map(page -> new DiscoveredPage(page.url(), page.title(),
-                        page.elements().stream().filter(element -> !sharedNavigation.contains(navigationKey(element))).toList(),
+                        page.elements().stream().filter(element -> !isSharedNavigation(element, sharedNavigation)).toList(),
                         page.sanitizedScreenshot(), page.depth(), ActionClassification.SAFE))
                 .toList();
         return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), withoutRepeatedNavigation);
+    }
+
+    /** Immutable sets reject contains(null), so elements without a navigation key are never shared navigation. */
+    private static boolean isSharedNavigation(DetectedElement element, Set<String> sharedNavigation) {
+        String key = navigationKey(element);
+        return key != null && sharedNavigation.contains(key);
     }
 
     static Set<String> sharedNavigationKeys(List<List<DetectedElement>> pageElements) {
