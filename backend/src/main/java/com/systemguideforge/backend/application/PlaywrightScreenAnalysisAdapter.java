@@ -41,6 +41,8 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             Locator pass = page.locator("input[type='password']").first();
             Locator submit = page.locator("button[type='submit'], input[type='submit']").first();
             if (user.count() == 0 || pass.count() == 0 || submit.count() == 0) throw new IllegalStateException("Login form unavailable");
+            ScreenAnalysisResult loginCapture = analyzeCurrentPage(page, application, 0);
+            LoginPage loginPage = new LoginPage(loginCapture.url(), loginCapture.title(), loginCapture.elements(), loginCapture.sanitizedScreenshot());
             user.fill(username); pass.fill(password); submit.click();
             page.waitForURL(url -> isAuthenticatedAfterRedirect(url, application), new Page.WaitForURLOptions().setTimeout(10_000));
             if (!isAuthenticatedAfterRedirect(page.url(), application)) throw new IllegalStateException("Authentication failed");
@@ -65,7 +67,8 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                 discovered.add(new DiscoveredPage(current.url(), current.title(), current.elements(), current.sanitizedScreenshot(), link.depth, ActionClassification.SAFE));
                 if (link.depth < application.getMaxCrawlDepth()) queue.addAll(links(page, application, link.depth + 1, budget));
             }
-            return withSharedNavigationIncludedOnce(first, discovered);
+            ScreenAnalysisResult combined = withSharedNavigationIncludedOnce(first, discovered);
+            return new ScreenAnalysisResult(combined.url(), combined.title(), combined.elements(), combined.sanitizedScreenshot(), combined.discoveredPages(), loginPage);
         } catch (Exception e) {
             String category = failureCategory(e);
             LOG.warn("Screen analysis failed: category={}, exception={}, origin={}", category, e.getClass().getName(), failureOrigin(e));

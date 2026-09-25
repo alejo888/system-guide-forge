@@ -88,6 +88,40 @@ class AnalysisServiceTest {
     }
 
     @Test
+    void persistsLoginPageFirstMarkedAsLoginKindBeforeTheAuthenticatedPage() {
+        AnalysisRepository analyses=mock(AnalysisRepository.class); PageRepository pages=mock(PageRepository.class); UIElementRepository elements=mock(UIElementRepository.class); ScreenshotRepository screenshots=mock(ScreenshotRepository.class); TargetApplicationRepository apps=mock(TargetApplicationRepository.class); CredentialProtector protector=mock(CredentialProtector.class); ScreenAnalysisAdapter adapter=mock(ScreenAnalysisAdapter.class);
+        TargetApplication app=TestFixtures.application("app-id");
+        when(apps.findById(app.getId())).thenReturn(java.util.Optional.of(app)); when(analyses.existsByStatusIn(any())).thenReturn(false); when(analyses.save(any())).thenAnswer(i->i.getArgument(0)); when(analyses.saveAndFlush(any())).thenAnswer(i->i.getArgument(0)); when(protector.decrypt(any())).thenReturn("secret"); when(pages.save(any())).thenAnswer(i->i.getArgument(0));
+        var loginPage = new ScreenAnalysisAdapter.LoginPage("http://localhost/login", "Sign in", List.of(), new byte[]{9});
+        when(adapter.analyze(any(), any(), any())).thenReturn(new ScreenAnalysisAdapter.ScreenAnalysisResult("http://localhost/home", "Home", List.of(), new byte[]{1}, List.of(), loginPage));
+
+        Analysis result=new AnalysisService(analyses,pages,elements,screenshots,apps,protector,adapter).start(app.getId());
+
+        assertThat(result.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
+        org.mockito.ArgumentCaptor<Page> captor = org.mockito.ArgumentCaptor.forClass(Page.class);
+        verify(pages, times(2)).save(captor.capture());
+        List<Page> saved = captor.getAllValues();
+        assertThat(saved.get(0).getUrl()).isEqualTo("http://localhost/login");
+        assertThat(saved.get(0).getKind()).isEqualTo(PageKind.LOGIN);
+        assertThat(saved.get(1).getUrl()).isEqualTo("http://localhost/home");
+        assertThat(saved.get(1).getKind()).isNull();
+    }
+
+    @Test
+    void deduplicatesAgainstAnAlreadyVisitedLoginPageUrl() {
+        AnalysisRepository analyses=mock(AnalysisRepository.class); PageRepository pages=mock(PageRepository.class); UIElementRepository elements=mock(UIElementRepository.class); ScreenshotRepository screenshots=mock(ScreenshotRepository.class); TargetApplicationRepository apps=mock(TargetApplicationRepository.class); CredentialProtector protector=mock(CredentialProtector.class); ScreenAnalysisAdapter adapter=mock(ScreenAnalysisAdapter.class);
+        TargetApplication app=TestFixtures.application("app-id");
+        when(apps.findById(app.getId())).thenReturn(java.util.Optional.of(app)); when(analyses.existsByStatusIn(any())).thenReturn(false); when(analyses.save(any())).thenAnswer(i->i.getArgument(0)); when(analyses.saveAndFlush(any())).thenAnswer(i->i.getArgument(0)); when(protector.decrypt(any())).thenReturn("secret"); when(pages.save(any())).thenAnswer(i->i.getArgument(0));
+        var loginPage = new ScreenAnalysisAdapter.LoginPage("http://localhost/home", "Sign in", List.of(), new byte[]{9});
+        when(adapter.analyze(any(), any(), any())).thenReturn(new ScreenAnalysisAdapter.ScreenAnalysisResult("http://localhost/home", "Home", List.of(), new byte[]{1}, List.of(), loginPage));
+
+        Analysis result=new AnalysisService(analyses,pages,elements,screenshots,apps,protector,adapter).start(app.getId());
+
+        assertThat(result.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
+        verify(pages, times(1)).save(any(Page.class));
+    }
+
+    @Test
     void persistsDeduplicatedSafePagesWithinDepthAndSkipsBlockedLinks() {
         AnalysisRepository analyses=mock(AnalysisRepository.class); PageRepository pages=mock(PageRepository.class); UIElementRepository elements=mock(UIElementRepository.class); ScreenshotRepository screenshots=mock(ScreenshotRepository.class); TargetApplicationRepository apps=mock(TargetApplicationRepository.class); CredentialProtector protector=mock(CredentialProtector.class); ScreenAnalysisAdapter adapter=mock(ScreenAnalysisAdapter.class);
         TargetApplication app=TestFixtures.application("app-id");

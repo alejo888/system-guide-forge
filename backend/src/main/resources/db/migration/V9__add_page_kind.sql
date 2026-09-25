@@ -1,0 +1,1 @@
+ALTER TABLE analysis_pages ADD COLUMN kind VARCHAR(255);

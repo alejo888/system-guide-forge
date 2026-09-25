@@ -86,6 +86,54 @@ class PlaywrightScreenAnalysisAdapterTest {
         }
     }
 
+    @Test
+    void capturesLoginPageWithEmptyMaskedFormBeforeCredentialsAreTyped() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/login", exchange -> {
+            if ("POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Location", "/dashboard");
+                exchange.sendResponseHeaders(302, -1);
+                exchange.close();
+                return;
+            }
+            respondHtml(exchange, """
+                    <!doctype html><html><head><title>Sign in</title><style>
+                    body { margin: 0; font-family: sans-serif; }
+                    #username-marker { display: block; width: 320px; height: 80px; }
+                    input[name='username']:placeholder-shown ~ #username-marker { background: rgb(1, 123, 45); }
+                    input[name='username']:not(:placeholder-shown) ~ #username-marker { background: rgb(255, 0, 0); }
+                    input { display: block; width: 320px; height: 32px; margin-top: 12px; }
+                    </style></head><body><form method="post">
+                    <input name="username" type="text" placeholder="Username">
+                    <div id="username-marker"></div>
+                    <input name="password" type="password">
+                    <button type="submit">Sign in</button></form></body></html>
+                    """);
+        });
+        server.createContext("/dashboard", exchange -> respondHtml(exchange, "<!doctype html><html><body><main>Dashboard</main></body></html>"));
+        server.start();
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            TargetApplication application = new TargetApplication("project", "app", baseUrl, baseUrl + "/login", "stored-user", "stored-password");
+
+            ScreenAnalysisAdapter.ScreenAnalysisResult result = new PlaywrightScreenAnalysisAdapter().analyze(application, "browser-user", "browser-password");
+
+            ScreenAnalysisAdapter.LoginPage loginPage = result.loginPage();
+            assertThat(loginPage).isNotNull();
+            assertThat(loginPage.url()).isEqualTo(baseUrl + "/login");
+            assertThat(loginPage.elements()).anySatisfy(element ->
+                    assertThat(element.classification()).isEqualTo(ActionClassification.UNKNOWN));
+
+            BufferedImage image = ImageIO.read(new ByteArrayInputStream(loginPage.sanitizedScreenshot()));
+            assertThat(image).isNotNull();
+            assertThat(pixelCount(image, 0xFF00FF)).isGreaterThan(100);
+            assertThat(pixelCount(image, 0x017B2D)).isGreaterThan(1_000);
+            assertThat(pixelCount(image, 0xFF0000)).isZero();
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private static void respondHtml(com.sun.net.httpserver.HttpExchange exchange, String html) throws IOException {
         byte[] body = html.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
