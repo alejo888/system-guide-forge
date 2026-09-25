@@ -38,15 +38,23 @@ export class AnalysisComponent implements OnInit {
   setSearchQuery(query: string): void { this.searchQuery.set(query); }
   setSelectedModule(module: string): void { this.selectedModule.set(module); }
   private async loadPage(page: PageResponse): Promise<PageEvidence> { const [elements, screenshot] = await Promise.all([this.api.getPageElements(page.id).catch(() => [] as ElementResponse[]), this.api.getPageScreenshot(page.id).catch(() => null)]); return { ...page, elements, screenshotUrl: screenshot ? URL.createObjectURL(screenshot) : null }; }
+  safeFailureDetail(message: string | null): string | null {
+    if (!message) return null;
+    const known = ['Browser operation timeout', 'Authentication failed', 'Unsafe navigation rejected', 'Sanitized screenshot unavailable', 'Browser navigation failed', 'Browser unavailable', 'Browser operation failed'];
+    const prefix = 'Screen analysis unavailable or failed: ';
+    const detail = message.startsWith(prefix) ? message.slice(prefix.length) : message;
+    return known.find(label => detail.toLowerCase().startsWith(label.toLowerCase())) ?? null;
+  }
   async retryAnalysis(): Promise<void> {
     const failedAnalysis = this.analysis();
-    if (!failedAnalysis || failedAnalysis.status !== 'FAILED') return;
+    if (!failedAnalysis || failedAnalysis.status !== 'FAILED' || this.retryState() === 'starting') return;
     if (!window.confirm(this.t('retry-analysis-confirmation'))) return;
     this.retryState.set('starting');
     this.retryErrorMessage.set('');
     try {
       const analysis = await this.api.startAnalysis(failedAnalysis.applicationId);
       await this.router.navigate(['/analysis', analysis.id]);
+      this.retryState.set('idle');
     } catch {
       this.retryState.set('error');
       this.retryErrorMessage.set(this.t('retry-analysis-error'));

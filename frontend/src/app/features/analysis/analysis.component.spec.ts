@@ -87,6 +87,57 @@ describe('AnalysisComponent document editing', () => {
     expect(fixture.nativeElement.querySelector('.retry-analysis-button').textContent).toContain('Reintentar análisis');
   });
 
+  it('discloses only fixed backend failure categories, never appended sensitive detail', () => {
+    const categories = ['Browser operation timeout', 'Authentication failed', 'Unsafe navigation rejected', 'Sanitized screenshot unavailable', 'Browser navigation failed', 'Browser unavailable', 'Browser operation failed'];
+    for (const category of categories) {
+      component.analysis.set({ id: 'analysis-failed', applicationId: 'app-1', status: 'FAILED', startedAt: '', completedAt: '', failureMessage: `Screen analysis unavailable or failed: ${category} at http://localhost:8080/login?token=secret selector=#password` });
+      fixture.detectChanges();
+      const progress = fixture.nativeElement.querySelector('.progress-card');
+      expect(progress.textContent).toContain('Check the local system and access settings');
+      expect(progress.textContent).not.toContain('secret');
+      expect(progress.textContent).not.toContain('localhost');
+      expect(progress.textContent).not.toContain('#password');
+      const details = fixture.nativeElement.querySelector('.failure-details');
+      expect(details).not.toBeNull();
+      expect(details.open).toBeFalse();
+      expect(details.textContent).toContain(category);
+      expect(details.textContent).not.toContain('secret');
+      expect(details.textContent).not.toContain('localhost');
+      expect(details.textContent).not.toContain('#password');
+      expect(component.safeFailureDetail(`Screen analysis unavailable or failed: ${category} private data`)).toBe(category);
+    }
+    expect(component.safeFailureDetail('Screen analysis unavailable or failed: Unknown failure Browser operation timeout')).toBeNull();
+    expect(component.safeFailureDetail('Navigation timed out at https://example.test?token=secret')).toBeNull();
+    expect(component.safeFailureDetail('Analysis failed selector=#password')).toBeNull();
+    expect(component.safeFailureDetail('Unknown failure')).toBeNull();
+  });
+
+  it('announces retry progress, blocks duplicate attempts and permits retry after a failed start', async () => {
+    component.analysis.set({ id: 'analysis-failed', applicationId: 'app-1', status: 'FAILED', startedAt: '', completedAt: '', failureMessage: null });
+    let rejectStart!: (reason: Error) => void;
+    api.startAnalysis.and.returnValue(new Promise((_resolve, reject) => { rejectStart = reject; }));
+    const pending = component.retryAnalysis();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.retry-analysis-button').disabled).toBeTrue();
+    expect(fixture.nativeElement.querySelector('[role="status"]').textContent).toContain('Starting a new analysis');
+    await component.retryAnalysis();
+    expect(api.startAnalysis).toHaveBeenCalledTimes(1);
+    rejectStart(new Error('offline'));
+    await pending;
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.retry-error[role="alert"]').textContent).toContain('Could not start');
+    expect(fixture.nativeElement.querySelector('.retry-analysis-button').disabled).toBeFalse();
+  });
+
+  it('localizes failure guidance and retry progress in Spanish', () => {
+    component.localization.setLanguage('es');
+    component.analysis.set({ id: 'analysis-failed', applicationId: 'app-1', status: 'FAILED', startedAt: '', completedAt: '', failureMessage: 'Analysis failed' });
+    component.retryState.set('starting');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.progress-card').textContent).toContain('Verificá el sistema local');
+    expect(fixture.nativeElement.querySelector('[role="status"]').textContent).toContain('Iniciando un nuevo análisis');
+  });
+
   it('edits fields and sends the ordered editable payload without traceability fields', async () => {
     component.editTitle('Edited guide'); component.editSectionTitle('section-1', 'Renamed'); component.editSectionContent('section-1', 'Updated');
     await component.saveDocument();

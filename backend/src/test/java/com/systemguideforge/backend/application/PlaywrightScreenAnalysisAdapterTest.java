@@ -190,6 +190,18 @@ class PlaywrightScreenAnalysisAdapterTest {
                 .hasMessageNotContaining("https://target.test/home?token=secret");
     }
     @Test
+    void categorizesBrowserFailuresWithoutEchoingUntrustedDetails() {
+        TargetApplication app = new TargetApplication("p", "app", "http://localhost", "http://localhost/login", "u", "p");
+        ScreenAnalysisAdapter adapter = new PlaywrightScreenAnalysisAdapter(() -> {
+            throw new IllegalStateException("Timeout 10000ms exceeded while navigating to https://target.test/private?token=secret selector #password");
+        });
+        assertThatThrownBy(() -> adapter.analyze(app, "user", "password"))
+                .hasMessageContaining("timeout")
+                .hasMessageNotContaining("target.test")
+                .hasMessageNotContaining("#password");
+    }
+
+    @Test
     void failsClosedWhenBrowserCannotStart() {
         ScreenAnalysisAdapter adapter = new PlaywrightScreenAnalysisAdapter(() -> { throw new IllegalStateException("browser unavailable"); });
         TargetApplication app = new TargetApplication("p", "app", "http://localhost", "http://localhost/login", "u", "p");

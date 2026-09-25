@@ -20,6 +20,49 @@ describe('RegistrationComponent crawler configuration', () => {
     component = fixture.componentInstance;
   });
 
+  it('toggles password visibility with an accessible button without changing the value', () => {
+    component.model.update(value => ({ ...value, password: 'secret' }));
+    fixture.detectChanges();
+    const input = fixture.nativeElement.querySelector('.password-field input') as HTMLInputElement;
+    const toggle = fixture.nativeElement.querySelector('.password-field button') as HTMLButtonElement;
+    expect(input.type).toBe('password');
+    expect(toggle.type).toBe('button');
+    expect(toggle.getAttribute('aria-label')).toBe('Show password');
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    toggle.click();
+    fixture.detectChanges();
+    expect(input.type).toBe('text');
+    expect(toggle.getAttribute('aria-label')).toBe('Hide password');
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    toggle.click();
+    fixture.detectChanges();
+    expect(input.type).toBe('password');
+    expect(component.model().password).toBe('secret');
+  });
+
+  it('announces saving and access testing separately while registration is pending', async () => {
+    let finishSaving!: (value: ApplicationResponse) => void;
+    let finishTesting!: (value: Awaited<ReturnType<ApiService['testAccess']>>) => void;
+    api.createApplication.and.returnValue(new Promise(resolve => { finishSaving = resolve; }));
+    api.testAccess.and.returnValue(new Promise(resolve => { finishTesting = resolve; }));
+    component.model.update(value => ({ ...value, projectName: 'Workspace', name: 'Portal', baseUrl: 'http://localhost:3000', loginUrl: 'http://localhost:3000/login', username: 'tester', password: 'secret' }));
+    fixture.detectChanges();
+    const pending = component.register();
+    await Promise.resolve();
+    fixture.detectChanges();
+    const status = fixture.nativeElement.querySelector('[role="status"]') as HTMLElement;
+    expect(status.getAttribute('aria-live')).toBe('polite');
+    expect(status.textContent).toContain('Saving');
+    finishSaving({ id: 'app-1', projectId: 'project-1', name: 'Portal', baseUrl: 'http://localhost:3000', loginUrl: 'http://localhost:3000/login' });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="status"]')?.textContent).toContain('Testing access');
+    finishTesting({ reachable: true, authenticated: true, message: 'Access verified' });
+    await pending;
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="status"]')).toBeNull();
+  });
+
   it('defaults crawler configuration to zero and includes it in registration payload', async () => {
     component.model.update(value => ({ ...value, projectName: 'Workspace', name: 'Portal', baseUrl: 'http://localhost:3000', loginUrl: 'http://localhost:3000/login', username: 'tester', password: 'secret' }));
     await component.register();
