@@ -29,6 +29,14 @@ test('registers and analyzes the deterministic fixture through the browser', asy
     await expect(page.getByRole('heading', { name: 'Exploration complete.' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Pages and evidence' })).toBeVisible();
 
+    const evidenceArticles = page.getByRole('article');
+    const loginEvidence = evidenceArticles.filter({
+      has: page.getByRole('heading', { name: 'SystemGuideForge Fixture Login' })
+    });
+    await expect(loginEvidence).toBeVisible();
+    await expect(loginEvidence.getByText('Sign-in screen', { exact: true })).toBeVisible();
+    await expect(evidenceArticles.first()).toContainText('Sign-in screen');
+
     const dashboardEvidence = page.getByRole('article').filter({
       has: page.getByRole('heading', { name: 'SystemGuideForge Fixture Dashboard' })
     });

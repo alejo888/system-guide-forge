@@ -27,6 +27,7 @@ export class AnalysisComponent implements OnInit {
   pageEvidence(id: string): PageEvidence | undefined { return this.pages().find(page => page.id === id); }
   pageLabel(page: PageResponse): string { const title = page.title?.trim(); if (!title) return this.routeLabel(page.url); return this.pages().filter(candidate => candidate.title?.trim() === title).length > 1 ? `${title} · ${this.routeLabel(page.url)}` : title; }
   elementLabel(element: ElementResponse): string { return element.accessibleName?.trim() || this.t('unnamed-element'); }
+  isLoginPage(page: PageResponse): boolean { return page.kind === 'LOGIN'; }
   routeLabel(url: string): string { try { return new URL(url).pathname || '/'; } catch { return url || '/'; } }
   sectionAnchor(id: string): string { return `manual-section-${this.anchorPart(id)}`; }
   pageAnchor(id: string): string { return `discovered-page-${this.anchorPart(id)}`; }
