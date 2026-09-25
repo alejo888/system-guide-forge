@@ -21,7 +21,7 @@ public class AnalysisService {
         try { ScreenAnalysisAdapter.ScreenAnalysisResult result=adapter.analyze(app,protector.decrypt(app.getUsernameEncrypted()),protector.decrypt(app.getPasswordEncrypted()));
             // The login page is a pre-authentication state, so it never deduplicates authenticated pages sharing its URL.
             int persistedPages = 0;
-            if (result.loginPage() != null && persistPage(analysis, result.loginPage().url(), result.loginPage().title(), result.loginPage().elements(), result.loginPage().sanitizedScreenshot(), new HashSet<>(), PageKind.LOGIN)) persistedPages++;
+            if (result.loginPage() != null && persistLoginPage(analysis, result.loginPage())) persistedPages++;
             Set<String> visited = new HashSet<>();
             if (persistPage(analysis, result.url(), result.title(), result.elements(), result.sanitizedScreenshot(), visited, null)) persistedPages++;
             int maxCrawlDepth = Math.min(app.getMaxCrawlDepth(), MAX_CRAWL_DEPTH);
@@ -38,6 +38,14 @@ public class AnalysisService {
         Page page=pages.save(new Page(analysis.getId(),url,title,kind));
         for(var e:detected) elements.save(new UIElement(page.getId(),e.kind(),e.selector(),e.accessibleName(),e.classification()));
         if(screenshot!=null) screenshots.save(new Screenshot(page.getId(),screenshot));
+        return true;
+    }
+    /** The login page always persists once (its own dedup set), and carries its captured role labels. */
+    private boolean persistLoginPage(Analysis analysis, ScreenAnalysisAdapter.LoginPage loginPage) {
+        Page page = pages.save(new Page(analysis.getId(), loginPage.url(), loginPage.title(), PageKind.LOGIN,
+                loginPage.usernameLabel(), loginPage.passwordLabel(), loginPage.submitLabel()));
+        for (var e : loginPage.elements()) elements.save(new UIElement(page.getId(), e.kind(), e.selector(), e.accessibleName(), e.classification()));
+        if (loginPage.sanitizedScreenshot() != null) screenshots.save(new Screenshot(page.getId(), loginPage.sanitizedScreenshot()));
         return true;
     }
     @Transactional public UIElement setManualInclusionApproval(String elementId, boolean approved) {

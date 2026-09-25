@@ -20,8 +20,14 @@ public interface ScreenAnalysisAdapter {
     record DiscoveredPage(String url, String title, List<DetectedElement> elements,
                           byte[] sanitizedScreenshot, int depth, ActionClassification classification) {}
 
-    /** The target's login page, captured with an empty form before credentials are typed. */
-    record LoginPage(String url, String title, List<DetectedElement> elements, byte[] sanitizedScreenshot) {}
+    /** The target's login page, captured with an empty form before credentials are typed.
+     * The role labels are the associated control names (never field values); see PlaywrightScreenAnalysisAdapter. */
+    record LoginPage(String url, String title, List<DetectedElement> elements, byte[] sanitizedScreenshot,
+                      String usernameLabel, String passwordLabel, String submitLabel) {
+        public LoginPage(String url, String title, List<DetectedElement> elements, byte[] sanitizedScreenshot) {
+            this(url, title, elements, sanitizedScreenshot, null, null, null);
+        }
+    }
 
     record DetectedElement(String kind, String selector, String accessibleName, ActionClassification classification) {}
 }

@@ -136,6 +136,45 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void capturesLoginRoleLabelsFromAssociatedLabelsAriaLabelPlaceholderAndSubmitText() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/login", exchange -> {
+            if ("POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Location", "/dashboard");
+                exchange.sendResponseHeaders(302, -1);
+                exchange.close();
+                return;
+            }
+            respondHtml(exchange, """
+                    <!doctype html><html><body><form method="post">
+                    <label for="user-field">Email</label>
+                    <input id="user-field" name="username" type="text">
+                    <label for="pass-field">Password</label>
+                    <input id="pass-field" name="password" type="password">
+                    <button type="submit">Sign in</button></form></body></html>
+                    """);
+        });
+        server.createContext("/dashboard", exchange -> respondHtml(exchange, "<!doctype html><html><body><main>Dashboard</main></body></html>"));
+        server.start();
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            TargetApplication application = new TargetApplication("project", "app", baseUrl, baseUrl + "/login", "stored-user", "stored-password");
+
+            ScreenAnalysisAdapter.LoginPage loginPage = new PlaywrightScreenAnalysisAdapter()
+                    .analyze(application, "browser-user", "browser-password").loginPage();
+
+            assertThat(loginPage).isNotNull();
+            assertThat(loginPage.usernameLabel()).isEqualTo("Email");
+            // The associated <label> text is "Password"; safe() redacts it here. DocumentService turns "[redacted]"
+            // into generic wording rather than printing it, so the redaction itself is fine to persist.
+            assertThat(loginPage.passwordLabel()).isEqualTo("[redacted]");
+            assertThat(loginPage.submitLabel()).isEqualTo("Sign in");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void continuesAnalysisWithoutALoginPageWhenThePreLoginCaptureFailsAndLogsASanitizedWarning() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/login", exchange -> {

@@ -90,6 +90,10 @@ public class DocumentService {
         StringBuilder result = new StringBuilder();
         result.append(pageIntroduction(page, language)).append("\n\n")
                 .append(spanish ? "Pasos:\n" : "Steps:\n");
+        if (page.getKind() == PageKind.LOGIN) {
+            appendLoginSteps(page, spanish, result);
+            return boundedText(result.toString(), CONTENT_LIMIT);
+        }
         int step = 1;
         for (InstructionGroup group : InstructionGroup.values()) {
             List<UIElement> groupElements = pageElements.stream()
@@ -108,6 +112,35 @@ public class DocumentService {
         }
         if (step == 1) result.append(spanish ? "No se identificaron acciones para documentar; consultá la información visible en esta pantalla.\n" : "No actions were identified for this guide; review the visible information on this screen.\n");
         return boundedText(result.toString(), CONTENT_LIMIT);
+    }
+    /** Fixed sign-in steps built only from the real captured control names; unrelated controls (logo, register,
+     * forgot password, show password) are never part of the login section. */
+    private void appendLoginSteps(Page page, boolean spanish, StringBuilder result) {
+        result.append("1. ").append(loginUsernameInstruction(page.getLoginUsernameLabel(), spanish)).append('\n');
+        result.append("2. ").append(loginPasswordInstruction(page.getLoginPasswordLabel(), spanish)).append('\n');
+        result.append("3. ").append(loginSubmitInstruction(page.getLoginSubmitLabel(), spanish)).append('\n');
+    }
+    private String loginUsernameInstruction(String label, boolean spanish) {
+        String quoted = quotedLoginLabel(label);
+        if (quoted == null) return spanish ? "Ingresá tu usuario o correo electrónico." : "Enter your username or email.";
+        return spanish ? "Ingresá tu usuario o correo electrónico en el campo " + quoted + "." : "Enter your username or email in the " + quoted + " field.";
+    }
+    private String loginPasswordInstruction(String label, boolean spanish) {
+        String quoted = quotedLoginLabel(label);
+        if (quoted == null) return spanish ? "Ingresá tu contraseña." : "Enter your password.";
+        return spanish ? "Ingresá tu contraseña en el campo " + quoted + "." : "Enter your password in the " + quoted + " field.";
+    }
+    private String loginSubmitInstruction(String label, boolean spanish) {
+        String quoted = quotedLoginLabel(label);
+        if (quoted == null) return spanish ? "Presioná el botón de inicio de sesión." : "Press the sign-in button.";
+        return spanish ? "Presioná " + quoted + "." : "Press " + quoted + ".";
+    }
+    /** Null when the label is missing or was redacted (e.g. "[redacted]"), so generic wording is used instead of leaking it. */
+    private String quotedLoginLabel(String label) {
+        if (label == null) return null;
+        String trimmed = boundedText(label.trim(), 200);
+        if (trimmed.isEmpty() || trimmed.contains("[redacted]")) return null;
+        return "«" + trimmed + "»";
     }
     private String pageIntroduction(Page page, Document.DocumentLanguage language) {
         if (page.getKind() == PageKind.LOGIN) {

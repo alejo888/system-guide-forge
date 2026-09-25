@@ -47,7 +47,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             Locator pass = page.locator("input[type='password']").first();
             Locator submit = page.locator("button[type='submit'], input[type='submit']").first();
             if (user.count() == 0 || pass.count() == 0 || submit.count() == 0) throw new IllegalStateException("Login form unavailable");
-            LoginPage loginPage = captureLoginPage(page, application);
+            LoginPage loginPage = captureLoginPage(page, application, user, pass, submit);
             user.fill(username); pass.fill(password); submit.click();
             page.waitForURL(url -> isAuthenticatedAfterRedirect(url, application), new Page.WaitForURLOptions().setTimeout(10_000));
             if (!isAuthenticatedAfterRedirect(page.url(), application)) throw new IllegalStateException("Authentication failed");
@@ -82,14 +82,44 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     }
 
     /** Best-effort: the pre-login capture never blocks sign-in and the crawl that follows it. */
-    private LoginPage captureLoginPage(com.microsoft.playwright.Page page, TargetApplication application) {
+    private LoginPage captureLoginPage(com.microsoft.playwright.Page page, TargetApplication application, Locator user, Locator pass, Locator submit) {
         try {
             ScreenAnalysisResult capture = loginCapture.capture(page, application);
-            return new LoginPage(capture.url(), capture.title(), capture.elements(), capture.sanitizedScreenshot());
+            return new LoginPage(capture.url(), capture.title(), capture.elements(), capture.sanitizedScreenshot(),
+                    safeLabel(controlLabel(user)), safeLabel(controlLabel(pass)), safeLabel(submitLabel(submit)));
         } catch (RuntimeException e) {
             LOG.warn("Login page capture failed: category={}, exception={}, origin={}", failureCategory(e), e.getClass().getName(), failureOrigin(e));
             return null;
         }
+    }
+
+    /** Associated <label> text first, then aria-label, then placeholder; never the field value. */
+    private static String controlLabel(Locator locator) {
+        if (locator.count() == 0) return null;
+        Object associatedLabel = locator.evaluate(
+                "el => { const labels = el.labels ? Array.from(el.labels) : [];"
+                        + "const text = labels.map(l => (l.textContent || '').trim()).find(t => t);"
+                        + "return text || null; }");
+        if (associatedLabel instanceof String label && !label.isBlank()) return label;
+        String ariaLabel = locator.getAttribute("aria-label");
+        if (ariaLabel != null && !ariaLabel.isBlank()) return ariaLabel;
+        String placeholder = locator.getAttribute("placeholder");
+        if (placeholder != null && !placeholder.isBlank()) return placeholder;
+        return null;
+    }
+
+    /** Submit control label: same priority as controlLabel, then its own visible text. */
+    private static String submitLabel(Locator locator) {
+        String label = controlLabel(locator);
+        if (label != null) return label;
+        String visibleText = text(locator);
+        return visibleText != null && !visibleText.isBlank() ? visibleText : null;
+    }
+
+    private static String safeLabel(String label) {
+        if (label == null) return null;
+        String normalized = label.trim().replaceAll("\\s+", " ");
+        return normalized.isEmpty() ? null : safe(normalized);
     }
 
     /** Code location only: exception messages may echo target URLs, selectors, or credentials. */
