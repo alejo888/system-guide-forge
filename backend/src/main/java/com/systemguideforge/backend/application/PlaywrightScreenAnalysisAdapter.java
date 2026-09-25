@@ -116,10 +116,15 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         return visibleText != null && !visibleText.isBlank() ? visibleText : null;
     }
 
-    private static String safeLabel(String label) {
+    /** Fits the login label columns (VARCHAR(255)) and matches the manual's read-back cap. */
+    static final int MAX_LOGIN_LABEL_LENGTH = 200;
+
+    static String safeLabel(String label) {
         if (label == null) return null;
         String normalized = label.trim().replaceAll("\\s+", " ");
-        return normalized.isEmpty() ? null : safe(normalized);
+        if (normalized.isEmpty()) return null;
+        String redacted = safe(normalized);
+        return redacted.length() <= MAX_LOGIN_LABEL_LENGTH ? redacted : redacted.substring(0, MAX_LOGIN_LABEL_LENGTH).trim();
     }
 
     /** Code location only: exception messages may echo target URLs, selectors, or credentials. */

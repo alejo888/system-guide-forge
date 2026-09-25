@@ -389,6 +389,18 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void boundsLoginLabelsToFitPersistedColumns() {
+        String wrappedHelpText = "Email " + "password help text ".repeat(40);
+
+        String label = PlaywrightScreenAnalysisAdapter.safeLabel(wrappedHelpText);
+
+        assertThat(label).hasSizeLessThanOrEqualTo(PlaywrightScreenAnalysisAdapter.MAX_LOGIN_LABEL_LENGTH)
+                .startsWith("Email [redacted] help text")
+                .doesNotContain("password");
+        assertThat(PlaywrightScreenAnalysisAdapter.MAX_LOGIN_LABEL_LENGTH).isLessThanOrEqualTo(255);
+    }
+
+    @Test
     void failsClosedWhenBrowserCannotStart() {
         ScreenAnalysisAdapter adapter = new PlaywrightScreenAnalysisAdapter(() -> { throw new IllegalStateException("browser unavailable"); });
         TargetApplication app = new TargetApplication("p", "app", "http://localhost", "http://localhost/login", "u", "p");
