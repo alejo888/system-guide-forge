@@ -124,7 +124,8 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         String normalized = label.trim().replaceAll("\\s+", " ");
         if (normalized.isEmpty()) return null;
         String redacted = safe(normalized);
-        return redacted.length() <= MAX_LOGIN_LABEL_LENGTH ? redacted : redacted.substring(0, MAX_LOGIN_LABEL_LENGTH).trim();
+        // Never cut: a cut could split a redaction marker, so oversized labels fall back to generic manual wording.
+        return redacted.length() <= MAX_LOGIN_LABEL_LENGTH ? redacted : null;
     }
 
     /** Code location only: exception messages may echo target URLs, selectors, or credentials. */

@@ -389,14 +389,13 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
-    void boundsLoginLabelsToFitPersistedColumns() {
+    void dropsOversizedLoginLabelsInsteadOfCuttingThem() {
         String wrappedHelpText = "Email " + "password help text ".repeat(40);
+        String redactionAtTheLimit = "x".repeat(PlaywrightScreenAnalysisAdapter.MAX_LOGIN_LABEL_LENGTH - 5) + " password";
 
-        String label = PlaywrightScreenAnalysisAdapter.safeLabel(wrappedHelpText);
-
-        assertThat(label).hasSizeLessThanOrEqualTo(PlaywrightScreenAnalysisAdapter.MAX_LOGIN_LABEL_LENGTH)
-                .startsWith("Email [redacted] help text")
-                .doesNotContain("password");
+        assertThat(PlaywrightScreenAnalysisAdapter.safeLabel(wrappedHelpText)).isNull();
+        assertThat(PlaywrightScreenAnalysisAdapter.safeLabel(redactionAtTheLimit)).isNull();
+        assertThat(PlaywrightScreenAnalysisAdapter.safeLabel("  Your   password ")).isEqualTo("Your [redacted]");
         assertThat(PlaywrightScreenAnalysisAdapter.MAX_LOGIN_LABEL_LENGTH).isLessThanOrEqualTo(255);
     }
 

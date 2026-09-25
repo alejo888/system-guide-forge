@@ -20,6 +20,7 @@ public class AnalysisService {
         TargetApplication app=applications.findById(applicationId).orElseThrow(); Analysis analysis=analyses.saveAndFlush(new Analysis(applicationId));
         try { ScreenAnalysisAdapter.ScreenAnalysisResult result=adapter.analyze(app,protector.decrypt(app.getUsernameEncrypted()),protector.decrypt(app.getPasswordEncrypted()));
             // The login page is a pre-authentication state, so it never deduplicates authenticated pages sharing its URL.
+            // It still counts toward MAX_CRAWL_PAGES by design: the cap bounds every persisted page of an analysis.
             int persistedPages = 0;
             if (result.loginPage() != null && persistLoginPage(analysis, result.loginPage())) persistedPages++;
             Set<String> visited = new HashSet<>();
