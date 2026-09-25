@@ -29,6 +29,13 @@ export class RegistrationComponent {
     required(path.projectName); required(path.name); required(path.baseUrl); required(path.loginUrl); required(path.username); required(path.password);
   });
   readonly state = signal<RegistrationState>('idle');
+  readonly passwordVisible = signal(false);
+  readonly loadingMessage = computed(() => {
+    const spanish = this.localization.language() === 'es';
+    if (this.state() === 'saving') return spanish ? 'Guardando la configuración…' : 'Saving configuration…';
+    if (this.state() === 'testing') return spanish ? 'Probando el acceso…' : 'Testing access…';
+    return '';
+  });
   readonly errorMessage = signal('');
   readonly accessResult = signal<AccessTestResult | null>(null);
   readonly applicationId = signal(this.existingApplication?.id ?? '');

@@ -1,7 +1,6 @@
 package com.systemguideforge.backend.application;
 
 import com.microsoft.playwright.*;
-import com.systemguideforge.backend.persistence.Analysis;
 import com.systemguideforge.backend.persistence.TargetApplication;
 import org.springframework.stereotype.Component;
 import java.net.URI;
@@ -65,8 +64,21 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             }
             return withSharedNavigationIncludedOnce(first, discovered);
         } catch (Exception e) {
-                throw new IllegalStateException("Screen analysis unavailable or failed: " + Analysis.sanitizeFailureMessage(e.getMessage()));
-            }
+            throw new IllegalStateException("Screen analysis unavailable or failed: " + failureCategory(e));
+        }
+    }
+
+    private static String failureCategory(Exception error) {
+        String message = error.getMessage();
+        if (message == null) return "Browser operation failed";
+        String lower = message.toLowerCase(Locale.ROOT);
+        if (lower.contains("timeout") || lower.contains("timed out")) return "Browser operation timeout";
+        if (lower.contains("authentication failed") || lower.contains("login form unavailable")) return "Authentication failed";
+        if (lower.contains("unsafe") || lower.contains("redirect")) return "Unsafe navigation rejected";
+        if (lower.contains("screenshot")) return "Sanitized screenshot unavailable";
+        if (lower.contains("navigation") || lower.contains("navigate")) return "Browser navigation failed";
+        if (lower.contains("browser") || lower.contains("launch")) return "Browser unavailable";
+        return "Browser operation failed";
     }
 
     private ScreenAnalysisResult withSharedNavigationIncludedOnce(ScreenAnalysisResult first, List<DiscoveredPage> discovered) {
