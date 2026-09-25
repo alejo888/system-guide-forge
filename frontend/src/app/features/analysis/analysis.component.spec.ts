@@ -273,6 +273,36 @@ describe('AnalysisComponent document editing', () => {
     expect(component.pageAnchor('page-1')).toBe('discovered-page-page-1');
     expect(component.moduleAnchor('Admin Users')).toBe('module-admin-users');
   });
+  it('labels the login page as the sign-in screen and keeps it first in the evidence view', () => {
+    const loginPage = { id: 'page-login', analysisId: 'analysis-1', url: 'https://example.test/login', title: 'Login', kind: 'LOGIN' as const };
+    const homePage = { id: 'page-home', analysisId: 'analysis-1', url: 'https://example.test/home', title: 'Home', kind: null };
+    component.pages.set([{ ...loginPage, elements: [], screenshotUrl: null }, { ...homePage, elements: [], screenshotUrl: null }]);
+    component.modules.set([{ key: 'login', name: 'Login', pages: [loginPage] }, { key: 'home', name: 'Home', pages: [homePage] }]);
+    component.analysis.set({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
+    component.state.set('ready');
+    fixture.detectChanges();
+
+    expect(component.isLoginPage(loginPage)).toBeTrue();
+    expect(component.isLoginPage(homePage)).toBeFalse();
+    const badges = fixture.nativeElement.querySelectorAll('.login-badge');
+    expect(badges.length).toBe(1);
+    expect(badges[0].textContent).toContain('Sign-in screen');
+    const pageCards = fixture.nativeElement.querySelectorAll('.page-card');
+    expect(pageCards[0].querySelector('.login-badge')).not.toBeNull();
+  });
+
+  it('localizes the login page badge in Spanish', () => {
+    component.localization.setLanguage('es');
+    const loginPage = { id: 'page-login', analysisId: 'analysis-1', url: 'https://example.test/login', title: 'Login', kind: 'LOGIN' as const };
+    component.pages.set([{ ...loginPage, elements: [], screenshotUrl: null }]);
+    component.modules.set([{ key: 'login', name: 'Login', pages: [loginPage] }]);
+    component.analysis.set({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
+    component.state.set('ready');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.login-badge').textContent).toContain('Pantalla de inicio de sesión');
+  });
+
   it('renders no-match states for page and section searches', () => {
     component.pages.set([]); component.modules.set([]); component.searchQuery.set('nothing'); component.editableSections.set(document.sections); component.state.set('ready'); component.analysis.set({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
     fixture.detectChanges();

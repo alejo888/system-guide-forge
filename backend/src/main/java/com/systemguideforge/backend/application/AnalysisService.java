@@ -19,26 +19,35 @@ public class AnalysisService {
         if (MAX_ACTIVE_ANALYSES == 1 && analyses.existsByStatusIn(List.of(AnalysisStatus.RUNNING))) throw new AnalysisInProgressException();
         TargetApplication app=applications.findById(applicationId).orElseThrow(); Analysis analysis=analyses.saveAndFlush(new Analysis(applicationId));
         try { ScreenAnalysisAdapter.ScreenAnalysisResult result=adapter.analyze(app,protector.decrypt(app.getUsernameEncrypted()),protector.decrypt(app.getPasswordEncrypted()));
+            // The login page is a pre-authentication state, so it never deduplicates authenticated pages sharing its URL.
+            // It still counts toward MAX_CRAWL_PAGES by design: the cap bounds every persisted page of an analysis.
+            int persistedPages = 0;
+            if (result.loginPage() != null && persistLoginPage(analysis, result.loginPage())) persistedPages++;
             Set<String> visited = new HashSet<>();
-            persistPage(analysis, result.url(), result.title(), result.elements(), result.sanitizedScreenshot(), visited);
-            int persistedPages = 1;
+            if (persistPage(analysis, result.url(), result.title(), result.elements(), result.sanitizedScreenshot(), visited, null)) persistedPages++;
             int maxCrawlDepth = Math.min(app.getMaxCrawlDepth(), MAX_CRAWL_DEPTH);
             for (var discovered : result.discoveredPages()) {
                 if (persistedPages >= MAX_CRAWL_PAGES) break;
-                if (discovered.classification() == ActionClassification.SAFE && discovered.depth() <= maxCrawlDepth) {
-                    int before = visited.size();
-                    persistPage(analysis, discovered.url(), discovered.title(), discovered.elements(), discovered.sanitizedScreenshot(), visited);
-                    if (visited.size() > before) persistedPages++;
-                }
+                if (discovered.classification() == ActionClassification.SAFE && discovered.depth() <= maxCrawlDepth
+                        && persistPage(analysis, discovered.url(), discovered.title(), discovered.elements(), discovered.sanitizedScreenshot(), visited, null)) persistedPages++;
             }
             analysis.complete(); return analyses.save(analysis);
         } catch(Exception ex){analysis.fail(ex.getMessage()); return analyses.save(analysis);}
     }
-    private void persistPage(Analysis analysis, String url, String title, List<ScreenAnalysisAdapter.DetectedElement> detected, byte[] screenshot, Set<String> visited) {
-        if (!visited.add(url)) return;
-        Page page=pages.save(new Page(analysis.getId(),url,title));
+    private boolean persistPage(Analysis analysis, String url, String title, List<ScreenAnalysisAdapter.DetectedElement> detected, byte[] screenshot, Set<String> visited, PageKind kind) {
+        if (!visited.add(url)) return false;
+        Page page=pages.save(new Page(analysis.getId(),url,title,kind));
         for(var e:detected) elements.save(new UIElement(page.getId(),e.kind(),e.selector(),e.accessibleName(),e.classification()));
         if(screenshot!=null) screenshots.save(new Screenshot(page.getId(),screenshot));
+        return true;
+    }
+    /** The login page always persists once (its own dedup set), and carries its captured role labels. */
+    private boolean persistLoginPage(Analysis analysis, ScreenAnalysisAdapter.LoginPage loginPage) {
+        Page page = pages.save(new Page(analysis.getId(), loginPage.url(), loginPage.title(), PageKind.LOGIN,
+                loginPage.usernameLabel(), loginPage.passwordLabel(), loginPage.submitLabel()));
+        for (var e : loginPage.elements()) elements.save(new UIElement(page.getId(), e.kind(), e.selector(), e.accessibleName(), e.classification()));
+        if (loginPage.sanitizedScreenshot() != null) screenshots.save(new Screenshot(page.getId(), loginPage.sanitizedScreenshot()));
+        return true;
     }
     @Transactional public UIElement setManualInclusionApproval(String elementId, boolean approved) {
         if (documents == null || sections == null) throw new IllegalStateException("Manual inclusion requires document cache management");
@@ -56,7 +65,7 @@ public class AnalysisService {
         return elements.save(element);
     }
     public Optional<Analysis> get(String id){return analyses.findById(id);}
-    public List<Page> pages(String id){analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); return pages.findByAnalysisId(id);}
+    public List<Page> pages(String id){analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); return pages.findByAnalysisId(id).stream().sorted(Comparator.comparingInt(page -> page.getKind() == PageKind.LOGIN ? 0 : 1)).toList();}
     public List<FunctionalModuleDeriver.Module> modules(String id){ analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); return new FunctionalModuleDeriver().derive(pages.findByAnalysisId(id)); }
     public List<UIElement> elements(String id){pages.findById(id).orElseThrow(java.util.NoSuchElementException::new); return elements.findByPageId(id);}
     public Optional<Screenshot> screenshot(String pageId){return screenshots.findByPageId(pageId);}

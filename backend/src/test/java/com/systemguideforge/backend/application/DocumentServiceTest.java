@@ -198,6 +198,76 @@ class DocumentServiceTest {
     }
 
     @Test
+    void presentsTheLoginPageFirstWithFixedSignInStepsFromTheCapturedControlNames() {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        Page login = new Page(analysis.getId(), "http://localhost/zzz-login", "Sign in", PageKind.LOGIN, "Email", "[redacted]", "Ingresar");
+        Page home = new Page(analysis.getId(), "http://localhost/aaa-home", "Home");
+        // Unrelated controls (logo link, register, forgot password, show password) must never appear in the login section.
+        UIElement logo = new UIElement(login.getId(), "a", "#logo", "FPFlowPilot", ActionClassification.SAFE);
+        UIElement register = new UIElement(login.getId(), "a", "#register", "Registrate gratis", ActionClassification.SAFE);
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        UIElementRepository elements = mock(UIElementRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.empty());
+        when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(home, login));
+        when(elements.findByPageId(login.getId())).thenReturn(List.of(logo, register));
+        when(elements.findByPageId(home.getId())).thenReturn(List.of());
+        when(documents.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Document english = service(analyses, pages, elements, mock(ScreenshotRepository.class), documents, sections)
+                .generate(analysis.getId(), Document.DocumentLanguage.EN);
+
+        assertThat(english.getSections().getFirst().getSourcePageId()).isEqualTo(login.getId());
+        assertThat(english.getSections().getFirst().getTitle()).isEqualTo("How to sign in");
+        assertThat(english.getSections().getFirst().getContent())
+                .contains("Enter your username or email in the «Email» field.")
+                // The password label "[redacted]" (safe() already redacted it) falls back to generic wording.
+                .contains("Enter your password.")
+                .contains("Press «Ingresar».")
+                .doesNotContain("[redacted]", "FPFlowPilot", "Registrate gratis");
+
+        Document spanish = service(analyses, pages, elements, mock(ScreenshotRepository.class), documents, sections)
+                .generate(analysis.getId(), Document.DocumentLanguage.ES, Document.DocumentType.USER_MANUAL, true);
+
+        assertThat(spanish.getSections().getFirst().getTitle()).isEqualTo("Cómo ingresar al sistema");
+        assertThat(spanish.getSections().getFirst().getContent())
+                .contains("Ingresá tu usuario o correo electrónico en el campo «Email».")
+                .contains("Ingresá tu contraseña.")
+                .contains("Presioná «Ingresar».")
+                .doesNotContain("[redacted]", "FPFlowPilot", "Registrate gratis");
+    }
+
+    @Test
+    void usesGenericLoginWordingWhenNoRoleLabelWasCaptured() {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        Page login = new Page(analysis.getId(), "http://localhost/login", "Sign in", PageKind.LOGIN);
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        UIElementRepository elements = mock(UIElementRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.empty());
+        when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(login));
+        when(elements.findByPageId(login.getId())).thenReturn(List.of());
+        when(documents.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Document english = service(analyses, pages, elements, mock(ScreenshotRepository.class), documents, sections)
+                .generate(analysis.getId(), Document.DocumentLanguage.EN);
+
+        assertThat(english.getSections().getFirst().getContent())
+                .contains("Enter your username or email.", "Enter your password.", "Press the sign-in button.")
+                .doesNotContain("«", "[redacted]");
+    }
+
+    @Test
     void usesNaturalControlSpecificInstructionsInEnglishAndSpanish() {
         String english = generatedManualContent(Document.DocumentLanguage.EN);
         assertThat(english).contains(

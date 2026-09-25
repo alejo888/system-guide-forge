@@ -53,10 +53,15 @@ async function main() {
   assert.equal(analysis.status, 'COMPLETED', JSON.stringify(analysis));
 
   const pages = await jsonRequest(`/api/analyses/${started.id}/pages`);
-  const traversedPaths = new Set(pages.map((page) => new URL(page.url).pathname));
+  assert.equal(pages.length, 3, `analysis must persist the captured login page plus the two crawled pages: ${JSON.stringify(pages)}`);
+  assert.equal(pages[0].kind, 'LOGIN', 'the login page must be persisted first');
+  assert.equal(new URL(pages[0].url).pathname, '/login.html');
+  const crawledPages = pages.slice(1);
+  assert.ok(crawledPages.every((page) => page.kind == null), 'only the login page should be marked with a kind');
+  const traversedPaths = new Set(crawledPages.map((page) => new URL(page.url).pathname));
   assert.deepEqual([...traversedPaths].sort(), ['/dashboard.html', '/reports.html']);
   for (const unsafeSentinelPath of ['/login.html', '/logout']) {
-    assert.ok(!traversedPaths.has(unsafeSentinelPath), `analysis traversed unsafe sentinel ${unsafeSentinelPath}`);
+    assert.ok(!traversedPaths.has(unsafeSentinelPath), `crawl queue must never traverse ${unsafeSentinelPath}`);
   }
 
   const elementsByPage = await Promise.all(pages.map((page) => jsonRequest(`/api/pages/${page.id}/elements`)));
@@ -80,6 +85,8 @@ async function main() {
   });
   assert.equal(generated.type, 'user_manual');
   assert.ok(generated.sections.length > 0, 'generated manual has no sections');
+  assert.equal(generated.sections[0].sourcePageId, pages[0].id, 'the first manual section must document the sign-in step from the captured login page');
+  assert.match(generated.sections[0].title, /sign in/i, 'the first manual section must be the sign-in step');
   assert.ok(!manualContent(generated).includes('More options'), 'unapproved UNKNOWN was included in the manual');
   assertCleanManual(generated, elements);
 

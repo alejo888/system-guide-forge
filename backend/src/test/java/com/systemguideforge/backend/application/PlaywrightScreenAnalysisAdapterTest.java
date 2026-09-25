@@ -1,8 +1,14 @@
 package com.systemguideforge.backend.application;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import com.microsoft.playwright.Playwright;
 import com.sun.net.httpserver.HttpServer;
 import com.systemguideforge.backend.persistence.TargetApplication;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -77,6 +83,139 @@ class PlaywrightScreenAnalysisAdapterTest {
             assertThat(pixelCount(image, 0xFF00FF)).isGreaterThan(100);
             assertThat(pixelCount(image, 0x017B2D)).isGreaterThan(1_000);
         } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void capturesLoginPageWithEmptyMaskedFormBeforeCredentialsAreTyped() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/login", exchange -> {
+            if ("POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Location", "/dashboard");
+                exchange.sendResponseHeaders(302, -1);
+                exchange.close();
+                return;
+            }
+            respondHtml(exchange, """
+                    <!doctype html><html><head><title>Sign in</title><style>
+                    body { margin: 0; font-family: sans-serif; }
+                    #username-marker { display: block; width: 320px; height: 80px; }
+                    input[name='username']:placeholder-shown ~ #username-marker { background: rgb(1, 123, 45); }
+                    input[name='username']:not(:placeholder-shown) ~ #username-marker { background: rgb(255, 0, 0); }
+                    input { display: block; width: 320px; height: 32px; margin-top: 12px; }
+                    </style></head><body><form method="post">
+                    <input name="username" type="text" placeholder="Username">
+                    <div id="username-marker"></div>
+                    <input name="password" type="password">
+                    <button type="submit">Sign in</button></form></body></html>
+                    """);
+        });
+        server.createContext("/dashboard", exchange -> respondHtml(exchange, "<!doctype html><html><body><main>Dashboard</main></body></html>"));
+        server.start();
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            TargetApplication application = new TargetApplication("project", "app", baseUrl, baseUrl + "/login", "stored-user", "stored-password");
+
+            ScreenAnalysisAdapter.ScreenAnalysisResult result = new PlaywrightScreenAnalysisAdapter().analyze(application, "browser-user", "browser-password");
+
+            ScreenAnalysisAdapter.LoginPage loginPage = result.loginPage();
+            assertThat(loginPage).isNotNull();
+            assertThat(loginPage.url()).isEqualTo(baseUrl + "/login");
+            assertThat(loginPage.elements()).anySatisfy(element ->
+                    assertThat(element.classification()).isEqualTo(ActionClassification.UNKNOWN));
+
+            BufferedImage image = ImageIO.read(new ByteArrayInputStream(loginPage.sanitizedScreenshot()));
+            assertThat(image).isNotNull();
+            assertThat(pixelCount(image, 0xFF00FF)).isGreaterThan(100);
+            assertThat(pixelCount(image, 0x017B2D)).isGreaterThan(1_000);
+            assertThat(pixelCount(image, 0xFF0000)).isZero();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void capturesLoginRoleLabelsFromAssociatedLabelsAriaLabelPlaceholderAndSubmitText() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/login", exchange -> {
+            if ("POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Location", "/dashboard");
+                exchange.sendResponseHeaders(302, -1);
+                exchange.close();
+                return;
+            }
+            respondHtml(exchange, """
+                    <!doctype html><html><body><form method="post">
+                    <label for="user-field">Email</label>
+                    <input id="user-field" name="username" type="text">
+                    <label for="pass-field">Password</label>
+                    <input id="pass-field" name="password" type="password">
+                    <button type="submit">Sign in</button></form></body></html>
+                    """);
+        });
+        server.createContext("/dashboard", exchange -> respondHtml(exchange, "<!doctype html><html><body><main>Dashboard</main></body></html>"));
+        server.start();
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            TargetApplication application = new TargetApplication("project", "app", baseUrl, baseUrl + "/login", "stored-user", "stored-password");
+
+            ScreenAnalysisAdapter.LoginPage loginPage = new PlaywrightScreenAnalysisAdapter()
+                    .analyze(application, "browser-user", "browser-password").loginPage();
+
+            assertThat(loginPage).isNotNull();
+            assertThat(loginPage.usernameLabel()).isEqualTo("Email");
+            // The associated <label> text is "Password"; safe() redacts it here. DocumentService turns "[redacted]"
+            // into generic wording rather than printing it, so the redaction itself is fine to persist.
+            assertThat(loginPage.passwordLabel()).isEqualTo("[redacted]");
+            assertThat(loginPage.submitLabel()).isEqualTo("Sign in");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void continuesAnalysisWithoutALoginPageWhenThePreLoginCaptureFailsAndLogsASanitizedWarning() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/login", exchange -> {
+            if ("POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Location", "/dashboard");
+                exchange.sendResponseHeaders(302, -1);
+                exchange.close();
+                return;
+            }
+            respondHtml(exchange, """
+                    <!doctype html><html><body><form method="post">
+                    <input name="username" type="text"><input name="password" type="password">
+                    <button type="submit">Sign in</button></form></body></html>
+                    """);
+        });
+        server.createContext("/dashboard", exchange -> respondHtml(exchange, "<!doctype html><html><body><main>Dashboard</main></body></html>"));
+        server.start();
+        Logger logger = (Logger) LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            TargetApplication application = new TargetApplication("project", "app", baseUrl, baseUrl + "/login", "stored-user", "stored-password");
+            PlaywrightScreenAnalysisAdapter adapter = new PlaywrightScreenAnalysisAdapter(Playwright::create,
+                    (page, app) -> { throw new IllegalStateException("simulated pre-login capture failure"); });
+
+            ScreenAnalysisAdapter.ScreenAnalysisResult result = adapter.analyze(application, "browser-user", "browser-password");
+
+            assertThat(result.loginPage()).isNull();
+            assertThat(result.url()).isEqualTo(baseUrl + "/dashboard");
+            assertThat(appender.list).anySatisfy(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage())
+                        .contains("Login page capture failed")
+                        .contains("java.lang.IllegalStateException")
+                        .doesNotContain("browser-user")
+                        .doesNotContain("browser-password");
+            });
+        } finally {
+            logger.detachAppender(appender);
             server.stop(0);
         }
     }
@@ -218,6 +357,46 @@ class PlaywrightScreenAnalysisAdapterTest {
                 .hasMessageContaining("timeout")
                 .hasMessageNotContaining("target.test")
                 .hasMessageNotContaining("#password");
+    }
+
+    @Test
+    void logsFailureTypeAndOriginWithoutUntrustedMessage() {
+        Logger logger = (Logger) LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            TargetApplication app = new TargetApplication("p", "app", "http://localhost", "http://localhost/login", "u", "p");
+            ScreenAnalysisAdapter adapter = new PlaywrightScreenAnalysisAdapter(() -> {
+                throw new NullPointerException("https://target.test/private?token=secret");
+            });
+
+            assertThatThrownBy(() -> adapter.analyze(app, "user", "password"));
+
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage())
+                        .contains("Browser operation failed")
+                        .contains("java.lang.NullPointerException")
+                        .contains("PlaywrightScreenAnalysisAdapterTest")
+                        .doesNotContain("target.test")
+                        .doesNotContain("secret");
+                assertThat(event.getThrowableProxy()).isNull();
+            });
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    void dropsOversizedLoginLabelsInsteadOfCuttingThem() {
+        String wrappedHelpText = "Email " + "password help text ".repeat(40);
+        String redactionAtTheLimit = "x".repeat(PlaywrightScreenAnalysisAdapter.MAX_LOGIN_LABEL_LENGTH - 5) + " password";
+
+        assertThat(PlaywrightScreenAnalysisAdapter.safeLabel(wrappedHelpText)).isNull();
+        assertThat(PlaywrightScreenAnalysisAdapter.safeLabel(redactionAtTheLimit)).isNull();
+        assertThat(PlaywrightScreenAnalysisAdapter.safeLabel("  Your   password ")).isEqualTo("Your [redacted]");
+        assertThat(PlaywrightScreenAnalysisAdapter.MAX_LOGIN_LABEL_LENGTH).isLessThanOrEqualTo(255);
     }
 
     @Test

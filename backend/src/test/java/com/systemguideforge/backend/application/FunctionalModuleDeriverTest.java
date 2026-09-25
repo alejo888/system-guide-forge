@@ -1,6 +1,7 @@
 package com.systemguideforge.backend.application;
 
 import com.systemguideforge.backend.persistence.Page;
+import com.systemguideforge.backend.persistence.PageKind;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -9,6 +10,42 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class FunctionalModuleDeriverTest {
     private final FunctionalModuleDeriver deriver = new FunctionalModuleDeriver();
+
+    @Test
+    void placesTheLoginPageModuleFirstRegardlessOfItsUrlAlphabeticalPosition() {
+        Page login = new Page("analysis-1", "http://localhost/zlogin", "Sign in", PageKind.LOGIN);
+        Page admin = new Page("analysis-1", "http://localhost/admin", "Admin");
+
+        var modules = deriver.derive(List.of(admin, login));
+
+        assertThat(modules).extracting(FunctionalModuleDeriver.Module::key)
+                .containsExactly("sgf/login", "admin");
+        assertThat(modules.get(0).name()).isEqualTo("Login");
+        assertThat(modules.get(0).pages()).extracting(FunctionalModuleDeriver.ModulePage::id)
+                .containsExactly(login.getId());
+        assertThat(modules.get(0).pages()).extracting(FunctionalModuleDeriver.ModulePage::kind)
+                .containsExactly(PageKind.LOGIN);
+        assertThat(modules.get(1).pages()).extracting(FunctionalModuleDeriver.ModulePage::kind)
+                .containsExactly((PageKind) null);
+    }
+
+    @Test
+    void keepsTheLoginModuleKeyCollisionFreeFromAnOrdinaryPageWhoseFirstPathSegmentIsLogin() {
+        Page login = new Page("analysis-1", "http://localhost/login-target", "Sign in", PageKind.LOGIN);
+        Page spaLandingSharingLoginPath = new Page("analysis-1", "http://localhost/login/welcome", "Welcome");
+
+        var modules = deriver.derive(List.of(spaLandingSharingLoginPath, login));
+
+        assertThat(modules).extracting(FunctionalModuleDeriver.Module::key)
+                .containsExactly("sgf/login", "login");
+        assertThat(modules).extracting(FunctionalModuleDeriver.Module::key).doesNotHaveDuplicates();
+        assertThat(modules.get(0).name()).isEqualTo("Login");
+        assertThat(modules.get(1).name()).isEqualTo("Login");
+        assertThat(modules.get(0).pages()).extracting(FunctionalModuleDeriver.ModulePage::id)
+                .containsExactly(login.getId());
+        assertThat(modules.get(1).pages()).extracting(FunctionalModuleDeriver.ModulePage::id)
+                .containsExactly(spaLandingSharingLoginPath.getId());
+    }
 
     @Test
     void groupsPagesByFirstPathSegmentWithDeterministicOrderingAndNames() {

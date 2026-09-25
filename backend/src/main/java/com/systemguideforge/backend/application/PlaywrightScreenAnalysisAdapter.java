@@ -2,6 +2,8 @@ package com.systemguideforge.backend.application;
 
 import com.microsoft.playwright.*;
 import com.systemguideforge.backend.persistence.TargetApplication;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import java.net.URI;
 import java.util.*;
@@ -19,9 +21,16 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                     "input[id*='secret' i], input[id*='token' i], input[placeholder*='password' i], " +
                     "input[aria-label*='password' i], textarea[name*='password' i], " +
                     "textarea[name*='secret' i], textarea[name*='token' i], [data-sensitive]";
+    private static final Logger LOG = LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
     private final BrowserFactory browserFactory;
+    private final LoginCapture loginCapture;
     public PlaywrightScreenAnalysisAdapter() { this(Playwright::create); }
-    PlaywrightScreenAnalysisAdapter(BrowserFactory browserFactory) { this.browserFactory = browserFactory; }
+    PlaywrightScreenAnalysisAdapter(BrowserFactory browserFactory) { this(browserFactory, null); }
+    /** Test seam: overrides only the pre-login capture, to exercise the best-effort failure path without a real browser fault. */
+    PlaywrightScreenAnalysisAdapter(BrowserFactory browserFactory, LoginCapture loginCaptureOverride) {
+        this.browserFactory = browserFactory;
+        this.loginCapture = loginCaptureOverride != null ? loginCaptureOverride : (page, app) -> analyzeCurrentPage(page, app, 0);
+    }
 
     static boolean isAuthenticatedAfterRedirect(String candidateUrl, TargetApplication application) {
         return PlaywrightAccessProbe.isSuccessfulRedirect(candidateUrl, application.getBaseUrl(), application.getLoginUrl());
@@ -38,6 +47,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             Locator pass = page.locator("input[type='password']").first();
             Locator submit = page.locator("button[type='submit'], input[type='submit']").first();
             if (user.count() == 0 || pass.count() == 0 || submit.count() == 0) throw new IllegalStateException("Login form unavailable");
+            LoginPage loginPage = captureLoginPage(page, application, user, pass, submit);
             user.fill(username); pass.fill(password); submit.click();
             page.waitForURL(url -> isAuthenticatedAfterRedirect(url, application), new Page.WaitForURLOptions().setTimeout(10_000));
             if (!isAuthenticatedAfterRedirect(page.url(), application)) throw new IllegalStateException("Authentication failed");
@@ -62,10 +72,66 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                 discovered.add(new DiscoveredPage(current.url(), current.title(), current.elements(), current.sanitizedScreenshot(), link.depth, ActionClassification.SAFE));
                 if (link.depth < application.getMaxCrawlDepth()) queue.addAll(links(page, application, link.depth + 1, budget));
             }
-            return withSharedNavigationIncludedOnce(first, discovered);
+            ScreenAnalysisResult combined = withSharedNavigationIncludedOnce(first, discovered);
+            return new ScreenAnalysisResult(combined.url(), combined.title(), combined.elements(), combined.sanitizedScreenshot(), combined.discoveredPages(), loginPage);
         } catch (Exception e) {
-            throw new IllegalStateException("Screen analysis unavailable or failed: " + failureCategory(e));
+            String category = failureCategory(e);
+            LOG.warn("Screen analysis failed: category={}, exception={}, origin={}", category, e.getClass().getName(), failureOrigin(e));
+            throw new IllegalStateException("Screen analysis unavailable or failed: " + category);
         }
+    }
+
+    /** Best-effort: the pre-login capture never blocks sign-in and the crawl that follows it. */
+    private LoginPage captureLoginPage(com.microsoft.playwright.Page page, TargetApplication application, Locator user, Locator pass, Locator submit) {
+        try {
+            ScreenAnalysisResult capture = loginCapture.capture(page, application);
+            return new LoginPage(capture.url(), capture.title(), capture.elements(), capture.sanitizedScreenshot(),
+                    safeLabel(controlLabel(user)), safeLabel(controlLabel(pass)), safeLabel(submitLabel(submit)));
+        } catch (RuntimeException e) {
+            LOG.warn("Login page capture failed: category={}, exception={}, origin={}", failureCategory(e), e.getClass().getName(), failureOrigin(e));
+            return null;
+        }
+    }
+
+    /** Associated <label> text first, then aria-label, then placeholder; never the field value. */
+    private static String controlLabel(Locator locator) {
+        if (locator.count() == 0) return null;
+        Object associatedLabel = locator.evaluate(
+                "el => { const labels = el.labels ? Array.from(el.labels) : [];"
+                        + "const text = labels.map(l => (l.textContent || '').trim()).find(t => t);"
+                        + "return text || null; }");
+        if (associatedLabel instanceof String label && !label.isBlank()) return label;
+        String ariaLabel = locator.getAttribute("aria-label");
+        if (ariaLabel != null && !ariaLabel.isBlank()) return ariaLabel;
+        String placeholder = locator.getAttribute("placeholder");
+        if (placeholder != null && !placeholder.isBlank()) return placeholder;
+        return null;
+    }
+
+    /** Submit control label: same priority as controlLabel, then its own visible text. */
+    private static String submitLabel(Locator locator) {
+        String label = controlLabel(locator);
+        if (label != null) return label;
+        String visibleText = text(locator);
+        return visibleText != null && !visibleText.isBlank() ? visibleText : null;
+    }
+
+    /** Fits the login label columns (VARCHAR(255)) and matches the manual's read-back cap. */
+    static final int MAX_LOGIN_LABEL_LENGTH = 200;
+
+    static String safeLabel(String label) {
+        if (label == null) return null;
+        String normalized = label.trim().replaceAll("\\s+", " ");
+        if (normalized.isEmpty()) return null;
+        String redacted = safe(normalized);
+        // Never cut: a cut could split a redaction marker, so oversized labels fall back to generic manual wording.
+        return redacted.length() <= MAX_LOGIN_LABEL_LENGTH ? redacted : null;
+    }
+
+    /** Code location only: exception messages may echo target URLs, selectors, or credentials. */
+    private static String failureOrigin(Exception error) {
+        StackTraceElement[] frames = error.getStackTrace();
+        return frames.length == 0 ? "unknown" : frames[0].toString();
     }
 
     private static String failureCategory(Exception error) {
@@ -230,4 +296,5 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     }
     private record Link(String url,int depth) {}
     @FunctionalInterface interface BrowserFactory { Playwright create(); }
+    @FunctionalInterface interface LoginCapture { ScreenAnalysisResult capture(com.microsoft.playwright.Page page, TargetApplication application); }
 }
