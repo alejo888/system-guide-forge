@@ -1,8 +1,13 @@
 package com.systemguideforge.backend.application;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.sun.net.httpserver.HttpServer;
 import com.systemguideforge.backend.persistence.TargetApplication;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -218,6 +223,35 @@ class PlaywrightScreenAnalysisAdapterTest {
                 .hasMessageContaining("timeout")
                 .hasMessageNotContaining("target.test")
                 .hasMessageNotContaining("#password");
+    }
+
+    @Test
+    void logsFailureTypeAndOriginWithoutUntrustedMessage() {
+        Logger logger = (Logger) LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            TargetApplication app = new TargetApplication("p", "app", "http://localhost", "http://localhost/login", "u", "p");
+            ScreenAnalysisAdapter adapter = new PlaywrightScreenAnalysisAdapter(() -> {
+                throw new NullPointerException("https://target.test/private?token=secret");
+            });
+
+            assertThatThrownBy(() -> adapter.analyze(app, "user", "password"));
+
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage())
+                        .contains("Browser operation failed")
+                        .contains("java.lang.NullPointerException")
+                        .contains("PlaywrightScreenAnalysisAdapterTest")
+                        .doesNotContain("target.test")
+                        .doesNotContain("secret");
+                assertThat(event.getThrowableProxy()).isNull();
+            });
+        } finally {
+            logger.detachAppender(appender);
+        }
     }
 
     @Test

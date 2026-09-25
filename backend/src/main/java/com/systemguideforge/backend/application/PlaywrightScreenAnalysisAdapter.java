@@ -2,6 +2,8 @@ package com.systemguideforge.backend.application;
 
 import com.microsoft.playwright.*;
 import com.systemguideforge.backend.persistence.TargetApplication;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import java.net.URI;
 import java.util.*;
@@ -19,6 +21,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                     "input[id*='secret' i], input[id*='token' i], input[placeholder*='password' i], " +
                     "input[aria-label*='password' i], textarea[name*='password' i], " +
                     "textarea[name*='secret' i], textarea[name*='token' i], [data-sensitive]";
+    private static final Logger LOG = LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
     private final BrowserFactory browserFactory;
     public PlaywrightScreenAnalysisAdapter() { this(Playwright::create); }
     PlaywrightScreenAnalysisAdapter(BrowserFactory browserFactory) { this.browserFactory = browserFactory; }
@@ -64,8 +67,16 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             }
             return withSharedNavigationIncludedOnce(first, discovered);
         } catch (Exception e) {
-            throw new IllegalStateException("Screen analysis unavailable or failed: " + failureCategory(e));
+            String category = failureCategory(e);
+            LOG.warn("Screen analysis failed: category={}, exception={}, origin={}", category, e.getClass().getName(), failureOrigin(e));
+            throw new IllegalStateException("Screen analysis unavailable or failed: " + category);
         }
+    }
+
+    /** Code location only: exception messages may echo target URLs, selectors, or credentials. */
+    private static String failureOrigin(Exception error) {
+        StackTraceElement[] frames = error.getStackTrace();
+        return frames.length == 0 ? "unknown" : frames[0].toString();
     }
 
     private static String failureCategory(Exception error) {
