@@ -19,31 +19,26 @@ public class AnalysisService {
         if (MAX_ACTIVE_ANALYSES == 1 && analyses.existsByStatusIn(List.of(AnalysisStatus.RUNNING))) throw new AnalysisInProgressException();
         TargetApplication app=applications.findById(applicationId).orElseThrow(); Analysis analysis=analyses.saveAndFlush(new Analysis(applicationId));
         try { ScreenAnalysisAdapter.ScreenAnalysisResult result=adapter.analyze(app,protector.decrypt(app.getUsernameEncrypted()),protector.decrypt(app.getPasswordEncrypted()));
-            Set<String> visited = new HashSet<>();
+            // The login page is a pre-authentication state, so it never deduplicates authenticated pages sharing its URL.
             int persistedPages = 0;
-            if (result.loginPage() != null) {
-                persistPage(analysis, result.loginPage().url(), result.loginPage().title(), result.loginPage().elements(), result.loginPage().sanitizedScreenshot(), visited, PageKind.LOGIN);
-                if (!visited.isEmpty()) persistedPages++;
-            }
-            persistPage(analysis, result.url(), result.title(), result.elements(), result.sanitizedScreenshot(), visited, null);
-            persistedPages++;
+            if (result.loginPage() != null && persistPage(analysis, result.loginPage().url(), result.loginPage().title(), result.loginPage().elements(), result.loginPage().sanitizedScreenshot(), new HashSet<>(), PageKind.LOGIN)) persistedPages++;
+            Set<String> visited = new HashSet<>();
+            if (persistPage(analysis, result.url(), result.title(), result.elements(), result.sanitizedScreenshot(), visited, null)) persistedPages++;
             int maxCrawlDepth = Math.min(app.getMaxCrawlDepth(), MAX_CRAWL_DEPTH);
             for (var discovered : result.discoveredPages()) {
                 if (persistedPages >= MAX_CRAWL_PAGES) break;
-                if (discovered.classification() == ActionClassification.SAFE && discovered.depth() <= maxCrawlDepth) {
-                    int before = visited.size();
-                    persistPage(analysis, discovered.url(), discovered.title(), discovered.elements(), discovered.sanitizedScreenshot(), visited, null);
-                    if (visited.size() > before) persistedPages++;
-                }
+                if (discovered.classification() == ActionClassification.SAFE && discovered.depth() <= maxCrawlDepth
+                        && persistPage(analysis, discovered.url(), discovered.title(), discovered.elements(), discovered.sanitizedScreenshot(), visited, null)) persistedPages++;
             }
             analysis.complete(); return analyses.save(analysis);
         } catch(Exception ex){analysis.fail(ex.getMessage()); return analyses.save(analysis);}
     }
-    private void persistPage(Analysis analysis, String url, String title, List<ScreenAnalysisAdapter.DetectedElement> detected, byte[] screenshot, Set<String> visited, PageKind kind) {
-        if (!visited.add(url)) return;
+    private boolean persistPage(Analysis analysis, String url, String title, List<ScreenAnalysisAdapter.DetectedElement> detected, byte[] screenshot, Set<String> visited, PageKind kind) {
+        if (!visited.add(url)) return false;
         Page page=pages.save(new Page(analysis.getId(),url,title,kind));
         for(var e:detected) elements.save(new UIElement(page.getId(),e.kind(),e.selector(),e.accessibleName(),e.classification()));
         if(screenshot!=null) screenshots.save(new Screenshot(page.getId(),screenshot));
+        return true;
     }
     @Transactional public UIElement setManualInclusionApproval(String elementId, boolean approved) {
         if (documents == null || sections == null) throw new IllegalStateException("Manual inclusion requires document cache management");

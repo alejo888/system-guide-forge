@@ -122,7 +122,7 @@ class AnalysisServiceTest {
     }
 
     @Test
-    void deduplicatesAgainstAnAlreadyVisitedLoginPageUrl() {
+    void keepsAuthenticatedLandingPageWhenItSharesTheLoginUrl() {
         AnalysisRepository analyses=mock(AnalysisRepository.class); PageRepository pages=mock(PageRepository.class); UIElementRepository elements=mock(UIElementRepository.class); ScreenshotRepository screenshots=mock(ScreenshotRepository.class); TargetApplicationRepository apps=mock(TargetApplicationRepository.class); CredentialProtector protector=mock(CredentialProtector.class); ScreenAnalysisAdapter adapter=mock(ScreenAnalysisAdapter.class);
         TargetApplication app=TestFixtures.application("app-id");
         when(apps.findById(app.getId())).thenReturn(java.util.Optional.of(app)); when(analyses.existsByStatusIn(any())).thenReturn(false); when(analyses.save(any())).thenAnswer(i->i.getArgument(0)); when(analyses.saveAndFlush(any())).thenAnswer(i->i.getArgument(0)); when(protector.decrypt(any())).thenReturn("secret"); when(pages.save(any())).thenAnswer(i->i.getArgument(0));
@@ -132,7 +132,30 @@ class AnalysisServiceTest {
         Analysis result=new AnalysisService(analyses,pages,elements,screenshots,apps,protector,adapter).start(app.getId());
 
         assertThat(result.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
-        verify(pages, times(1)).save(any(Page.class));
+        org.mockito.ArgumentCaptor<Page> captor = org.mockito.ArgumentCaptor.forClass(Page.class);
+        verify(pages, times(2)).save(captor.capture());
+        List<Page> saved = captor.getAllValues();
+        assertThat(saved.get(0).getTitle()).isEqualTo("Sign in");
+        assertThat(saved.get(0).getKind()).isEqualTo(PageKind.LOGIN);
+        assertThat(saved.get(1).getTitle()).isEqualTo("Home");
+        assertThat(saved.get(1).getKind()).isNull();
+    }
+
+    @Test
+    void countsOnlyPersistedPagesTowardTheCrawlPageBudget() {
+        AnalysisRepository analyses=mock(AnalysisRepository.class); PageRepository pages=mock(PageRepository.class); UIElementRepository elements=mock(UIElementRepository.class); ScreenshotRepository screenshots=mock(ScreenshotRepository.class); TargetApplicationRepository apps=mock(TargetApplicationRepository.class); CredentialProtector protector=mock(CredentialProtector.class); ScreenAnalysisAdapter adapter=mock(ScreenAnalysisAdapter.class);
+        TargetApplication app=TestFixtures.application("app-id");
+        when(apps.findById(app.getId())).thenReturn(java.util.Optional.of(app)); when(analyses.existsByStatusIn(any())).thenReturn(false); when(analyses.save(any())).thenAnswer(i->i.getArgument(0)); when(analyses.saveAndFlush(any())).thenAnswer(i->i.getArgument(0)); when(protector.decrypt(any())).thenReturn("secret"); when(pages.save(any())).thenAnswer(i->i.getArgument(0));
+        var loginPage = new ScreenAnalysisAdapter.LoginPage("http://localhost/login", "Sign in", List.of(), null);
+        List<ScreenAnalysisAdapter.DiscoveredPage> discovered = new java.util.ArrayList<>();
+        for (int i = 0; i < AnalysisService.MAX_CRAWL_PAGES + 5; i++) {
+            discovered.add(new ScreenAnalysisAdapter.DiscoveredPage("http://localhost/page-" + i, "Page " + i, List.of(), null, 1, ActionClassification.SAFE));
+        }
+        when(adapter.analyze(any(), any(), any())).thenReturn(new ScreenAnalysisAdapter.ScreenAnalysisResult("http://localhost/home", "Home", List.of(), null, discovered, loginPage));
+
+        new AnalysisService(analyses,pages,elements,screenshots,apps,protector,adapter).start(app.getId());
+
+        verify(pages, times(AnalysisService.MAX_CRAWL_PAGES)).save(any(Page.class));
     }
 
     @Test
