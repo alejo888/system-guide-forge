@@ -653,6 +653,11 @@ components:
         title:
           type: string
           nullable: true
+        kind:
+          type: string
+          enum: [LOGIN]
+          nullable: true
+          description: Identifies pages that need special treatment in the manual, such as the captured login page. Null for ordinary pages.
 
     ElementResponse:
       type: object

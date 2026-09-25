@@ -45,6 +45,20 @@ class AnalysisServiceTest {
     }
 
     @Test
+    void ordersPagesWithLoginFirstExplicitlyRegardlessOfRepositoryOrder() {
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        Analysis analysis = new Analysis("app-id");
+        when(analyses.findById(analysis.getId())).thenReturn(java.util.Optional.of(analysis));
+        Page home = new Page(analysis.getId(), "http://localhost/home", "Home");
+        Page login = new Page(analysis.getId(), "http://localhost/login", "Sign in", PageKind.LOGIN);
+        when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(home, login));
+        AnalysisService service = new AnalysisService(analyses, pages, mock(UIElementRepository.class), mock(ScreenshotRepository.class), mock(TargetApplicationRepository.class), mock(CredentialProtector.class), mock(ScreenAnalysisAdapter.class));
+
+        assertThat(service.pages(analysis.getId())).extracting(Page::getId).containsExactly(login.getId(), home.getId());
+    }
+
+    @Test
     void rejectsPageListingForAnUnknownAnalysis() {
         AnalysisRepository analyses = mock(AnalysisRepository.class);
         PageRepository pages = mock(PageRepository.class);

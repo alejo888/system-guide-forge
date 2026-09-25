@@ -198,6 +198,46 @@ class DocumentServiceTest {
     }
 
     @Test
+    void presentsTheLoginPageFirstWithBilingualSignInGuidanceAndExcludesUnapprovedPasswordFields() {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        Page login = new Page(analysis.getId(), "http://localhost/zzz-login", "Sign in", PageKind.LOGIN);
+        Page home = new Page(analysis.getId(), "http://localhost/aaa-home", "Home");
+        UIElement username = new UIElement(login.getId(), "input", "#username", "Username", ActionClassification.SAFE);
+        UIElement password = new UIElement(login.getId(), "input", "#password", "Password", ActionClassification.UNKNOWN);
+        UIElement signIn = new UIElement(login.getId(), "button", "#sign-in", "Sign in", ActionClassification.SAFE);
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        UIElementRepository elements = mock(UIElementRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.empty());
+        when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(home, login));
+        when(elements.findByPageId(login.getId())).thenReturn(List.of(username, password, signIn));
+        when(elements.findByPageId(home.getId())).thenReturn(List.of());
+        when(documents.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Document english = service(analyses, pages, elements, mock(ScreenshotRepository.class), documents, sections)
+                .generate(analysis.getId(), Document.DocumentLanguage.EN);
+
+        assertThat(english.getSections().getFirst().getSourcePageId()).isEqualTo(login.getId());
+        assertThat(english.getSections().getFirst().getTitle()).isEqualTo("How to sign in");
+        assertThat(english.getSections().getFirst().getContent())
+                .contains("username", "password", "sign-in button", "Username", "Sign in")
+                .doesNotContain("Password");
+
+        Document spanish = service(analyses, pages, elements, mock(ScreenshotRepository.class), documents, sections)
+                .generate(analysis.getId(), Document.DocumentLanguage.ES, Document.DocumentType.USER_MANUAL, true);
+
+        assertThat(spanish.getSections().getFirst().getTitle()).isEqualTo("Cómo ingresar al sistema");
+        assertThat(spanish.getSections().getFirst().getContent())
+                .contains("usuario", "contraseña")
+                .doesNotContain("Password");
+    }
+
+    @Test
     void usesNaturalControlSpecificInstructionsInEnglishAndSpanish() {
         String english = generatedManualContent(Document.DocumentLanguage.EN);
         assertThat(english).contains(

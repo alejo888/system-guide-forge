@@ -1,6 +1,7 @@
 package com.systemguideforge.backend.application;
 
 import com.systemguideforge.backend.persistence.Page;
+import com.systemguideforge.backend.persistence.PageKind;
 
 import java.net.URI;
 import java.util.ArrayList;
@@ -11,17 +12,28 @@ import java.util.Locale;
 import java.util.Map;
 
 public class FunctionalModuleDeriver {
+    private static final String LOGIN_MODULE_KEY = "login";
+
     public List<Module> derive(List<Page> pages) {
+        List<Page> loginPages = pages.stream().filter(page -> page.getKind() == PageKind.LOGIN).toList();
+        List<Page> otherPages = pages.stream().filter(page -> page.getKind() != PageKind.LOGIN).toList();
+
         Map<String, List<Page>> grouped = new java.util.TreeMap<>();
-        for (Page page : pages) {
+        for (Page page : otherPages) {
             grouped.computeIfAbsent(moduleKey(page.getUrl()), ignored -> new ArrayList<>()).add(page);
         }
-        return grouped.entrySet().stream()
-                .map(entry -> new Module(entry.getKey(), displayName(entry.getKey()), entry.getValue().stream()
-                        .sorted(Comparator.comparing(Page::getUrl).thenComparing(Page::getId))
-                        .map(page -> new ModulePage(page.getId(), page.getAnalysisId(), page.getUrl(), page.getTitle()))
-                        .toList()))
-                .toList();
+
+        List<Module> modules = new ArrayList<>();
+        if (!loginPages.isEmpty()) modules.add(toModule(LOGIN_MODULE_KEY, loginPages));
+        grouped.forEach((key, groupedPages) -> modules.add(toModule(key, groupedPages)));
+        return modules;
+    }
+
+    private Module toModule(String key, List<Page> modulePages) {
+        return new Module(key, displayName(key), modulePages.stream()
+                .sorted(Comparator.comparing(Page::getUrl).thenComparing(Page::getId))
+                .map(page -> new ModulePage(page.getId(), page.getAnalysisId(), page.getUrl(), page.getTitle(), page.getKind()))
+                .toList());
     }
 
     public String moduleNameFor(String url) {
@@ -55,5 +67,5 @@ public class FunctionalModuleDeriver {
     }
 
     public record Module(String key, String name, List<ModulePage> pages) {}
-    public record ModulePage(String id, String analysisId, String url, String title) {}
+    public record ModulePage(String id, String analysisId, String url, String title, PageKind kind) {}
 }

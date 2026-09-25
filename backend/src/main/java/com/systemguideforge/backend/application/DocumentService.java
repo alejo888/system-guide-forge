@@ -78,6 +78,7 @@ public class DocumentService {
     }
 
     private String descriptiveTitle(Page page, Document.DocumentLanguage language) {
+        if (page.getKind() == PageKind.LOGIN) return language == Document.DocumentLanguage.ES ? "Cómo ingresar al sistema" : "How to sign in";
         String pageTitle = pageTitle(page, language);
         return moduleDeriver.moduleNameFor(page.getUrl()) + ": " + pageTitle + " (" + moduleDeriver.routeFor(page.getUrl()) + ")";
     }
@@ -109,6 +110,11 @@ public class DocumentService {
         return boundedText(result.toString(), CONTENT_LIMIT);
     }
     private String pageIntroduction(Page page, Document.DocumentLanguage language) {
+        if (page.getKind() == PageKind.LOGIN) {
+            return language == Document.DocumentLanguage.ES
+                    ? "Esta pantalla te permite ingresar al sistema. Ingresá tu usuario o correo electrónico y tu contraseña en el formulario y luego presioná el botón de inicio de sesión."
+                    : "This screen lets you sign in to the application. Enter your username or email and your password in the form, then press the sign-in button.";
+        }
         String title = boundedText(pageTitle(page, language), 3000);
         String route = boundedText(moduleDeriver.routeFor(page.getUrl()), 3000);
         return language == Document.DocumentLanguage.ES

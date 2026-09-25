@@ -2,10 +2,14 @@ package com.systemguideforge.backend.web;
 
 import com.systemguideforge.backend.application.ActionClassification;
 import com.systemguideforge.backend.application.AnalysisService;
+import com.systemguideforge.backend.persistence.Page;
+import com.systemguideforge.backend.persistence.PageKind;
 import com.systemguideforge.backend.persistence.UIElement;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
@@ -13,6 +17,20 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class AnalysisControllerTest {
+    @Test
+    void includesPageKindInPageResponsesNullForOrdinaryPages() {
+        AnalysisService service = mock(AnalysisService.class);
+        AnalysisController controller = new AnalysisController(service);
+        Page login = new Page("analysis-1", "http://localhost/login", "Sign in", PageKind.LOGIN);
+        Page home = new Page("analysis-1", "http://localhost/home", "Home");
+        when(service.pages("analysis-1")).thenReturn(List.of(login, home));
+
+        var response = controller.pages("analysis-1");
+
+        assertThat(response).extracting(AnalysisController.PageResponse::kind)
+                .containsExactly(PageKind.LOGIN, null);
+    }
+
     @Test
     void returnsNotFoundForMissingAnalysisPagesAndPageElements() throws Exception {
         AnalysisService service = mock(AnalysisService.class);

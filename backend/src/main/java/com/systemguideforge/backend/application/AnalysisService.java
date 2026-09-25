@@ -61,7 +61,7 @@ public class AnalysisService {
         return elements.save(element);
     }
     public Optional<Analysis> get(String id){return analyses.findById(id);}
-    public List<Page> pages(String id){analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); return pages.findByAnalysisId(id);}
+    public List<Page> pages(String id){analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); return pages.findByAnalysisId(id).stream().sorted(Comparator.comparingInt(page -> page.getKind() == PageKind.LOGIN ? 0 : 1)).toList();}
     public List<FunctionalModuleDeriver.Module> modules(String id){ analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); return new FunctionalModuleDeriver().derive(pages.findByAnalysisId(id)); }
     public List<UIElement> elements(String id){pages.findById(id).orElseThrow(java.util.NoSuchElementException::new); return elements.findByPageId(id);}
     public Optional<Screenshot> screenshot(String pageId){return screenshots.findByPageId(pageId);}
