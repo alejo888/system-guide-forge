@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.microsoft.playwright.Playwright;
 import com.sun.net.httpserver.HttpServer;
 import com.systemguideforge.backend.persistence.TargetApplication;
 import org.junit.jupiter.api.Test;
@@ -130,6 +131,52 @@ class PlaywrightScreenAnalysisAdapterTest {
             assertThat(pixelCount(image, 0x017B2D)).isGreaterThan(1_000);
             assertThat(pixelCount(image, 0xFF0000)).isZero();
         } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void continuesAnalysisWithoutALoginPageWhenThePreLoginCaptureFailsAndLogsASanitizedWarning() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/login", exchange -> {
+            if ("POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Location", "/dashboard");
+                exchange.sendResponseHeaders(302, -1);
+                exchange.close();
+                return;
+            }
+            respondHtml(exchange, """
+                    <!doctype html><html><body><form method="post">
+                    <input name="username" type="text"><input name="password" type="password">
+                    <button type="submit">Sign in</button></form></body></html>
+                    """);
+        });
+        server.createContext("/dashboard", exchange -> respondHtml(exchange, "<!doctype html><html><body><main>Dashboard</main></body></html>"));
+        server.start();
+        Logger logger = (Logger) LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            TargetApplication application = new TargetApplication("project", "app", baseUrl, baseUrl + "/login", "stored-user", "stored-password");
+            PlaywrightScreenAnalysisAdapter adapter = new PlaywrightScreenAnalysisAdapter(Playwright::create,
+                    (page, app) -> { throw new IllegalStateException("simulated pre-login capture failure"); });
+
+            ScreenAnalysisAdapter.ScreenAnalysisResult result = adapter.analyze(application, "browser-user", "browser-password");
+
+            assertThat(result.loginPage()).isNull();
+            assertThat(result.url()).isEqualTo(baseUrl + "/dashboard");
+            assertThat(appender.list).anySatisfy(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage())
+                        .contains("Login page capture failed")
+                        .contains("java.lang.IllegalStateException")
+                        .doesNotContain("browser-user")
+                        .doesNotContain("browser-password");
+            });
+        } finally {
+            logger.detachAppender(appender);
             server.stop(0);
         }
     }

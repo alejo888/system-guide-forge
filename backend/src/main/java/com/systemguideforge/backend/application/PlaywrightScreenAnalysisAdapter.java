@@ -23,8 +23,14 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                     "textarea[name*='secret' i], textarea[name*='token' i], [data-sensitive]";
     private static final Logger LOG = LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
     private final BrowserFactory browserFactory;
+    private final LoginCapture loginCapture;
     public PlaywrightScreenAnalysisAdapter() { this(Playwright::create); }
-    PlaywrightScreenAnalysisAdapter(BrowserFactory browserFactory) { this.browserFactory = browserFactory; }
+    PlaywrightScreenAnalysisAdapter(BrowserFactory browserFactory) { this(browserFactory, null); }
+    /** Test seam: overrides only the pre-login capture, to exercise the best-effort failure path without a real browser fault. */
+    PlaywrightScreenAnalysisAdapter(BrowserFactory browserFactory, LoginCapture loginCaptureOverride) {
+        this.browserFactory = browserFactory;
+        this.loginCapture = loginCaptureOverride != null ? loginCaptureOverride : (page, app) -> analyzeCurrentPage(page, app, 0);
+    }
 
     static boolean isAuthenticatedAfterRedirect(String candidateUrl, TargetApplication application) {
         return PlaywrightAccessProbe.isSuccessfulRedirect(candidateUrl, application.getBaseUrl(), application.getLoginUrl());
@@ -41,8 +47,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             Locator pass = page.locator("input[type='password']").first();
             Locator submit = page.locator("button[type='submit'], input[type='submit']").first();
             if (user.count() == 0 || pass.count() == 0 || submit.count() == 0) throw new IllegalStateException("Login form unavailable");
-            ScreenAnalysisResult loginCapture = analyzeCurrentPage(page, application, 0);
-            LoginPage loginPage = new LoginPage(loginCapture.url(), loginCapture.title(), loginCapture.elements(), loginCapture.sanitizedScreenshot());
+            LoginPage loginPage = captureLoginPage(page, application);
             user.fill(username); pass.fill(password); submit.click();
             page.waitForURL(url -> isAuthenticatedAfterRedirect(url, application), new Page.WaitForURLOptions().setTimeout(10_000));
             if (!isAuthenticatedAfterRedirect(page.url(), application)) throw new IllegalStateException("Authentication failed");
@@ -73,6 +78,17 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             String category = failureCategory(e);
             LOG.warn("Screen analysis failed: category={}, exception={}, origin={}", category, e.getClass().getName(), failureOrigin(e));
             throw new IllegalStateException("Screen analysis unavailable or failed: " + category);
+        }
+    }
+
+    /** Best-effort: the pre-login capture never blocks sign-in and the crawl that follows it. */
+    private LoginPage captureLoginPage(com.microsoft.playwright.Page page, TargetApplication application) {
+        try {
+            ScreenAnalysisResult capture = loginCapture.capture(page, application);
+            return new LoginPage(capture.url(), capture.title(), capture.elements(), capture.sanitizedScreenshot());
+        } catch (RuntimeException e) {
+            LOG.warn("Login page capture failed: category={}, exception={}, origin={}", failureCategory(e), e.getClass().getName(), failureOrigin(e));
+            return null;
         }
     }
 
@@ -244,4 +260,5 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     }
     private record Link(String url,int depth) {}
     @FunctionalInterface interface BrowserFactory { Playwright create(); }
+    @FunctionalInterface interface LoginCapture { ScreenAnalysisResult capture(com.microsoft.playwright.Page page, TargetApplication application); }
 }

@@ -12,7 +12,9 @@ import java.util.Locale;
 import java.util.Map;
 
 public class FunctionalModuleDeriver {
-    private static final String LOGIN_MODULE_KEY = "login";
+    // Contains "/", which moduleKey(url) can never produce: a decoded path segment never contains "/" (see moduleKey).
+    // This keeps the login module key collision-free against any ordinary page whose first path segment is "login".
+    private static final String LOGIN_MODULE_KEY = "sgf/login";
 
     public List<Module> derive(List<Page> pages) {
         List<Page> loginPages = pages.stream().filter(page -> page.getKind() == PageKind.LOGIN).toList();
@@ -55,6 +57,7 @@ public class FunctionalModuleDeriver {
     }
 
     private String displayName(String key) {
+        if (key.equals(LOGIN_MODULE_KEY)) return "Login";
         if (key.equals("home")) return "Home";
         String[] words = key.replace('-', ' ').replace('_', ' ').toLowerCase(Locale.ROOT).split(" +");
         StringBuilder result = new StringBuilder();
