@@ -112,6 +112,25 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void removesSharedNavigationFromDiscoveredPagesWhileKeepingUnnamedAndNonLinkElements() {
+        ScreenAnalysisAdapter.DetectedElement home = new ScreenAnalysisAdapter.DetectedElement("a", "a:nth-of-type(1)", "Home", ActionClassification.SAFE);
+        ScreenAnalysisAdapter.DetectedElement refresh = new ScreenAnalysisAdapter.DetectedElement("button", "button:nth-of-type(1)", "Refresh", ActionClassification.SAFE);
+        ScreenAnalysisAdapter.DetectedElement search = new ScreenAnalysisAdapter.DetectedElement("input", "input:nth-of-type(1)", null, ActionClassification.SAFE);
+        ScreenAnalysisAdapter.DetectedElement unnamedLink = new ScreenAnalysisAdapter.DetectedElement("a", "a:nth-of-type(2)", null, ActionClassification.SAFE);
+        ScreenAnalysisAdapter.ScreenAnalysisResult first = new ScreenAnalysisAdapter.ScreenAnalysisResult(
+                "http://localhost/", "Home", List.of(home, refresh), new byte[]{1});
+        ScreenAnalysisAdapter.DiscoveredPage projects = new ScreenAnalysisAdapter.DiscoveredPage(
+                "http://localhost/projects", "Projects", List.of(home, search, unnamedLink), new byte[]{1}, 1, ActionClassification.SAFE);
+
+        ScreenAnalysisAdapter.ScreenAnalysisResult result =
+                PlaywrightScreenAnalysisAdapter.withSharedNavigationIncludedOnce(first, List.of(projects));
+
+        assertThat(result.elements()).containsExactly(home, refresh);
+        assertThat(result.discoveredPages()).singleElement()
+                .satisfies(page -> assertThat(page.elements()).containsExactly(search, unnamedLink));
+    }
+
+    @Test
     void authenticatesOnlyAfterSameOriginRedirectAwayFromLogin() {
         TargetApplication app = new TargetApplication("p", "app", "http://localhost:8080", "http://localhost:8080/login", "u", "p");
         assertThat(PlaywrightScreenAnalysisAdapter.isAuthenticatedAfterRedirect("http://localhost:8080/dashboard", app)).isTrue();
