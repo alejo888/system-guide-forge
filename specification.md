@@ -18,8 +18,10 @@ Permitir que una persona documente un sistema web local recorriéndolo de forma 
 - Screenshots PNG sanitizados de página completa, almacenados en PostgreSQL como `BYTEA`.
 - Bloqueo de controles `MUTATING` y `UNKNOWN`; ningún control se ejecuta durante el análisis.
 - Revisión posterior al análisis para aprobar la inclusión documental de elementos `UNKNOWN`, sin habilitar su ejecución.
-- Generación determinista de un manual con idioma `en` o `es` y tipo `user_manual`; incluye controles `SAFE` y elementos `UNKNOWN` aprobados, sin etiquetas de clasificación ni selectores técnicos.
+- Generación determinista de un manual con idioma `en` o `es` y tipo `user_manual`; incluye controles `SAFE` y elementos `UNKNOWN` aprobados, sin etiquetas de clasificación ni selectores técnicos. Cuando la página inicial es de login, el manual incluye como primer paso una sección de inicio de sesión derivada de las etiquetas detectadas.
+- Carga automática del borrador existente al abrir un análisis, sin bloquear la generación de uno nuevo.
 - Edición del título y de las secciones del documento generado.
+- Exportación del borrador persistido a DOCX.
 
 ### No incluye
 
@@ -71,6 +73,9 @@ Editar título y secciones
 - **RF17.** Conservar en el navegador únicamente la última aplicación seleccionada y las preferencias de idioma; la evidencia y los documentos deben permanecer en el backend.
 - **RF18.** Normalizar las rutas excluidas como prefijos absolutos, quitar barras finales salvo en `/`, eliminar duplicados preservando el primer orden y rechazar consultas, fragmentos, escapes porcentuales, más de 50 rutas o rutas de más de 200 caracteres.
 - **RF19.** Cuando un análisis falle, conservar el registro y la evidencia parcial visibles, marcarlos como incompletos y permitir iniciar mediante el endpoint de creación existente un análisis nuevo que use la configuración actual de la aplicación. La generación de documentos permanece bloqueada para análisis `FAILED`.
+- **RF20.** Cuando la página inicial capturada sea de login, incluir en el manual generado una primera sección de inicio de sesión derivada de las etiquetas de usuario, contraseña y botón de envío detectadas en esa página.
+- **RF21.** Al abrir un análisis, buscar y mostrar automáticamente el borrador existente, si lo hay, sin bloquear la posibilidad de generar uno nuevo.
+- **RF22.** Permitir exportar el borrador persistido a DOCX, incrustando las capturas sanitizadas disponibles y excluyendo las secciones ocultas.
 
 ## 5. Requisitos no funcionales
 
@@ -90,8 +95,8 @@ El MVP es funcional cuando, contra un sistema web local con login tradicional, p
 
 | Comprobación | Resultado |
 | --- | --- |
-| `cd backend && ./mvnw test` | Ejecutado el 2026-09-26: 129 pruebas, 0 fallos, 0 errores y 0 omitidas. |
-| `cd frontend && npm test` | Ejecutado el 2026-09-26: 67 casos `it`, 67 exitosos. |
+| `cd backend && ./mvnw test` | Suite JUnit del backend; la CI (`.github/workflows/ci.yml`) la ejecuta en cada push y pull request. |
+| `cd frontend && npm test` | Suite Karma del frontend; la CI (`.github/workflows/ci.yml`) la ejecuta en cada push y pull request. |
 | `cd frontend && npm run build` | El script está definido; no se ejecutó en esta actualización documental. |
 | `git diff --check` | Debe ejecutarse para validar formato; no se afirma un resultado previo. |
 | Fixture/E2E y validación manual/browser | Requieren el stack local; no se afirma una ejecución durante esta actualización documental. |

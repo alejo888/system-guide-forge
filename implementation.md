@@ -38,9 +38,12 @@ La generación es determinista y usa únicamente la evidencia observada:
 - Si ya existe un documento con el mismo análisis, idioma y tipo, la solicitud devuelve ese borrador y conserva las ediciones.
 - Antes de generar el manual, una persona puede aprobar o retirar la inclusión documental de un elemento `UNKNOWN`. Esta decisión no cambia su clasificación ni autoriza crawling o ejecución.
 - El manual incluye controles `SAFE` y elementos `UNKNOWN` aprobados, con instrucciones funcionales; omite acciones mutantes, elementos desconocidos sin aprobar, selectores y lenguaje técnico de clasificación.
+- Si la página inicial fue capturada como página de login (`PageKind.LOGIN`), el manual incluye una primera sección "Cómo ingresar al sistema" ("How to sign in"), generada a partir de las etiquetas de usuario, contraseña y botón de envío detectadas en esa página.
+- Al abrir un análisis, la interfaz busca un borrador existente (`GET /api/analyses/{id}/document`) y lo muestra automáticamente si existe, con un indicador no bloqueante mientras la búsqueda está en curso; un 404 o cualquier otro error oculta el indicador sin bloquear la generación.
 - Al cambiar una aprobación de inclusión, el sistema elimina transaccionalmente el borrador y sus secciones para impedir reutilizar un borrador obsoleto. La interfaz informa que se debe generar uno nuevo.
 - Si cambia el idioma o el tipo, el sistema muestra una advertencia localizada y reemplaza transaccionalmente las secciones y el contenido editable. **Las ediciones anteriores se destruyen.**
 - La edición posterior permite cambiar el título y, para cada sección, el título, contenido, orden y visibilidad. Una sección marcada como `hidden` se conserva para edición y trazabilidad, pero se excluye del borrador orientado a lectura; los resultados del análisis no son editables desde este flujo.
+- El borrador persistido puede exportarse a DOCX (`GET /api/documents/{id}/export?format=docx`) mediante Apache POI: el título usa el estilo `Title` y cada sección visible el estilo `Heading1`; las secciones ocultas se excluyen. Las capturas sanitizadas en PNG se incrustan ajustadas a un máximo de 6.5"×9"; una captura no sanitizada, no PNG o corrupta se omite sin interrumpir la exportación. La respuesta es `400` si falta el parámetro `format` o no es `docx`, y `404` si el documento no existe.
 
 ## 2. Política de acciones
 
@@ -71,9 +74,14 @@ public interface ScreenAnalysisAdapter {
 
 public interface ScreenshotRepository extends JpaRepository<Screenshot, String> {
 }
+
+public interface ManualExporter {
+    ExportedManual export(String documentId);
+    record ExportedManual(String title, byte[] bytes) {}
+}
 ```
 
-No existen contratos de IA, workflows, PDF ni almacenamiento de archivos en el MVP. El MVP permite exportar el borrador persistido a DOCX como archivo derivado no persistente.
+No existen contratos de IA, workflows, PDF ni almacenamiento de archivos en el MVP. El MVP permite exportar el borrador persistido a DOCX como archivo derivado no persistente mediante `ManualExporter` (implementado por `DocxManualExporter` con Apache POI).
 
 ## 5. API y configuración
 
@@ -83,7 +91,7 @@ REST conecta Angular con Spring Boot y `openapi.yaml` describe las operaciones i
 - Frontend: `http://localhost:4200`.
 - Proxy de desarrollo: `/api` → `http://127.0.0.1:8080`.
 - PostgreSQL Compose: `127.0.0.1:15432`, imagen `postgres:16-alpine`.
-- `ddl-auto=validate`; Flyway V1–V8 gestiona el esquema.
+- `ddl-auto=validate`; Flyway V1–V10 gestiona el esquema.
 
 Compose exige `POSTGRES_PASSWORD`. El backend admite `SGF_DB_URL`, `SGF_DB_USERNAME` y `SGF_DB_PASSWORD`; la clave de credenciales debe configurarse mediante `SGF_CREDENTIAL_KEY` o la propiedad Spring `sgf.credential-key`, sin valor predeterminado. Los flujos fixture/E2E admiten `SGF_BACKEND_URL`, `SGF_FIXTURE_URL`, `FIXTURE_USERNAME` y `FIXTURE_PASSWORD`. El adaptador requiere Chromium de Playwright instalado. Ver `README.md` para defaults y sintaxis POSIX/PowerShell.
 
@@ -93,8 +101,8 @@ Evidencia disponible en el árbol de trabajo:
 
 | Comando | Evidencia actual |
 | --- | --- |
-| `cd backend && ./mvnw test` | Ejecutado el 2026-09-26: 129 pruebas, 0 fallos, 0 errores y 0 omitidas. |
-| `cd frontend && npm test` | Ejecutado el 2026-09-26: 67 casos `it`, 67 exitosos. |
+| `cd backend && ./mvnw test` | Suite JUnit del backend; la CI (`.github/workflows/ci.yml`) la ejecuta en cada push y pull request. |
+| `cd frontend && npm test` | Suite Karma del frontend; la CI (`.github/workflows/ci.yml`) la ejecuta en cada push y pull request. |
 | `cd frontend && npm run build` | El script está definido; no se ejecutó en esta actualización documental. |
 | `git diff --check` | Debe ejecutarse para validar formato; no se afirma un resultado previo. |
 | `cd test-target && npm run e2e` y browser manual | Requieren el stack local; no se afirma una ejecución durante esta actualización. |

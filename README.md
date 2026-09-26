@@ -44,7 +44,7 @@ $env:SGF_CREDENTIAL_KEY="local-only-test-key"
 .\mvnw.cmd spring-boot:run
 ```
 
-`SGF_CREDENTIAL_KEY` y la propiedad Spring `sgf.credential-key` son alternativas para configurar la misma clave; al menos una debe estar definida y no hay valor predeterminado. Por ejemplo, también se puede pasar `--sgf.credential-key=local-only-test-key` como argumento de la aplicación Spring Boot. El backend escucha en `http://localhost:8080`. Flyway aplica las migraciones V1–V8 al iniciar y Hibernate usa `ddl-auto=validate`.
+`SGF_CREDENTIAL_KEY` y la propiedad Spring `sgf.credential-key` son alternativas para configurar la misma clave; al menos una debe estar definida y no hay valor predeterminado. Por ejemplo, también se puede pasar `--sgf.credential-key=local-only-test-key` como argumento de la aplicación Spring Boot. El backend escucha en `http://localhost:8080`. Flyway aplica las migraciones V1–V10 al iniciar y Hibernate usa `ddl-auto=validate`.
 
 ### 3. Iniciar el frontend
 
@@ -140,7 +140,7 @@ El análisis ejecuta el adaptador de forma síncrona, recorre únicamente enlace
 
 Las URLs configuradas deben usar HTTP(S) y los únicos hosts que aceptan el backend y el formulario del frontend son `localhost`, `127.0.0.1` y el loopback IPv6 `::1` (escrito como `[::1]` en una URL). Por cada página persistida se guarda una captura PNG de página completa, con campos sensibles enmascarados; se inspeccionan como máximo 500 elementos de cada uno de los tipos `button`, `a`, `input` y `textarea` por página.
 
-Fuera de alcance: PDF, producción, SSO/OAuth/MFA, workflows, IA, colaboración, multiusuario, roles, multi-tenant, análisis de repositorios, microservicios y almacenamiento remoto. Los manuales guardados pueden exportarse a DOCX desde la vista del análisis.
+Fuera de alcance: PDF, producción, SSO/OAuth/MFA, workflows, IA, colaboración, multiusuario, roles, multi-tenant, análisis de repositorios, microservicios y almacenamiento remoto. Los manuales guardados pueden exportarse a DOCX desde la vista del análisis. Al abrir un análisis, si ya existe un borrador persistido, la vista lo carga automáticamente mostrando un indicador no bloqueante mientras la búsqueda está en curso.
 
 ## Documentación
 
@@ -154,8 +154,8 @@ Fuera de alcance: PDF, producción, SSO/OAuth/MFA, workflows, IA, colaboración,
 
 | Comprobación | Evidencia actual |
 | --- | --- |
-| `cd backend && ./mvnw test` | Ejecutado el 2026-09-26: 129 pruebas, 0 fallos, 0 errores y 0 omitidas. |
-| `cd frontend && npm test` | Ejecutado el 2026-09-26: 67 casos `it`, 67 exitosos. |
+| `cd backend && ./mvnw test` | Suite JUnit del backend; la CI (`.github/workflows/ci.yml`) la ejecuta en cada push y pull request. |
+| `cd frontend && npm test` | Suite Karma del frontend; la CI (`.github/workflows/ci.yml`) la ejecuta en cada push y pull request. |
 | `cd frontend && npm run build` | El script está definido; no se ejecutó en esta actualización documental. |
 | `git diff --check` | Debe ejecutarse para validar cambios de formato; no se afirma un resultado previo. |
 | `cd test-target && npm run e2e` | Ejecutado correctamente contra el stack local: autenticación, `COMPLETED`, páginas, elementos, PNG y manual verificados. |
