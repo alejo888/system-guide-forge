@@ -447,7 +447,8 @@ describe('AnalysisComponent auto-loaded draft', () => {
     api.generateDocument.and.resolveTo(generated);
     fixture = TestBed.createComponent(AnalysisComponent); component = fixture.componentInstance;
     fixture.detectChanges();
-    await Promise.resolve();
+    for (let tick = 0; tick < 50 && !api.getAnalysisDocument.calls.count(); tick++) await Promise.resolve();
+    expect(api.getAnalysisDocument).toHaveBeenCalledTimes(1);
 
     await component.generateDocument();
     resolveAutoLoad(document);
