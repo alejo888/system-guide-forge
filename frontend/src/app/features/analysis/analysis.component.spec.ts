@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, fakeAsync, TestBed, tick } from '@angular/core/testing';
 import { ActivatedRoute, Router } from '@angular/router';
 import { AnalysisComponent } from './analysis.component';
 import { ApiError, ApiService, DocumentResponse } from '../../core/api.service';
@@ -18,7 +18,7 @@ describe('AnalysisComponent document editing', () => {
   let router: jasmine.SpyObj<Router>;
 
   beforeEach(async () => { localStorage.setItem('sgf.language', 'en'); spyOn(window, 'confirm').and.returnValue(true);
-    api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getAnalysisModules', 'getPageElements', 'getPageScreenshot', 'generateDocument', 'updateDocument', 'updateManualInclusion', 'startAnalysis']);
+    api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getAnalysisModules', 'getPageElements', 'getPageScreenshot', 'generateDocument', 'updateDocument', 'updateManualInclusion', 'startAnalysis', 'exportDocument']);
     router = jasmine.createSpyObj<Router>('Router', ['navigate']);
     router.navigate.and.resolveTo(true);
         api.getAnalysis.and.resolveTo({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
@@ -146,6 +146,81 @@ describe('AnalysisComponent document editing', () => {
     ] });
     expect(component.editableSections()[0].sourcePageId).toBe('page-1');
     expect(component.editableSections()[0].screenshotId).toBe('shot-1');
+  });
+
+  it('downloads the latest persisted draft as a DOCX Blob without saving client-unsaved edits', fakeAsync(() => {
+    api.exportDocument.and.resolveTo(new Blob(['docx'], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+    const createObjectUrl = spyOn(URL, 'createObjectURL').and.returnValue('blob:manual');
+    const revokeObjectUrl = spyOn(URL, 'revokeObjectURL');
+    const click = spyOn(HTMLAnchorElement.prototype, 'click');
+    component.editTitle('Client-only unsaved title');
+
+    component.downloadDocx();
+    tick();
+
+    expect(api.exportDocument).toHaveBeenCalledOnceWith('doc-1');
+    expect(api.updateDocument).not.toHaveBeenCalled();
+    expect(createObjectUrl).toHaveBeenCalled();
+    expect(click).toHaveBeenCalled();
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:manual');
+  }));
+
+  it('defers revoking the object URL so the triggered download is not cancelled', async () => {
+    api.exportDocument.and.resolveTo(new Blob(['docx']));
+    spyOn(URL, 'createObjectURL').and.returnValue('blob:manual');
+    const revokeObjectUrl = spyOn(URL, 'revokeObjectURL');
+    spyOn(HTMLAnchorElement.prototype, 'click');
+    jasmine.clock().install();
+    try {
+      await component.downloadDocx();
+      expect(revokeObjectUrl).not.toHaveBeenCalled();
+      jasmine.clock().tick(1);
+      expect(revokeObjectUrl).toHaveBeenCalledWith('blob:manual');
+    } finally {
+      jasmine.clock().uninstall();
+    }
+  });
+
+  it('falls back to manual.docx when the persisted title is null, undefined, or blank', fakeAsync(() => {
+    api.exportDocument.and.resolveTo(new Blob(['docx']));
+    spyOn(URL, 'createObjectURL').and.returnValue('blob:manual');
+    spyOn(URL, 'revokeObjectURL');
+    const click = spyOn(HTMLAnchorElement.prototype, 'click');
+    component.document.set({ ...document, title: null as unknown as string });
+
+    component.downloadDocx();
+    tick();
+
+    const link = click.calls.mostRecent().object as HTMLAnchorElement;
+    expect(link.download).toBe('manual.docx');
+  }));
+
+  it('shows a translated error when the DOCX export fails, without an unhandled rejection', async () => {
+    api.exportDocument.and.rejectWith(new Error('offline'));
+
+    await component.downloadDocx();
+    fixture.detectChanges();
+
+    expect(component.docxExportState()).toBe('error');
+    expect(fixture.nativeElement.querySelector('.docx-error').textContent).toContain('The DOCX could not be downloaded. Please try again.');
+  });
+
+  it('guards against a second download click while an export is already in flight', async () => {
+    let resolveExport!: (blob: Blob) => void;
+    api.exportDocument.and.returnValue(new Promise(resolve => { resolveExport = resolve; }));
+    const createObjectUrl = spyOn(URL, 'createObjectURL').and.returnValue('blob:manual');
+    spyOn(URL, 'revokeObjectURL');
+    spyOn(HTMLAnchorElement.prototype, 'click');
+
+    const first = component.downloadDocx();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.download-docx-button').disabled).toBeTrue();
+    const second = component.downloadDocx();
+    resolveExport(new Blob(['docx']));
+    await Promise.all([first, second]);
+
+    expect(api.exportDocument).toHaveBeenCalledTimes(1);
+    expect(createObjectUrl).toHaveBeenCalledTimes(1);
   });
 
   it('sends the selected language and manual type and reflects persisted values', async () => {

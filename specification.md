@@ -27,7 +27,7 @@ Permitir que una persona documente un sistema web local recorriéndolo de forma 
 - Recuperación automática o reintento sobre el mismo identificador de análisis. Una falla puede dejar evidencia parcial asociada al análisis fallido; ese registro se conserva para inspección y se marca como incompleto. La persona puede iniciar un análisis nuevo con la configuración actual de la aplicación, sin alterar ni eliminar el registro fallido.
 - Sistemas de producción o accesibles fuera del entorno local.
 - SSO, OAuth, MFA, workflows, captura guiada de operaciones mutantes o validación automática de funcionalidades.
-- IA como requisito, exportación DOCX/PDF, colaboración, multiusuario, roles, multi-tenant o versionado avanzado.
+- IA como requisito, exportación PDF, colaboración, multiusuario, roles, multi-tenant o versionado avanzado. El MVP permite exportar el borrador persistido a DOCX.
 - Análisis de repositorios, microservicios o almacenamiento remoto.
 
 ## 3. Flujo principal
@@ -98,4 +98,4 @@ El MVP es funcional cuando, contra un sistema web local con login tradicional, p
 
 ## 8. Evolución futura
 
-IA, workflows, captura guiada de operaciones mutantes, exportación DOCX/PDF, soporte de producción, ejecución asíncrona y almacenamiento remoto se evaluarán después del MVP.
+IA, workflows, captura guiada de operaciones mutantes, exportación PDF, soporte de producción, ejecución asíncrona y almacenamiento remoto se evaluarán después del MVP.

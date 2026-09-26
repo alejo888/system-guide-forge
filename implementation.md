@@ -73,7 +73,7 @@ public interface ScreenshotRepository extends JpaRepository<Screenshot, String> 
 }
 ```
 
-No existen contratos de IA, workflows, DOCX ni almacenamiento de archivos en el MVP.
+No existen contratos de IA, workflows, PDF ni almacenamiento de archivos en el MVP. El MVP permite exportar el borrador persistido a DOCX como archivo derivado no persistente.
 
 ## 5. API y configuración
 
@@ -101,4 +101,4 @@ Evidencia disponible en el árbol de trabajo:
 
 ## 7. Fuera de alcance
 
-IA, workflows, captura guiada de operaciones mutantes, DOCX/PDF, sistemas de producción, SSO/OAuth/MFA, colaboración, multiusuario, roles, multi-tenant, análisis de repositorios, microservicios y almacenamiento remoto requieren trabajo futuro.
+IA, workflows, captura guiada de operaciones mutantes, PDF, sistemas de producción, SSO/OAuth/MFA, colaboración, multiusuario, roles, multi-tenant, análisis de repositorios, microservicios y almacenamiento remoto requieren trabajo futuro.

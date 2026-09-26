@@ -12,6 +12,15 @@ describe('ApiService', () => {
   it('updates a document with only editable fields in array order', async () => { const payload: DocumentUpdatePayload = { title: 'Updated guide', sections: [{ id: 'section-2', title: 'Second', content: 'Content 2', hidden: true }, { id: 'section-1', title: 'First', content: 'Content 1', hidden: false }] }; fetchSpy.and.resolveTo(response({})); await service.updateDocument('doc-1', payload); expect(fetchSpy).toHaveBeenCalledWith('/api/documents/doc-1', jasmine.objectContaining({ method: 'PUT', body: JSON.stringify(payload) })); });
   it('tests access without exposing credentials in the request', async () => { fetchSpy.and.resolveTo(response({ reachable: true, authenticated: true, message: 'Access verified' })); await service.testAccess('app-1'); const [, options] = fetchSpy.calls.mostRecent().args; expect(options.body).toBe('{}'); expect(options.body).not.toContain('password'); });
   it('generates and loads a document draft', async () => { fetchSpy.and.callFake(() => Promise.resolve(response({ id: 'doc-1', title: 'Guide', applicationId: 'app-1', sourceAnalysisId: 'analysis-1', status: 'DRAFT', language: 'en', type: 'user_manual', sections: [] }))); await service.generateDocument('analysis-1', { language: 'en', type: 'user_manual', confirmReplacement: false }); await service.getDocument('doc-1'); expect(fetchSpy.calls.allArgs().map(([url]) => url)).toEqual(['/api/analyses/analysis-1/document', '/api/documents/doc-1']); expect(fetchSpy.calls.argsFor(0)[1]).toEqual(jasmine.objectContaining({ method: 'POST', body: JSON.stringify({ language: 'en', type: 'user_manual', confirmReplacement: false }) })); });
+  it('downloads a persisted document export as a DOCX blob', async () => {
+    fetchSpy.and.resolveTo(new Response(new Blob(['docx'], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })));
+
+    const exported = await service.exportDocument('doc-1');
+
+    expect(exported).toEqual(jasmine.any(Blob));
+    expect(fetchSpy).toHaveBeenCalledWith('/api/documents/doc-1/export?format=docx', jasmine.any(Object));
+  });
+
   it('exposes confirmation-required API errors for an explicit retry', async () => {
     fetchSpy.and.resolveTo(response({ message: 'Replacing an existing draft with a different language or type requires confirmation', code: 'DRAFT_REPLACEMENT_CONFIRMATION_REQUIRED' }, 409));
 

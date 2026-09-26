@@ -6,6 +6,7 @@ interface PageEvidence extends PageResponse { elements: ElementResponse[]; scree
 interface ManualReviewGroup { page: PageEvidence; elements: ElementResponse[]; }
 type SaveState = 'idle' | 'saving' | 'success' | 'error';
 type RetryState = 'idle' | 'starting' | 'error';
+type DocxExportState = 'idle' | 'exporting' | 'error';
 
 @Component({ selector: 'sgf-analysis', standalone: true, imports: [RouterLink], templateUrl: './analysis.component.html', styleUrl: './analysis.component.css' })
 export class AnalysisComponent implements OnInit {
@@ -20,7 +21,7 @@ export class AnalysisComponent implements OnInit {
   readonly unknownElementCount = computed(() => this.unknownReviewGroups().reduce((count, group) => count + group.elements.length, 0));
   readonly approvedUnknownElementCount = computed(() => this.unknownReviewGroups().reduce((count, group) => count + group.elements.filter(element => element.manualInclusionApproved).length, 0));
   readonly filteredModules = computed(() => { const query = this.normalizedSearch(); const selected = this.selectedModule(); return this.modules().map(module => { const moduleMatches = !query || this.searchText(module.name, module.key).includes(query); if (selected !== 'all' && module.key !== selected) return null; const pages = module.pages.filter(page => moduleMatches || this.pageMatches(page, query)); return pages.length ? { ...module, pages } : null; }).filter((module): module is FunctionalModule => module !== null); });
-  readonly state = signal<'loading' | 'ready' | 'error'>('loading'); readonly moduleState = signal<'loading' | 'ready' | 'error'>('loading'); readonly documentState = signal<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle'); readonly saveState = signal<SaveState>('idle'); readonly manualInclusionState = signal<'idle' | 'saving' | 'error'>('idle'); readonly manualInclusionMessage = signal(''); readonly retryState = signal<RetryState>('idle'); readonly retryErrorMessage = signal(''); readonly errorMessage = signal('');
+  readonly state = signal<'loading' | 'ready' | 'error'>('loading'); readonly moduleState = signal<'loading' | 'ready' | 'error'>('loading'); readonly documentState = signal<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle'); readonly saveState = signal<SaveState>('idle'); readonly manualInclusionState = signal<'idle' | 'saving' | 'error'>('idle'); readonly manualInclusionMessage = signal(''); readonly retryState = signal<RetryState>('idle'); readonly retryErrorMessage = signal(''); readonly errorMessage = signal(''); readonly docxExportState = signal<DocxExportState>('idle');
 
   ngOnInit(): void { const id = this.route.snapshot.paramMap.get('id'); if (!id) { this.fail(this.t('no-analysis-selected')); return; } void this.load(id); this.destroyRef.onDestroy(() => this.pages().forEach(p => p.screenshotUrl && URL.revokeObjectURL(p.screenshotUrl))); }
   private async load(id: string): Promise<void> { try { const analysis = await this.api.getAnalysis(id); this.analysis.set(analysis); this.moduleState.set('loading'); const [pages, moduleResult] = await Promise.all([this.api.getAnalysisPages(id), this.api.getAnalysisModules(id).then(modules => ({ modules, failed: false })).catch(() => ({ modules: [], failed: true }))]); const pageEvidence = await Promise.all(pages.map(p => this.loadPage(p))); this.pages.set(pageEvidence); this.modules.set(moduleResult.failed ? (pages.length ? [{ key: 'unassigned', name: this.t('unassigned-pages'), pages }] : []) : moduleResult.modules); this.moduleState.set(moduleResult.failed ? 'error' : 'ready'); this.state.set('ready'); } catch { this.fail(this.t('analysis-load-error')); } }
@@ -97,12 +98,36 @@ export class AnalysisComponent implements OnInit {
   editSectionContent(id: string, content: string): void { this.updateSection(id, section => ({ ...section, content })); }
   moveSection(id: string, offset: number): void { this.ensureEditable(); const sections = [...this.editableSections()]; const index = sections.findIndex(section => section.id === id); const target = index + offset; if (index < 0 || target < 0 || target >= sections.length) return; [sections[index], sections[target]] = [sections[target], sections[index]]; this.editableSections.set(sections); }
   async saveDocument(): Promise<void> { const current = this.document(); if (!current) return; this.ensureEditable(); this.saveState.set('saving'); try { const saved = await this.api.updateDocument(current.id, { title: this.editableTitle(), sections: this.editableSections().map(section => ({ id: section.id, title: section.title, content: section.content, hidden: section.hidden })) }); this.setEditableDocument(saved); this.saveState.set('success'); } catch { this.saveState.set('error'); } }
+  async downloadDocx(): Promise<void> {
+    const current = this.document();
+    if (!current || this.docxExportState() === 'exporting') return;
+    this.docxExportState.set('exporting');
+    let url: string | null = null;
+    try {
+      const blob = await this.api.exportDocument(current.id);
+      url = URL.createObjectURL(blob);
+      const link = window.document.createElement('a');
+      link.href = url;
+      link.download = this.docxFilename(current.title);
+      window.document.body.appendChild(link);
+      link.click();
+      link.remove();
+      this.docxExportState.set('idle');
+    } catch {
+      this.docxExportState.set('error');
+    } finally {
+      // Deferred so the browser can begin the download before the object URL is released;
+      // revoking it synchronously right after click() can cancel the in-flight download.
+      if (url) { const revokeUrl = url; setTimeout(() => URL.revokeObjectURL(revokeUrl), 0); }
+    }
+  }
   setSectionHidden(id: string, hidden: boolean): void { this.updateSection(id, section => ({ ...section, hidden })); }
   private updateSection(id: string, update: (section: DocumentSectionResponse) => DocumentSectionResponse): void { this.ensureEditable(); this.editableSections.set(this.editableSections().map(section => section.id === id ? update(section) : section)); }
   private ensureEditable(): void { if (!this.document() || this.editableSections().length) return; this.setEditableDocument(this.document()!); }
   setDocumentLanguage(language: DocumentLanguage): void { this.documentLanguage.set(language); localStorage.setItem('sgf.document-language', language); }
   setDocumentType(type: DocumentType): void { this.documentType.set(type); }
   private readDocumentLanguage(): DocumentLanguage { return localStorage.getItem('sgf.document-language') === 'es' ? 'es' : 'en'; }
+  private docxFilename(title: string | null | undefined): string { const safeTitle = (title ?? '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, ''); return `${safeTitle || 'manual'}.docx`; }
   private setEditableDocument(document: DocumentResponse): void { this.document.set(document); this.documentLanguage.set(document.language); this.documentType.set(document.type); this.editableTitle.set(document.title); this.editableSections.set(document.sections.map((section, index) => ({ ...section, position: index }))); }
   private setGeneratedDocument(document: DocumentResponse): void { this.setEditableDocument(document); this.documentState.set(document.sections.length ? 'ready' : 'empty'); }
   private isReplacementConfirmationRequired(error: unknown): boolean { return error instanceof ApiError && error.status === 409 && error.code === 'DRAFT_REPLACEMENT_CONFIRMATION_REQUIRED'; }
