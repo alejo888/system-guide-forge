@@ -164,6 +164,34 @@ describe('AnalysisComponent document editing', () => {
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:manual');
   });
 
+  it('shows a translated error when the DOCX export fails, without an unhandled rejection', async () => {
+    api.exportDocument.and.rejectWith(new Error('offline'));
+
+    await component.downloadDocx();
+    fixture.detectChanges();
+
+    expect(component.docxExportState()).toBe('error');
+    expect(fixture.nativeElement.querySelector('.docx-error').textContent).toContain('The DOCX could not be downloaded. Please try again.');
+  });
+
+  it('guards against a second download click while an export is already in flight', async () => {
+    let resolveExport!: (blob: Blob) => void;
+    api.exportDocument.and.returnValue(new Promise(resolve => { resolveExport = resolve; }));
+    const createObjectUrl = spyOn(URL, 'createObjectURL').and.returnValue('blob:manual');
+    spyOn(URL, 'revokeObjectURL');
+    spyOn(HTMLAnchorElement.prototype, 'click');
+
+    const first = component.downloadDocx();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.download-docx-button').disabled).toBeTrue();
+    const second = component.downloadDocx();
+    resolveExport(new Blob(['docx']));
+    await Promise.all([first, second]);
+
+    expect(api.exportDocument).toHaveBeenCalledTimes(1);
+    expect(createObjectUrl).toHaveBeenCalledTimes(1);
+  });
+
   it('sends the selected language and manual type and reflects persisted values', async () => {
     api.generateDocument.and.resolveTo({ ...document, language: 'en', type: 'user_manual' });
     component.analysis.set({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
