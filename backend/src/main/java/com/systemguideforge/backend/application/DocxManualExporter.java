@@ -135,7 +135,6 @@ public class DocxManualExporter implements ManualExporter {
     }
 
     private static void addPng(XWPFDocument docx, byte[] content) {
-        XWPFParagraph paragraph = docx.createParagraph();
         try (ByteArrayInputStream image = new ByteArrayInputStream(content)) {
             int[] dimensions = pngPixelDimensions(content);
             if (dimensions == null) throw new IllegalArgumentException("Malformed PNG: missing IHDR dimensions");
@@ -148,6 +147,8 @@ public class DocxManualExporter implements ManualExporter {
                     MAX_IMAGE_HEIGHT_POINTS / naturalHeightPoints));
             int widthEmu = Units.toEMU(naturalWidthPoints * scale);
             int heightEmu = Units.toEMU(naturalHeightPoints * scale);
+            // Dimensions are validated above before any paragraph is created, so a malformed PNG never leaves an empty paragraph behind.
+            XWPFParagraph paragraph = docx.createParagraph();
             paragraph.createRun().addPicture(image, XWPFDocument.PICTURE_TYPE_PNG, "screenshot.png", widthEmu, heightEmu);
         } catch (Exception ignored) {
             // Screenshot output is optional; a malformed persisted image must not prevent manual export.
