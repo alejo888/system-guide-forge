@@ -463,6 +463,11 @@ describe('AnalysisComponent auto-loaded draft', () => {
     expect(fixture.nativeElement.querySelector('.draft-lookup-status')).toBeNull();
     resolveAutoLoad(document);
     await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.draftLookupState()).toBe('idle');
+    expect(fixture.nativeElement.querySelector('.draft-lookup-status')).toBeNull();
+    expect(component.document()?.id).toBe('doc-generated');
   });
 
   it('shows the existing draft (including the Download DOCX button) without generating', async () => {
