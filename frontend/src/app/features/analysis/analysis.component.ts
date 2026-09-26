@@ -7,6 +7,7 @@ interface ManualReviewGroup { page: PageEvidence; elements: ElementResponse[]; }
 type SaveState = 'idle' | 'saving' | 'success' | 'error';
 type RetryState = 'idle' | 'starting' | 'error';
 type DocxExportState = 'idle' | 'exporting' | 'error';
+type DraftLookupState = 'idle' | 'loading';
 
 @Component({ selector: 'sgf-analysis', standalone: true, imports: [RouterLink], templateUrl: './analysis.component.html', styleUrl: './analysis.component.css' })
 export class AnalysisComponent implements OnInit {
@@ -21,7 +22,7 @@ export class AnalysisComponent implements OnInit {
   readonly unknownElementCount = computed(() => this.unknownReviewGroups().reduce((count, group) => count + group.elements.length, 0));
   readonly approvedUnknownElementCount = computed(() => this.unknownReviewGroups().reduce((count, group) => count + group.elements.filter(element => element.manualInclusionApproved).length, 0));
   readonly filteredModules = computed(() => { const query = this.normalizedSearch(); const selected = this.selectedModule(); return this.modules().map(module => { const moduleMatches = !query || this.searchText(module.name, module.key).includes(query); if (selected !== 'all' && module.key !== selected) return null; const pages = module.pages.filter(page => moduleMatches || this.pageMatches(page, query)); return pages.length ? { ...module, pages } : null; }).filter((module): module is FunctionalModule => module !== null); });
-  readonly state = signal<'loading' | 'ready' | 'error'>('loading'); readonly moduleState = signal<'loading' | 'ready' | 'error'>('loading'); readonly documentState = signal<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle'); readonly saveState = signal<SaveState>('idle'); readonly manualInclusionState = signal<'idle' | 'saving' | 'error'>('idle'); readonly manualInclusionMessage = signal(''); readonly retryState = signal<RetryState>('idle'); readonly retryErrorMessage = signal(''); readonly errorMessage = signal(''); readonly docxExportState = signal<DocxExportState>('idle');
+  readonly state = signal<'loading' | 'ready' | 'error'>('loading'); readonly moduleState = signal<'loading' | 'ready' | 'error'>('loading'); readonly documentState = signal<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle'); readonly saveState = signal<SaveState>('idle'); readonly manualInclusionState = signal<'idle' | 'saving' | 'error'>('idle'); readonly manualInclusionMessage = signal(''); readonly retryState = signal<RetryState>('idle'); readonly retryErrorMessage = signal(''); readonly errorMessage = signal(''); readonly docxExportState = signal<DocxExportState>('idle'); readonly draftLookupState = signal<DraftLookupState>('idle');
   private draftGenerationStarted = false;
 
   ngOnInit(): void { const id = this.route.snapshot.paramMap.get('id'); if (!id) { this.fail(this.t('no-analysis-selected')); return; } void this.load(id); this.destroyRef.onDestroy(() => this.pages().forEach(p => p.screenshotUrl && URL.revokeObjectURL(p.screenshotUrl))); }
@@ -32,12 +33,15 @@ export class AnalysisComponent implements OnInit {
    * result is discarded so it never clobbers the freshly generated draft. */
   private async loadExistingDraft(analysisId: string): Promise<void> {
     if (this.draftGenerationStarted) return;
+    this.draftLookupState.set('loading');
     try {
       const draft = await this.api.getAnalysisDocument(analysisId);
       if (this.draftGenerationStarted) return;
       this.setGeneratedDocument(draft);
     } catch {
       // 404 (no existing draft) and any other lookup failure both leave the state idle without an error.
+    } finally {
+      this.draftLookupState.set('idle');
     }
   }
   pageEvidence(id: string): PageEvidence | undefined { return this.pages().find(page => page.id === id); }
@@ -81,6 +85,7 @@ export class AnalysisComponent implements OnInit {
     const id = this.analysis()?.id;
     if (!id) return;
     this.draftGenerationStarted = true;
+    this.draftLookupState.set('idle');
     const current = this.document();
     const language = this.documentLanguage();
     const type = this.documentType();

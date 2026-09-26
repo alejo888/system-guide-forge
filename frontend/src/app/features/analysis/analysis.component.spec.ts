@@ -402,6 +402,69 @@ describe('AnalysisComponent auto-loaded draft', () => {
     ] }).compileComponents();
   });
 
+  it('shows a non-blocking loading indicator while the existing draft is being looked up, with Generate enabled', async () => {
+    let resolveAutoLoad!: (value: import('../../core/api.service').DocumentResponse) => void;
+    api.getAnalysisDocument.and.returnValue(new Promise(resolve => { resolveAutoLoad = resolve; }));
+    fixture = TestBed.createComponent(AnalysisComponent); component = fixture.componentInstance;
+    fixture.detectChanges();
+    for (let tick = 0; tick < 50 && !api.getAnalysisDocument.calls.count(); tick++) await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(component.draftLookupState()).toBe('loading');
+    const status = fixture.nativeElement.querySelector('.draft-lookup-status');
+    expect(status).not.toBeNull();
+    expect(status.getAttribute('role')).toBe('status');
+    expect(status.textContent).toContain('Looking for an existing draft');
+    expect(fixture.nativeElement.querySelector('.generation-card button.button').disabled).toBeFalse();
+
+    resolveAutoLoad(document);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.draftLookupState()).toBe('idle');
+    expect(fixture.nativeElement.querySelector('.draft-lookup-status')).toBeNull();
+  });
+
+  it('hides the loading indicator once the draft lookup 404s (no existing draft)', async () => {
+    api.getAnalysisDocument.and.rejectWith(new ApiError(404, 'Document not found'));
+    fixture = TestBed.createComponent(AnalysisComponent); component = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.draftLookupState()).toBe('idle');
+    expect(fixture.nativeElement.querySelector('.draft-lookup-status')).toBeNull();
+  });
+
+  it('hides the loading indicator once the draft lookup fails for another reason', async () => {
+    api.getAnalysisDocument.and.rejectWith(new Error('network down'));
+    fixture = TestBed.createComponent(AnalysisComponent); component = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.draftLookupState()).toBe('idle');
+    expect(fixture.nativeElement.querySelector('.draft-lookup-status')).toBeNull();
+  });
+
+  it('hides the loading indicator once the user starts generating a draft', async () => {
+    let resolveAutoLoad!: (value: import('../../core/api.service').DocumentResponse) => void;
+    api.getAnalysisDocument.and.returnValue(new Promise(resolve => { resolveAutoLoad = resolve; }));
+    api.generateDocument.and.resolveTo({ ...document, id: 'doc-generated' });
+    fixture = TestBed.createComponent(AnalysisComponent); component = fixture.componentInstance;
+    fixture.detectChanges();
+    for (let tick = 0; tick < 50 && !api.getAnalysisDocument.calls.count(); tick++) await Promise.resolve();
+    expect(component.draftLookupState()).toBe('loading');
+
+    await component.generateDocument();
+    fixture.detectChanges();
+
+    expect(component.draftLookupState()).toBe('idle');
+    expect(fixture.nativeElement.querySelector('.draft-lookup-status')).toBeNull();
+    resolveAutoLoad(document);
+    await fixture.whenStable();
+  });
+
   it('shows the existing draft (including the Download DOCX button) without generating', async () => {
     api.getAnalysisDocument.and.resolveTo(document);
     fixture = TestBed.createComponent(AnalysisComponent); component = fixture.componentInstance;
