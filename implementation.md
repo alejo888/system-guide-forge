@@ -93,8 +93,8 @@ Evidencia disponible en el árbol de trabajo:
 
 | Comando | Evidencia actual |
 | --- | --- |
-| `cd backend && ./mvnw test` | Los informes Surefire presentes registran 89 pruebas, 0 fallos, 0 errores y 0 omitidas. No se ejecutó en esta actualización documental. |
-| `cd frontend && npm test` | Hay 36 casos `it` declarados; no se ejecutaron en esta actualización documental. |
+| `cd backend && ./mvnw test` | Ejecutado el 2026-09-26: 129 pruebas, 0 fallos, 0 errores y 0 omitidas. |
+| `cd frontend && npm test` | Ejecutado el 2026-09-26: 67 casos `it`, 67 exitosos. |
 | `cd frontend && npm run build` | El script está definido; no se ejecutó en esta actualización documental. |
 | `git diff --check` | Debe ejecutarse para validar formato; no se afirma un resultado previo. |
 | `cd test-target && npm run e2e` y browser manual | Requieren el stack local; no se afirma una ejecución durante esta actualización. |
