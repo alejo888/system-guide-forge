@@ -22,9 +22,24 @@ export class AnalysisComponent implements OnInit {
   readonly approvedUnknownElementCount = computed(() => this.unknownReviewGroups().reduce((count, group) => count + group.elements.filter(element => element.manualInclusionApproved).length, 0));
   readonly filteredModules = computed(() => { const query = this.normalizedSearch(); const selected = this.selectedModule(); return this.modules().map(module => { const moduleMatches = !query || this.searchText(module.name, module.key).includes(query); if (selected !== 'all' && module.key !== selected) return null; const pages = module.pages.filter(page => moduleMatches || this.pageMatches(page, query)); return pages.length ? { ...module, pages } : null; }).filter((module): module is FunctionalModule => module !== null); });
   readonly state = signal<'loading' | 'ready' | 'error'>('loading'); readonly moduleState = signal<'loading' | 'ready' | 'error'>('loading'); readonly documentState = signal<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle'); readonly saveState = signal<SaveState>('idle'); readonly manualInclusionState = signal<'idle' | 'saving' | 'error'>('idle'); readonly manualInclusionMessage = signal(''); readonly retryState = signal<RetryState>('idle'); readonly retryErrorMessage = signal(''); readonly errorMessage = signal(''); readonly docxExportState = signal<DocxExportState>('idle');
+  private draftGenerationStarted = false;
 
   ngOnInit(): void { const id = this.route.snapshot.paramMap.get('id'); if (!id) { this.fail(this.t('no-analysis-selected')); return; } void this.load(id); this.destroyRef.onDestroy(() => this.pages().forEach(p => p.screenshotUrl && URL.revokeObjectURL(p.screenshotUrl))); }
-  private async load(id: string): Promise<void> { try { const analysis = await this.api.getAnalysis(id); this.analysis.set(analysis); this.moduleState.set('loading'); const [pages, moduleResult] = await Promise.all([this.api.getAnalysisPages(id), this.api.getAnalysisModules(id).then(modules => ({ modules, failed: false })).catch(() => ({ modules: [], failed: true }))]); const pageEvidence = await Promise.all(pages.map(p => this.loadPage(p))); this.pages.set(pageEvidence); this.modules.set(moduleResult.failed ? (pages.length ? [{ key: 'unassigned', name: this.t('unassigned-pages'), pages }] : []) : moduleResult.modules); this.moduleState.set(moduleResult.failed ? 'error' : 'ready'); this.state.set('ready'); } catch { this.fail(this.t('analysis-load-error')); } }
+  private async load(id: string): Promise<void> { try { const analysis = await this.api.getAnalysis(id); this.analysis.set(analysis); this.moduleState.set('loading'); const [pages, moduleResult] = await Promise.all([this.api.getAnalysisPages(id), this.api.getAnalysisModules(id).then(modules => ({ modules, failed: false })).catch(() => ({ modules: [], failed: true }))]); const pageEvidence = await Promise.all(pages.map(p => this.loadPage(p))); this.pages.set(pageEvidence); this.modules.set(moduleResult.failed ? (pages.length ? [{ key: 'unassigned', name: this.t('unassigned-pages'), pages }] : []) : moduleResult.modules); this.moduleState.set(moduleResult.failed ? 'error' : 'ready'); this.state.set('ready'); await this.loadExistingDraft(id); } catch { this.fail(this.t('analysis-load-error')); } }
+  /** Auto-loads the analysis' single existing draft (if any) so it does not need to be regenerated on reload.
+   * A 404 (no draft yet) and any other lookup failure both stay non-blocking: the state remains 'idle' and
+   * manual generation remains available. If the user already triggered generation before this resolves, its
+   * result is discarded so it never clobbers the freshly generated draft. */
+  private async loadExistingDraft(analysisId: string): Promise<void> {
+    if (this.draftGenerationStarted) return;
+    try {
+      const draft = await this.api.getAnalysisDocument(analysisId);
+      if (this.draftGenerationStarted) return;
+      this.setGeneratedDocument(draft);
+    } catch {
+      // 404 (no existing draft) and any other lookup failure both leave the state idle without an error.
+    }
+  }
   pageEvidence(id: string): PageEvidence | undefined { return this.pages().find(page => page.id === id); }
   pageLabel(page: PageResponse): string { const title = page.title?.trim(); if (!title) return this.routeLabel(page.url); return this.pages().filter(candidate => candidate.title?.trim() === title).length > 1 ? `${title} · ${this.routeLabel(page.url)}` : title; }
   elementLabel(element: ElementResponse): string { return element.accessibleName?.trim() || this.t('unnamed-element'); }
@@ -65,6 +80,7 @@ export class AnalysisComponent implements OnInit {
   async generateDocument(): Promise<void> {
     const id = this.analysis()?.id;
     if (!id) return;
+    this.draftGenerationStarted = true;
     const current = this.document();
     const language = this.documentLanguage();
     const type = this.documentType();

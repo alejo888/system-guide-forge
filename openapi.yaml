@@ -362,6 +362,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags: [Analyses]
+      summary: Get the existing manual document draft for an analysis
+      description: >-
+        Returns the single persisted draft for this analysis, if one exists, without
+        generating or replacing it. One analysis has at most one draft.
+      operationId: getAnalysisDocument
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+      responses:
+        '200':
+          description: The analysis has an existing draft.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /documents/{documentId}/export:
     get:

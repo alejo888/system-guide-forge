@@ -67,6 +67,7 @@ export class ApiService {
   updateManualInclusion(elementId: string, approved: boolean): Promise<ElementResponse> { return this.request(`/elements/${elementId}/manual-inclusion`, false, { method: 'PUT', body: JSON.stringify({ approved }), headers: { 'Content-Type': 'application/json' } }); }
   getPageScreenshot(pageId: string): Promise<Blob> { return this.request(`/pages/${pageId}/screenshot`, true); }
   generateDocument(analysisId: string, payload: DocumentGeneratePayload): Promise<DocumentResponse> { return this.post(`/analyses/${analysisId}/document`, payload); }
+  getAnalysisDocument(analysisId: string): Promise<DocumentResponse> { return this.request(`/analyses/${analysisId}/document`); }
   getDocument(documentId: string): Promise<DocumentResponse> { return this.request(`/documents/${documentId}`); }
   exportDocument(documentId: string): Promise<Blob> { return this.request(`/documents/${documentId}/export?format=docx`, true); }
   updateDocument(documentId: string, payload: DocumentUpdatePayload): Promise<DocumentResponse> { return this.request(`/documents/${documentId}`, false, { method: 'PUT', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } }); }
