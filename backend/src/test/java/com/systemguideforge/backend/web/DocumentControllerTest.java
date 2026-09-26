@@ -67,6 +67,13 @@ class DocumentControllerTest {
     }
 
     @Test
+    void exportRejectsMissingFormatQueryParam() {
+        var missingFormat = controller.export("document-1", null);
+
+        assertThat(missingFormat.getStatusCode().value()).isEqualTo(400);
+    }
+
+    @Test
     void mapsGetAndPutMissingDocumentsToNotFound() {
         when(service.get("missing")).thenThrow(new DocumentService.DocumentNotFoundException());
         when(service.update(eq("missing"), any())).thenThrow(new DocumentService.DocumentNotFoundException());

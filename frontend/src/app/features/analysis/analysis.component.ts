@@ -116,7 +116,9 @@ export class AnalysisComponent implements OnInit {
     } catch {
       this.docxExportState.set('error');
     } finally {
-      if (url) URL.revokeObjectURL(url);
+      // Deferred so the browser can begin the download before the object URL is released;
+      // revoking it synchronously right after click() can cancel the in-flight download.
+      if (url) { const revokeUrl = url; setTimeout(() => URL.revokeObjectURL(revokeUrl), 0); }
     }
   }
   setSectionHidden(id: string, hidden: boolean): void { this.updateSection(id, section => ({ ...section, hidden })); }
@@ -125,7 +127,7 @@ export class AnalysisComponent implements OnInit {
   setDocumentLanguage(language: DocumentLanguage): void { this.documentLanguage.set(language); localStorage.setItem('sgf.document-language', language); }
   setDocumentType(type: DocumentType): void { this.documentType.set(type); }
   private readDocumentLanguage(): DocumentLanguage { return localStorage.getItem('sgf.document-language') === 'es' ? 'es' : 'en'; }
-  private docxFilename(title: string): string { const safeTitle = title.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, ''); return `${safeTitle || 'manual'}.docx`; }
+  private docxFilename(title: string | null | undefined): string { const safeTitle = (title ?? '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, ''); return `${safeTitle || 'manual'}.docx`; }
   private setEditableDocument(document: DocumentResponse): void { this.document.set(document); this.documentLanguage.set(document.language); this.documentType.set(document.type); this.editableTitle.set(document.title); this.editableSections.set(document.sections.map((section, index) => ({ ...section, position: index }))); }
   private setGeneratedDocument(document: DocumentResponse): void { this.setEditableDocument(document); this.documentState.set(document.sections.length ? 'ready' : 'empty'); }
   private isReplacementConfirmationRequired(error: unknown): boolean { return error instanceof ApiError && error.status === 409 && error.code === 'DRAFT_REPLACEMENT_CONFIRMATION_REQUIRED'; }

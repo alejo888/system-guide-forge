@@ -27,6 +27,8 @@ import java.util.Arrays;
 public class DocxManualExporter implements ManualExporter {
     private static final byte[] PNG_SIGNATURE = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
     private static final int MAX_IMAGE_WIDTH_POINTS = 468;
+    private static final int MAX_IMAGE_HEIGHT_POINTS = 648;
+    private static final double POINTS_PER_PIXEL = 0.75;
     private final DocumentRepository documents;
     private final DocumentSectionRepository sections;
     private final ScreenshotRepository screenshots;
@@ -97,7 +99,17 @@ public class DocxManualExporter implements ManualExporter {
         StringBuilder sanitized = new StringBuilder(text.length());
         for (int index = 0; index < text.length(); index++) {
             char current = text.charAt(index);
-            if (isValidXmlChar(current) || Character.isSurrogate(current)) sanitized.append(current);
+            if (Character.isHighSurrogate(current)) {
+                if (index + 1 < text.length() && Character.isLowSurrogate(text.charAt(index + 1))) {
+                    sanitized.append(current).append(text.charAt(index + 1));
+                    index++;
+                }
+                // else: unpaired high surrogate, drop it
+            } else if (Character.isLowSurrogate(current)) {
+                // unpaired low surrogate (no preceding high surrogate consumed it above), drop it
+            } else if (isValidXmlChar(current)) {
+                sanitized.append(current);
+            }
         }
         return sanitized.toString();
     }
@@ -129,8 +141,13 @@ public class DocxManualExporter implements ManualExporter {
             if (dimensions == null) throw new IllegalArgumentException("Malformed PNG: missing IHDR dimensions");
             int pixelWidth = dimensions[0];
             int pixelHeight = dimensions[1];
-            int widthEmu = Units.toEMU(MAX_IMAGE_WIDTH_POINTS);
-            int heightEmu = (int) Math.round(widthEmu * ((double) pixelHeight / (double) pixelWidth));
+            double naturalWidthPoints = pixelWidth * POINTS_PER_PIXEL;
+            double naturalHeightPoints = pixelHeight * POINTS_PER_PIXEL;
+            double scale = Math.min(1.0, Math.min(
+                    MAX_IMAGE_WIDTH_POINTS / naturalWidthPoints,
+                    MAX_IMAGE_HEIGHT_POINTS / naturalHeightPoints));
+            int widthEmu = Units.toEMU(naturalWidthPoints * scale);
+            int heightEmu = Units.toEMU(naturalHeightPoints * scale);
             paragraph.createRun().addPicture(image, XWPFDocument.PICTURE_TYPE_PNG, "screenshot.png", widthEmu, heightEmu);
         } catch (Exception ignored) {
             // Screenshot output is optional; a malformed persisted image must not prevent manual export.

@@ -16,7 +16,6 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
@@ -128,6 +127,36 @@ class DocxManualExporterTest {
         assertThat(extentRatio).isCloseTo(sourceRatio, org.assertj.core.data.Offset.offset(0.01));
     }
 
+    @Test
+    void capsImageHeightToUsablePageHeightWithoutUpscalingSmallImages() throws IOException {
+        long[] tallExtent = exportAndReadExtent(100, 1000);
+        assertThat(tallExtent[1]).isLessThanOrEqualTo(Units.toEMU(648));
+        double sourceRatio = 100.0 / 1000.0;
+        double extentRatio = (double) tallExtent[0] / tallExtent[1];
+        assertThat(extentRatio).isCloseTo(sourceRatio, org.assertj.core.data.Offset.offset(0.01));
+
+        long[] smallExtent = exportAndReadExtent(100, 50);
+        assertThat(smallExtent[0]).isEqualTo(Units.toEMU(75));
+        assertThat(smallExtent[1]).isEqualTo(Units.toEMU(37.5));
+    }
+
+    private long[] exportAndReadExtent(int pixelWidth, int pixelHeight) throws IOException {
+        byte[] png = generatePng(pixelWidth, pixelHeight);
+        Document document = new Document("analysis-1", "application-1");
+        document.updateTitle("Guide with image");
+        DocumentSection section = new DocumentSection(document.getId(), 0, "page-1", "screenshot-1", "Section", "Content");
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        ScreenshotRepository screenshots = mock(ScreenshotRepository.class);
+        when(documents.findById(document.getId())).thenReturn(Optional.of(document));
+        when(sections.findByDocumentIdOrderByPositionAsc(document.getId())).thenReturn(List.of(section));
+        when(screenshots.findById("screenshot-1")).thenReturn(Optional.of(new Screenshot("page-1", png)));
+
+        ManualExporter.ExportedManual exported = new DocxManualExporter(documents, sections, screenshots).export(document.getId());
+
+        return readFirstExtent(exported.bytes());
+    }
+
     private static byte[] generatePng(int width, int height) throws IOException {
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -187,20 +216,46 @@ class DocxManualExporterTest {
     }
 
     @Test
-    void excludesUnsanitizedScreenshots() throws Exception {
+    void excludesUnsanitizedScreenshots() {
         Document document = new Document("analysis-1", "application-1");
         document.updateTitle("Guide");
         DocumentSection section = new DocumentSection(document.getId(), 0, "page-1", "screenshot-1", "Section", "Content");
         DocumentRepository documents = mock(DocumentRepository.class);
         DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
         ScreenshotRepository screenshots = mock(ScreenshotRepository.class);
+        Screenshot unsanitized = mock(Screenshot.class);
+        when(unsanitized.isSanitized()).thenReturn(false);
+        when(unsanitized.getContent()).thenReturn(PNG);
         when(documents.findById(document.getId())).thenReturn(Optional.of(document));
         when(sections.findByDocumentIdOrderByPositionAsc(document.getId())).thenReturn(List.of(section));
-        when(screenshots.findById("screenshot-1")).thenReturn(Optional.of(unsanitizedScreenshot(PNG)));
+        when(screenshots.findById("screenshot-1")).thenReturn(Optional.of(unsanitized));
 
         ManualExporter.ExportedManual exported = new DocxManualExporter(documents, sections, screenshots).export(document.getId());
 
         assertThat(containsEmbeddedPicture(exported.bytes())).isFalse();
+    }
+
+    @Test
+    void sanitizeXmlTextDropsUnpairedSurrogatesButKeepsValidSurrogatePairs() throws IOException {
+        Document document = new Document("analysis-1", "application-1");
+        document.updateTitle("Guide title");
+        String unpairedHigh = "\uD800X"; // heading: lone high surrogate followed by 'X'
+        String unpairedLow = "X\uDC00"; // content: 'X' followed by lone low surrogate
+        String validPair = "😀"; // 😀 valid surrogate pair, must be preserved
+        DocumentSection section = new DocumentSection(document.getId(), 0, "page-1", null,
+                unpairedHigh, unpairedLow + validPair);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(documents.findById(document.getId())).thenReturn(Optional.of(document));
+        when(sections.findByDocumentIdOrderByPositionAsc(document.getId())).thenReturn(List.of(section));
+
+        ManualExporter.ExportedManual exported = new DocxManualExporter(documents, sections, mock(ScreenshotRepository.class)).export(document.getId());
+
+        try (XWPFDocument reopened = new XWPFDocument(new ByteArrayInputStream(exported.bytes()))) {
+            List<XWPFParagraph> paragraphs = reopened.getParagraphs();
+            assertThat(paragraphs.get(1).getText()).isEqualTo("X");
+            assertThat(paragraphs.get(2).getText()).isEqualTo("X" + validPair);
+        }
     }
 
     @Test
@@ -232,11 +287,4 @@ class DocxManualExporterTest {
         return false;
     }
 
-    private static Screenshot unsanitizedScreenshot(byte[] content) throws Exception {
-        Screenshot screenshot = new Screenshot("page-x", content);
-        Field field = Screenshot.class.getDeclaredField("sanitized");
-        field.setAccessible(true);
-        field.set(screenshot, false);
-        return screenshot;
-    }
 }

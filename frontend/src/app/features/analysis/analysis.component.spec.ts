@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, fakeAsync, TestBed, tick } from '@angular/core/testing';
 import { ActivatedRoute, Router } from '@angular/router';
 import { AnalysisComponent } from './analysis.component';
 import { ApiError, ApiService, DocumentResponse } from '../../core/api.service';
@@ -148,21 +148,52 @@ describe('AnalysisComponent document editing', () => {
     expect(component.editableSections()[0].screenshotId).toBe('shot-1');
   });
 
-  it('downloads the latest persisted draft as a DOCX Blob without saving client-unsaved edits', async () => {
+  it('downloads the latest persisted draft as a DOCX Blob without saving client-unsaved edits', fakeAsync(() => {
     api.exportDocument.and.resolveTo(new Blob(['docx'], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
     const createObjectUrl = spyOn(URL, 'createObjectURL').and.returnValue('blob:manual');
     const revokeObjectUrl = spyOn(URL, 'revokeObjectURL');
     const click = spyOn(HTMLAnchorElement.prototype, 'click');
     component.editTitle('Client-only unsaved title');
 
-    await component.downloadDocx();
+    component.downloadDocx();
+    tick();
 
     expect(api.exportDocument).toHaveBeenCalledOnceWith('doc-1');
     expect(api.updateDocument).not.toHaveBeenCalled();
     expect(createObjectUrl).toHaveBeenCalled();
     expect(click).toHaveBeenCalled();
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:manual');
+  }));
+
+  it('defers revoking the object URL so the triggered download is not cancelled', async () => {
+    api.exportDocument.and.resolveTo(new Blob(['docx']));
+    spyOn(URL, 'createObjectURL').and.returnValue('blob:manual');
+    const revokeObjectUrl = spyOn(URL, 'revokeObjectURL');
+    spyOn(HTMLAnchorElement.prototype, 'click');
+    jasmine.clock().install();
+    try {
+      await component.downloadDocx();
+      expect(revokeObjectUrl).not.toHaveBeenCalled();
+      jasmine.clock().tick(1);
+      expect(revokeObjectUrl).toHaveBeenCalledWith('blob:manual');
+    } finally {
+      jasmine.clock().uninstall();
+    }
   });
+
+  it('falls back to manual.docx when the persisted title is null, undefined, or blank', fakeAsync(() => {
+    api.exportDocument.and.resolveTo(new Blob(['docx']));
+    spyOn(URL, 'createObjectURL').and.returnValue('blob:manual');
+    spyOn(URL, 'revokeObjectURL');
+    const click = spyOn(HTMLAnchorElement.prototype, 'click');
+    component.document.set({ ...document, title: null as unknown as string });
+
+    component.downloadDocx();
+    tick();
+
+    const link = click.calls.mostRecent().object as HTMLAnchorElement;
+    expect(link.download).toBe('manual.docx');
+  }));
 
   it('shows a translated error when the DOCX export fails, without an unhandled rejection', async () => {
     api.exportDocument.and.rejectWith(new Error('offline'));
