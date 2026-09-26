@@ -59,6 +59,9 @@ CredentialProtector
 
 ScreenshotRepository
 └── PostgreSQL/JPA
+
+ManualExporter
+└── DocxManualExporter (Apache POI)
 ```
 
 El adaptador de análisis se ejecuta de forma síncrona dentro del caso de uso. Solo se recorren enlaces de mismo origen con clasificación `SAFE`; los controles no se ejecutan. `MUTATING` y `UNKNOWN` se bloquean. La aprobación de inclusión de un elemento `UNKNOWN` es un dato documental independiente: no cambia la clasificación ni el comportamiento del crawler.
@@ -81,6 +84,8 @@ Flyway aplica esta historia, en orden:
 | V6 | Tipo del documento |
 | V7 | Aprobación de inclusión documental para elementos `UNKNOWN` |
 | V8 | Indicador `hidden` para secciones del documento |
+| V9 | Clasificación `kind` de página (identifica la página de login) |
+| V10 | Etiquetas de rol de login (usuario, contraseña, botón de envío) capturadas en la página de login |
 
 Hibernate valida el esquema existente con `ddl-auto=validate`; no lo genera ni lo actualiza.
 
@@ -103,6 +108,6 @@ Las secciones del documento conservan referencias a la página y, cuando existe,
 
 ## 7. Límites y evolución
 
-El MVP opera contra sistemas web locales autorizados, con login tradicional y navegación de solo lectura. El backend y el validador del formulario Angular aceptan URLs HTTP(S) solo en `localhost`, `127.0.0.1` o el loopback IPv6 `::1`/`[::1]`. No incluye IA, DOCX/PDF, workflows, producción, SSO/OAuth/MFA, colaboración, multiusuario, microservicios ni almacenamiento remoto.
+El MVP opera contra sistemas web locales autorizados, con login tradicional y navegación de solo lectura. El backend y el validador del formulario Angular aceptan URLs HTTP(S) solo en `localhost`, `127.0.0.1` o el loopback IPv6 `::1`/`[::1]`. No incluye IA, PDF, workflows, producción, SSO/OAuth/MFA, colaboración, multiusuario, microservicios ni almacenamiento remoto. El manual persistido puede exportarse a DOCX como archivo derivado no persistente; no hay autoría ni almacenamiento de archivos DOCX/PDF más allá de esa exportación.
 
 La modularización futura, la ejecución asíncrona y los almacenamientos alternativos son posibles evoluciones, no capacidades actuales.

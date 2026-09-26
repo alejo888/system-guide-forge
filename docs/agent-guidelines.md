@@ -26,8 +26,8 @@ This repository uses MCP and local agents to inspect local systems safely. Keep 
 
 | Area | Command | Condition |
 | --- | --- | --- |
-| Backend | `cd backend && ./mvnw test` | Present Surefire reports record 89 tests, 0 failures, 0 errors, and 0 skipped; this is not a command execution claim for the current session |
-| Frontend | `cd frontend && npm test` | The current source declares 36 `it` cases; this is not a command execution claim for the current session |
+| Backend | `cd backend && ./mvnw test` | Backend JUnit suite; CI (`.github/workflows/ci.yml`) runs it on every push and pull request |
+| Frontend | `cd frontend && npm test` | Frontend Karma suite; CI (`.github/workflows/ci.yml`) runs it on every push and pull request |
 | Frontend build | `cd frontend && npm run build` | Run when the frontend changes; no current-session result is asserted |
 | Fixture smoke test | `cd test-target && npm test` | Does not require the backend |
 | Fixture E2E | `cd test-target && npm run e2e` | Requires PostgreSQL, backend, fixture, Java 25, and Chromium installed with the Playwright Java CLI |
