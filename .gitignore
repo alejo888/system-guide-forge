@@ -1,7 +1,3 @@
-# Local Pi and agent configuration
-.atl/
-.pi/
-
 # Secrets and local environment
 .env
 .env.*

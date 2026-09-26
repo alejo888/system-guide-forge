@@ -148,7 +148,6 @@ Fuera de alcance: PDF, producción, SSO/OAuth/MFA, workflows, IA, colaboración,
 - `architecture.md`: arquitectura implementada y persistencia.
 - `implementation.md`: flujos, seguridad y configuración técnica.
 - `openapi.yaml`: contrato REST del MVP.
-- `docs/agent-guidelines.md`: reglas para inspección segura.
 
 ## Evidencia de verificación disponible
 
