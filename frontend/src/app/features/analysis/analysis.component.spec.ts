@@ -18,12 +18,13 @@ describe('AnalysisComponent document editing', () => {
   let router: jasmine.SpyObj<Router>;
 
   beforeEach(async () => { localStorage.setItem('sgf.language', 'en'); spyOn(window, 'confirm').and.returnValue(true);
-    api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getAnalysisModules', 'getPageElements', 'getPageScreenshot', 'generateDocument', 'updateDocument', 'updateManualInclusion', 'startAnalysis', 'exportDocument']);
+    api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getAnalysisModules', 'getPageElements', 'getPageScreenshot', 'generateDocument', 'getAnalysisDocument', 'updateDocument', 'updateManualInclusion', 'startAnalysis', 'exportDocument']);
     router = jasmine.createSpyObj<Router>('Router', ['navigate']);
     router.navigate.and.resolveTo(true);
         api.getAnalysis.and.resolveTo({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
         api.getAnalysisPages.and.resolveTo([]);
         api.getAnalysisModules.and.resolveTo([]);
+        api.getAnalysisDocument.and.rejectWith(new ApiError(404, 'Document not found'));
     api.updateDocument.and.resolveTo(document);
     await TestBed.configureTestingModule({ imports: [AnalysisComponent], providers: [
       { provide: ApiService, useValue: api }, { provide: Router, useValue: router }, { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => 'analysis-1' } } } },
@@ -382,5 +383,77 @@ describe('AnalysisComponent document editing', () => {
     component.pages.set([]); component.modules.set([]); component.searchQuery.set('nothing'); component.editableSections.set(document.sections); component.state.set('ready'); component.analysis.set({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('No matching results');
+  });
+});
+
+describe('AnalysisComponent auto-loaded draft', () => {
+  let fixture: ComponentFixture<AnalysisComponent>;
+  let component: AnalysisComponent;
+  let api: jasmine.SpyObj<ApiService>;
+
+  beforeEach(async () => {
+    localStorage.setItem('sgf.language', 'en');
+    api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getAnalysisModules', 'getPageElements', 'getPageScreenshot', 'generateDocument', 'getAnalysisDocument', 'updateDocument', 'updateManualInclusion', 'startAnalysis', 'exportDocument']);
+    api.getAnalysis.and.resolveTo({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
+    api.getAnalysisPages.and.resolveTo([]);
+    api.getAnalysisModules.and.resolveTo([]);
+    await TestBed.configureTestingModule({ imports: [AnalysisComponent], providers: [
+      { provide: ApiService, useValue: api }, { provide: Router, useValue: jasmine.createSpyObj<Router>('Router', ['navigate']) }, { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => 'analysis-1' } } } },
+    ] }).compileComponents();
+  });
+
+  it('shows the existing draft (including the Download DOCX button) without generating', async () => {
+    api.getAnalysisDocument.and.resolveTo(document);
+    fixture = TestBed.createComponent(AnalysisComponent); component = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(api.getAnalysisDocument).toHaveBeenCalledOnceWith('analysis-1');
+    expect(api.generateDocument).not.toHaveBeenCalled();
+    expect(component.documentState()).toBe('ready');
+    expect(component.document()).toEqual(document);
+    expect(fixture.nativeElement.querySelector('.download-docx-button')).not.toBeNull();
+  });
+
+  it('stays idle without an error when the analysis has no existing draft', async () => {
+    api.getAnalysisDocument.and.rejectWith(new ApiError(404, 'Document not found'));
+    fixture = TestBed.createComponent(AnalysisComponent); component = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.documentState()).toBe('idle');
+    expect(component.document()).toBeNull();
+    expect(fixture.nativeElement.querySelector('.document-error')).toBeNull();
+  });
+
+  it('keeps generation available without a blocking error when the draft lookup fails for another reason', async () => {
+    api.getAnalysisDocument.and.rejectWith(new Error('network down'));
+    fixture = TestBed.createComponent(AnalysisComponent); component = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.documentState()).toBe('idle');
+    expect(fixture.nativeElement.querySelector('.document-error')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.generation-card button.button').disabled).toBeFalse();
+  });
+
+  it('ignores a slow auto-loaded draft once the user has already generated one', async () => {
+    let resolveAutoLoad!: (value: import('../../core/api.service').DocumentResponse) => void;
+    api.getAnalysisDocument.and.returnValue(new Promise(resolve => { resolveAutoLoad = resolve; }));
+    const generated = { ...document, id: 'doc-generated' };
+    api.generateDocument.and.resolveTo(generated);
+    fixture = TestBed.createComponent(AnalysisComponent); component = fixture.componentInstance;
+    fixture.detectChanges();
+    for (let tick = 0; tick < 50 && !api.getAnalysisDocument.calls.count(); tick++) await Promise.resolve();
+    expect(api.getAnalysisDocument).toHaveBeenCalledTimes(1);
+
+    await component.generateDocument();
+    resolveAutoLoad(document);
+    await fixture.whenStable();
+
+    expect(component.document()?.id).toBe('doc-generated');
   });
 });

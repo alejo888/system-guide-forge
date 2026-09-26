@@ -522,6 +522,52 @@ class DocumentServiceTest {
         verify(sections, never()).deleteAll(any());
     }
 
+    @Test
+    void getsExistingDraftForAnalysisWithOrderedSections() {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        Document existing = new Document(analysis.getId(), analysis.getApplicationId());
+        DocumentSection section = new DocumentSection(existing.getId(), 0, "page-1", null, "Home", "content");
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.of(existing));
+        when(sections.findByDocumentIdOrderByPositionAsc(existing.getId())).thenReturn(List.of(section));
+
+        Document result = service(analyses, mock(PageRepository.class), mock(UIElementRepository.class), mock(ScreenshotRepository.class), documents, sections)
+                .getForAnalysis(analysis.getId());
+
+        assertThat(result).isSameAs(existing);
+        assertThat(result.getSections()).containsExactly(section);
+    }
+
+    @Test
+    void rejectsMissingDraftForAnalysisWithoutADocument() {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.empty());
+
+        DocumentService service = service(analyses, mock(PageRepository.class), mock(UIElementRepository.class), mock(ScreenshotRepository.class), documents, mock(DocumentSectionRepository.class));
+
+        assertThatThrownBy(() -> service.getForAnalysis(analysis.getId()))
+                .isInstanceOf(DocumentService.DocumentNotFoundException.class);
+    }
+
+    @Test
+    void rejectsDraftLookupForUnknownAnalysis() {
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        when(analyses.findById("missing")).thenReturn(Optional.empty());
+
+        DocumentService service = service(analyses, mock(PageRepository.class), mock(UIElementRepository.class), mock(ScreenshotRepository.class), mock(DocumentRepository.class), mock(DocumentSectionRepository.class));
+
+        assertThatThrownBy(() -> service.getForAnalysis("missing"))
+                .isInstanceOf(DocumentService.AnalysisNotFoundException.class);
+    }
+
     private static String groupedManualContent(Document.DocumentLanguage language) {
         return groupedManualContent(language, List.of(
                 new UIElement("page-1", "link", "a.catalog", "Browse catalog", ActionClassification.SAFE),

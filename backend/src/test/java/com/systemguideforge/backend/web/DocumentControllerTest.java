@@ -74,6 +74,34 @@ class DocumentControllerTest {
     }
 
     @Test
+    void getsExistingDraftForAnAnalysis() {
+        Document document = document();
+        when(service.getForAnalysis("analysis-1")).thenReturn(document);
+
+        var response = controller.getForAnalysis("analysis-1");
+
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getBody().sourceAnalysisId()).isEqualTo("analysis-1");
+        assertThat(response.getBody().sections()).hasSize(1);
+    }
+
+    @Test
+    void mapsMissingDraftForAnAnalysisToNotFound() {
+        when(service.getForAnalysis("analysis-2")).thenThrow(new DocumentService.DocumentNotFoundException());
+
+        assertThat(controller.getForAnalysis("analysis-2").getStatusCode().value()).isEqualTo(404);
+    }
+
+    @Test
+    void mapsUnknownAnalysisForDraftLookupToNotFoundViaDispatcher() throws Exception {
+        when(service.getForAnalysis("missing-analysis")).thenThrow(new DocumentService.AnalysisNotFoundException());
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mvc.perform(get("/api/analyses/missing-analysis/document"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void mapsGetAndPutMissingDocumentsToNotFound() {
         when(service.get("missing")).thenThrow(new DocumentService.DocumentNotFoundException());
         when(service.update(eq("missing"), any())).thenThrow(new DocumentService.DocumentNotFoundException());

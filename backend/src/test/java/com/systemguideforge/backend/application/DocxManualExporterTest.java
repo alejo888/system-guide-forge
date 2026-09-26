@@ -259,6 +259,30 @@ class DocxManualExporterTest {
     }
 
     @Test
+    void skipsMalformedPngWithoutEmbeddingItOrLeavingAnEmptyParagraph() throws IOException {
+        byte[] corruptPng = new byte[]{(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0};
+        Document document = new Document("analysis-1", "application-1");
+        document.updateTitle("Guide with corrupt screenshot");
+        DocumentSection withCorruptScreenshot = new DocumentSection(document.getId(), 0, "page-1", "screenshot-1", "With screenshot", "Content with screenshot");
+        DocumentSection withoutScreenshot = new DocumentSection(document.getId(), 1, "page-2", null, "Without screenshot", "Content without screenshot");
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        ScreenshotRepository screenshots = mock(ScreenshotRepository.class);
+        when(documents.findById(document.getId())).thenReturn(Optional.of(document));
+        when(sections.findByDocumentIdOrderByPositionAsc(document.getId())).thenReturn(List.of(withCorruptScreenshot, withoutScreenshot));
+        when(screenshots.findById("screenshot-1")).thenReturn(Optional.of(new Screenshot("page-1", corruptPng)));
+
+        ManualExporter.ExportedManual exported = new DocxManualExporter(documents, sections, screenshots).export(document.getId());
+
+        assertThat(containsEmbeddedPicture(exported.bytes())).isFalse();
+        try (XWPFDocument reopened = new XWPFDocument(new ByteArrayInputStream(exported.bytes()))) {
+            List<XWPFParagraph> paragraphs = reopened.getParagraphs();
+            assertThat(paragraphs.stream().map(XWPFParagraph::getText)).containsExactly(
+                    "Guide with corrupt screenshot", "With screenshot", "Content with screenshot", "Without screenshot", "Content without screenshot");
+        }
+    }
+
+    @Test
     void excludesNonPngScreenshotPayloads() {
         Document document = new Document("analysis-1", "application-1");
         document.updateTitle("Guide");

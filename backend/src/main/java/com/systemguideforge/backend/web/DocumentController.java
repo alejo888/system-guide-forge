@@ -27,6 +27,8 @@ public class DocumentController {
     }
     @GetMapping("/api/documents/{documentId}")
     public ResponseEntity<DocumentResponse> get(@PathVariable String documentId) { try { return ResponseEntity.ok(to(service.get(documentId))); } catch (DocumentService.DocumentNotFoundException e) { return ResponseEntity.notFound().build(); } }
+    @GetMapping("/api/analyses/{analysisId}/document")
+    public ResponseEntity<DocumentResponse> getForAnalysis(@PathVariable String analysisId) { try { return ResponseEntity.ok(to(service.getForAnalysis(analysisId))); } catch (DocumentService.DocumentNotFoundException e) { return ResponseEntity.notFound().build(); } }
     @GetMapping("/api/documents/{documentId}/export")
     public ResponseEntity<?> export(@PathVariable String documentId, @RequestParam(required = false) String format) {
         if (!"docx".equals(format)) return ResponseEntity.badRequest().body(new ErrorResponse("Only docx export format is supported"));
