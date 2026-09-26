@@ -147,7 +147,8 @@ public class DocxManualExporter implements ManualExporter {
                     MAX_IMAGE_HEIGHT_POINTS / naturalHeightPoints));
             int widthEmu = Units.toEMU(naturalWidthPoints * scale);
             int heightEmu = Units.toEMU(naturalHeightPoints * scale);
-            // Dimensions are validated above before any paragraph is created, so a malformed PNG never leaves an empty paragraph behind.
+            // A PNG with an unreadable IHDR is rejected above, before any paragraph is created. POI stores PNG bytes
+            // without decoding them, so corrupt image data after a valid IHDR is embedded as-is rather than failing here.
             XWPFParagraph paragraph = docx.createParagraph();
             paragraph.createRun().addPicture(image, XWPFDocument.PICTURE_TYPE_PNG, "screenshot.png", widthEmu, heightEmu);
         } catch (Exception ignored) {
