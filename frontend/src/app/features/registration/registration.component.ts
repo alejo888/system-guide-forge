@@ -16,34 +16,33 @@ export class RegistrationComponent {
       readonly t = (key: string): string => this.localization.t(key);
   private readonly route = inject(ActivatedRoute);
   readonly editMode = this.route.snapshot.url.some(segment => segment.path === 'edit');
-  readonly existingApplication = this.readApplication();
+  readonly routeApplicationId = this.route.snapshot.paramMap.get('id') ?? '';
   readonly model = signal<ApplicationInput & { projectName: string }>({
-    projectName: this.editMode ? (this.existingApplication?.name ?? '') : '',
-    name: this.editMode ? (this.existingApplication?.name ?? '') : '',
-    baseUrl: this.editMode ? (this.existingApplication?.baseUrl ?? '') : '',
-    loginUrl: this.editMode ? (this.existingApplication?.loginUrl ?? '') : '', username: '', password: '',
-    maxCrawlDepth: this.editMode ? (this.existingApplication?.maxCrawlDepth ?? 0) : 0,
-    excludedRoutes: this.existingApplication?.excludedRoutes ?? []
+    projectName: '', name: '', baseUrl: '', loginUrl: '', username: '', password: '', maxCrawlDepth: 0, excludedRoutes: []
   });
   readonly registrationForm = form(this.model, path => {
     required(path.projectName); required(path.name); required(path.baseUrl); required(path.loginUrl); required(path.username); required(path.password);
   });
   readonly state = signal<RegistrationState>('idle');
+  readonly applicationLoadState = signal<'loading' | 'ready' | 'error'>(this.editMode ? 'loading' : 'ready');
   readonly passwordVisible = signal(false);
   readonly loadingMessage = computed(() => {
     const spanish = this.localization.language() === 'es';
+    if (this.applicationLoadState() === 'loading') return this.t('loading-application');
     if (this.state() === 'saving') return spanish ? 'Guardando la configuración…' : 'Saving configuration…';
     if (this.state() === 'testing') return spanish ? 'Probando el acceso…' : 'Testing access…';
     return '';
   });
   readonly errorMessage = signal('');
   readonly accessResult = signal<AccessTestResult | null>(null);
-  readonly applicationId = signal(this.existingApplication?.id ?? '');
+  readonly applicationId = signal(this.routeApplicationId);
   readonly localUrlsValid = computed(() => this.isLocalUrl(this.model().baseUrl) && this.isLocalUrl(this.model().loginUrl));
   readonly crawlerConfigurationValid = computed(() => {
     const { maxCrawlDepth = 0, excludedRoutes = [] } = this.model();
     return Number.isInteger(maxCrawlDepth) && maxCrawlDepth >= 0 && maxCrawlDepth <= 5 && excludedRoutes.every(route => this.isExcludedRoute(route));
   });
+
+  constructor() { if (this.editMode) void this.loadApplication(); }
 
   isLocalUrl(value: string): boolean {
     try { const url = new URL(value); return (url.protocol === 'http:' || url.protocol === 'https:') && (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'); }
@@ -60,7 +59,7 @@ export class RegistrationComponent {
       private normalizeExcludedRoutes(routes: string[]): string[] { return [...new Set(routes.map(route => route.length > 1 && route.endsWith('/') ? route.slice(0, -1) : route))]; }
 
   async register(): Promise<void> {
-    if (!this.localUrlsValid() || !this.crawlerConfigurationValid() || this.registrationForm().invalid()) return;
+    if (this.applicationLoadState() !== 'ready' || !this.localUrlsValid() || !this.crawlerConfigurationValid() || this.registrationForm().invalid()) return;
     this.state.set('saving'); this.errorMessage.set('');
     try {
       const value = this.model();
@@ -69,7 +68,6 @@ export class RegistrationComponent {
       const saved = this.editMode
         ? await this.api.updateApplication(this.applicationId(), application)
         : await this.createApplication(value.projectName, application);
-      localStorage.setItem('sgf.application', JSON.stringify(saved));
       if (this.editMode) { this.state.set('success'); await this.router.navigate(['/']); }
       else { this.applicationId.set(saved.id); await this.testAccess(); }
     } catch { this.fail(this.t(this.editMode ? 'update-error' : 'register-error'));  }
@@ -90,8 +88,12 @@ export class RegistrationComponent {
   private async createApplication(projectName: string, application: ApplicationInput): Promise<ApplicationResponse> {
     const project = await this.api.createProject({ name: projectName.trim() }); return this.api.createApplication(project.id, application);
   }
-  private readApplication(): ApplicationResponse | null {
-    try { const value = localStorage.getItem('sgf.application'); return value ? JSON.parse(value) as ApplicationResponse : null; } catch { return null; }
+  private async loadApplication(): Promise<void> {
+    try {
+      const application = await this.api.getApplication(this.routeApplicationId);
+      this.model.update(model => ({ ...model, projectName: application.name, name: application.name, baseUrl: application.baseUrl, loginUrl: application.loginUrl, maxCrawlDepth: application.maxCrawlDepth ?? 0, excludedRoutes: application.excludedRoutes ?? [] }));
+      this.applicationLoadState.set('ready');
+    } catch { this.applicationLoadState.set('error'); }
   }
   private fail(message: string): void { this.state.set('error'); this.errorMessage.set(message); }
 }
