@@ -244,7 +244,10 @@ class PersistenceTest {
         applications.flush();
         entityManager.clear();
 
-        List<TargetApplication> listed = applications.findAllByOrderByNameAscIdAsc();
+        // Other tests in this class commit their own applications, so only this test's rows are asserted.
+        java.util.Set<String> ownIds = java.util.Set.of(beta.getId(), alphaOne.getId(), alphaTwo.getId());
+        List<TargetApplication> listed = applications.findAllByOrderByNameAscIdAsc().stream()
+                .filter(application -> ownIds.contains(application.getId())).toList();
 
         List<String> alphaIds = java.util.stream.Stream.of(alphaOne.getId(), alphaTwo.getId()).sorted().toList();
         assertThat(listed).extracting(TargetApplication::getId)
