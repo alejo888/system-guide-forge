@@ -20,6 +20,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.groups.Tuple.tuple;
 
 class PlaywrightScreenAnalysisAdapterTest {
     @Test
@@ -169,6 +170,57 @@ class PlaywrightScreenAnalysisAdapterTest {
             // into generic wording rather than printing it, so the redaction itself is fine to persist.
             assertThat(loginPage.passwordLabel()).isEqualTo("[redacted]");
             assertThat(loginPage.submitLabel()).isEqualTo("Sign in");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void classifiesRenderedButtonsAsMutatingFromTheirVisibleLabel() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/login", exchange -> {
+            if ("POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Location", "/dashboard");
+                exchange.sendResponseHeaders(302, -1);
+                exchange.close();
+                return;
+            }
+            respondHtml(exchange, """
+                    <!doctype html><html><body><form method="post">
+                    <input name="username" type="text"><input name="password" type="password">
+                    <button type="submit">Sign in</button></form></body></html>
+                    """);
+        });
+        server.createContext("/dashboard", exchange -> respondHtml(exchange, """
+                <!doctype html><html><body><main>
+                <button type="button">Crear tarea</button>
+                <button type="button">Cerrar sesión</button>
+                <button type="button" aria-label="Delete project">×</button>
+                <button type="button">Abrir menú</button>
+                <button type="button" name="action">Eliminar</button>
+                <input type="button" name="op" value="Guardar cambios">
+                </main></body></html>
+                """));
+        server.start();
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            TargetApplication application = new TargetApplication("project", "app", baseUrl, baseUrl + "/login", "stored-user", "stored-password");
+
+            List<ScreenAnalysisAdapter.DetectedElement> elements = new PlaywrightScreenAnalysisAdapter()
+                    .analyze(application, "browser-user", "browser-password").elements();
+
+            assertThat(elements).filteredOn(element -> "button".equals(element.kind()))
+                    .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::classification)
+                    .containsExactly(
+                            tuple("Crear tarea", ActionClassification.MUTATING),
+                            tuple("Cerrar sesión", ActionClassification.MUTATING),
+                            tuple("Delete project", ActionClassification.MUTATING),
+                            tuple("Abrir menú", ActionClassification.UNKNOWN),
+                            // The form-field name is not what the user reads; classification uses the visible label.
+                            tuple("action", ActionClassification.MUTATING));
+            assertThat(elements).filteredOn(element -> "input".equals(element.kind()))
+                    .extracting(ScreenAnalysisAdapter.DetectedElement::classification)
+                    .containsExactly(ActionClassification.MUTATING);
         } finally {
             server.stop(0);
         }
