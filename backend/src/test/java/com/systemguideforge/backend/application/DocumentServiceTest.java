@@ -349,6 +349,83 @@ class DocumentServiceTest {
     }
 
     @Test
+    void prefersThePageHeadingOverTheRawTitleAndFallsBackToTitleThenUntitled() {
+        Page withHeading = new Page("a", "http://localhost/alpha", "FlowPilot", "Team dashboard", null);
+        Page blankHeading = new Page("a", "http://localhost/beta", "FlowPilot", "  ", null);
+        Page neither = new Page("a", "http://localhost/gamma", " ", null, null);
+
+        Document english = generateForPages(Document.DocumentLanguage.EN, withHeading, blankHeading, neither);
+        assertThat(english.getSections()).extracting(DocumentSection::getTitle).containsExactly(
+                "Alpha: Team dashboard (/alpha)", "Beta: FlowPilot (/beta)", "Gamma: Untitled page (/gamma)");
+        assertThat(english.getSections().get(0).getContent()).startsWith("The /alpha route displays the \"Team dashboard\" page.");
+
+        Document spanish = generateForPages(Document.DocumentLanguage.ES, withHeading, neither);
+        assertThat(spanish.getSections().get(0).getContent()).startsWith("La ruta /alpha muestra la página \"Team dashboard\".");
+        assertThat(spanish.getSections().get(1).getTitle()).isEqualTo("Gamma: Página sin título (/gamma)");
+    }
+
+    @Test
+    void collapsesPagesThatDifferOnlyByIdIntoOneSectionUsingTheFirstPageAsExample() {
+        Page board3 = new Page("a", "http://localhost/projects/3/board", "FlowPilot", "Board three", null);
+        Page board1 = new Page("a", "http://localhost/projects/1/board", "FlowPilot", "Board one", null);
+        Page create = new Page("a", "http://localhost/projects/new", "FlowPilot", "New project", null);
+
+        Document english = generateForPages(Document.DocumentLanguage.EN, board3, board1, create);
+
+        assertThat(english.getSections()).extracting(DocumentSection::getTitle)
+                .containsExactly("Projects: Board one (/projects/{id}/board)", "Projects: New project (/projects/new)");
+        assertThat(english.getSections()).extracting(DocumentSection::getPosition).containsExactly(0, 1);
+        assertThat(english.getSections().get(0).getSourcePageId()).isEqualTo(board1.getId());
+        assertThat(english.getSections().get(0).getContent()).startsWith(
+                "The /projects/{id}/board route displays the \"Board one\" page. This screen is the same for every item; the example shown is /projects/1/board.");
+        assertThat(english.getSections().get(1).getContent())
+                .startsWith("The /projects/new route displays the \"New project\" page.")
+                .doesNotContain("same for every item");
+
+        Document spanish = generateForPages(Document.DocumentLanguage.ES, board3, board1);
+        assertThat(spanish.getSections()).hasSize(1);
+        assertThat(spanish.getSections().get(0).getContent()).startsWith(
+                "La ruta /projects/{id}/board muestra la página \"Board one\". Esta pantalla es la misma para cada elemento; el ejemplo corresponde a /projects/1/board.");
+    }
+
+    @Test
+    void showsTheTemplateRouteEvenWhenOnlyOnePageMatchesSoNoRecordIdLeaks() {
+        Page project = new Page("a", "http://localhost/projects/1", "FlowPilot", "Project detail", null);
+
+        Document document = generateForPages(Document.DocumentLanguage.EN, project);
+
+        assertThat(document.getSections()).extracting(DocumentSection::getTitle)
+                .containsExactly("Projects: Project detail (/projects/{id})");
+        assertThat(document.getSections().get(0).getContent())
+                .startsWith("The /projects/{id} route displays the \"Project detail\" page.")
+                .doesNotContain("/projects/1", "same for every item");
+    }
+
+    @Test
+    void keepsTheLoginSectionUnchangedAndDoesNotCollapseItWithOtherPages() {
+        Page login = new Page("a", "http://localhost/login", "Sign in", "Welcome", PageKind.LOGIN);
+        Page other = new Page("a", "http://localhost/users/5", "FlowPilot", null, null);
+
+        Document document = generateForPages(Document.DocumentLanguage.EN, other, login);
+
+        assertThat(document.getSections()).extracting(DocumentSection::getTitle)
+                .containsExactly("How to sign in", "Users: FlowPilot (/users/{id})");
+        assertThat(document.getSections().get(0).getContent()).startsWith("This screen lets you sign in to the application.");
+    }
+
+    @Test
+    void usesTheExamplePageElementsForACollapsedSection() {
+        Page board1 = new Page("a", "http://localhost/projects/1/board", "FlowPilot");
+        Page board2 = new Page("a", "http://localhost/projects/2/board", "FlowPilot");
+        Document document = generateForPages(Document.DocumentLanguage.EN, List.of(board2, board1), page -> page == board1
+                ? List.of(new UIElement(board1.getId(), "link", "a.help", "Help", ActionClassification.SAFE))
+                : List.of(new UIElement(board2.getId(), "link", "a.other", "Other page only", ActionClassification.SAFE)));
+
+        assertThat(document.getSections()).hasSize(1);
+        assertThat(document.getSections().get(0).getContent()).contains("\"Help\"").doesNotContain("Other page only");
+    }
+
+    @Test
     void omitsEmptyInstructionGroups() {
         String content = groupedManualContent(Document.DocumentLanguage.EN, List.of(
                 new UIElement("page-1", "link", "a.catalog", "Browse catalog", ActionClassification.SAFE)));
@@ -641,6 +718,27 @@ class DocumentServiceTest {
         TargetApplicationRepository applications = mock(TargetApplicationRepository.class);
         when(applications.findById(any())).thenReturn(Optional.of(new TargetApplication("project-1", "FlowPilot", "http://localhost", null, null, null)));
         return applications;
+    }
+
+    private static Document generateForPages(Document.DocumentLanguage language, Page... sourcePages) {
+        return generateForPages(language, List.of(sourcePages), page -> List.of());
+    }
+
+    private static Document generateForPages(Document.DocumentLanguage language, List<Page> sourcePages, java.util.function.Function<Page, List<UIElement>> elementsByPage) {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        UIElementRepository elements = mock(UIElementRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.empty());
+        when(pages.findByAnalysisId(analysis.getId())).thenReturn(sourcePages);
+        for (Page page : sourcePages) when(elements.findByPageId(page.getId())).thenReturn(elementsByPage.apply(page));
+        when(documents.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        return service(analyses, pages, elements, mock(ScreenshotRepository.class), documents, sections).generate(analysis.getId(), language);
     }
 
     private static DocumentService service(AnalysisRepository analyses, PageRepository pages, UIElementRepository elements, ScreenshotRepository screenshots, DocumentRepository documents, DocumentSectionRepository sections) {

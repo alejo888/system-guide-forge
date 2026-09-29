@@ -64,11 +64,13 @@ public class DocumentService {
         document.updateTitle(boundedText(documentTitle(type, applicationName, language), TITLE_LIMIT));
         List<Page> sourcePages = pages.findByAnalysisId(analysisId);
         Map<String, Page> pagesById = sourcePages.stream().collect(Collectors.toMap(Page::getId, page -> page));
-        List<Page> orderedPages = moduleDeriver.derive(sourcePages).stream().flatMap(module -> module.pages().stream()).map(modulePage -> pagesById.get(modulePage.id())).toList();
-        for (int position = 0; position < orderedPages.size(); position++) {
-            Page page = orderedPages.get(position);
+        List<Page> derivedPages = moduleDeriver.derive(sourcePages).stream().flatMap(module -> module.pages().stream()).map(modulePage -> pagesById.get(modulePage.id())).toList();
+        List<List<Page>> routeGroups = groupByRouteTemplate(derivedPages);
+        for (int position = 0; position < routeGroups.size(); position++) {
+            List<Page> routeGroup = routeGroups.get(position);
+            Page page = routeGroup.get(0);
             List<UIElement> pageElements = elements.findByPageId(page.getId()).stream().sorted(Comparator.comparing(UIElement::getKind, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getSelector, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getId)).toList();
-            String content = describePage(page, pageElements, language);
+            String content = describePage(page, pageElements, language, routeGroup.size());
             String title = boundedText(descriptiveTitle(page, language), TITLE_LIMIT);
             String screenshotId = screenshots.findByPageIdOrderByIdAsc(page.getId()).stream().findFirst().map(Screenshot::getId).orElse(null);
             DocumentSection section = sections.save(new DocumentSection(document.getId(), position, page.getId(), screenshotId, title, content));
@@ -77,18 +79,33 @@ public class DocumentService {
         return document;
     }
 
+    /** Pages of the manual order that share a route template collapse into one group led by the first page; login pages never collapse. */
+    private List<List<Page>> groupByRouteTemplate(List<Page> orderedPages) {
+        Map<String, List<Page>> groups = new LinkedHashMap<>();
+        for (Page page : orderedPages) {
+            String key = page.getKind() == PageKind.LOGIN ? "login:" + page.getId() : moduleDeriver.routeTemplateFor(page.getUrl());
+            groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(page);
+        }
+        return new ArrayList<>(groups.values());
+    }
+
     private String descriptiveTitle(Page page, Document.DocumentLanguage language) {
         if (page.getKind() == PageKind.LOGIN) return language == Document.DocumentLanguage.ES ? "Cómo ingresar al sistema" : "How to sign in";
         String pageTitle = pageTitle(page, language);
-        return moduleDeriver.moduleNameFor(page.getUrl()) + ": " + pageTitle + " (" + moduleDeriver.routeFor(page.getUrl()) + ")";
+        return moduleDeriver.moduleNameFor(page.getUrl()) + ": " + pageTitle + " (" + moduleDeriver.routeTemplateFor(page.getUrl()) + ")";
     }
-    private String pageTitle(Page page, Document.DocumentLanguage language) { return page.getTitle() == null || page.getTitle().isBlank() ? (language == Document.DocumentLanguage.ES ? "Página sin título" : "Untitled page") : page.getTitle().trim(); }
+    /** The visible heading when present, else the raw title, else a generic label. */
+    private String pageTitle(Page page, Document.DocumentLanguage language) {
+        if (page.getHeading() != null && !page.getHeading().isBlank()) return page.getHeading().trim();
+        if (page.getTitle() != null && !page.getTitle().isBlank()) return page.getTitle().trim();
+        return language == Document.DocumentLanguage.ES ? "Página sin título" : "Untitled page";
+    }
     private String documentTitle(Document.DocumentType type, String applicationName, Document.DocumentLanguage language) { return (type == Document.DocumentType.USER_MANUAL ? (language == Document.DocumentLanguage.ES ? "Manual de usuario" : "User manual") : type.name()) + " \"" + boundedText(applicationName, 200) + "\""; }
 
-    private String describePage(Page page, List<UIElement> pageElements, Document.DocumentLanguage language) {
+    private String describePage(Page page, List<UIElement> pageElements, Document.DocumentLanguage language, int routePageCount) {
         boolean spanish = language == Document.DocumentLanguage.ES;
         StringBuilder result = new StringBuilder();
-        result.append(pageIntroduction(page, language)).append("\n\n")
+        result.append(pageIntroduction(page, language, routePageCount)).append("\n\n")
                 .append(spanish ? "Pasos:\n" : "Steps:\n");
         if (page.getKind() == PageKind.LOGIN) {
             appendLoginSteps(page, spanish, result);
@@ -142,17 +159,23 @@ public class DocumentService {
         if (trimmed.isEmpty() || trimmed.contains("[redacted]")) return null;
         return "«" + trimmed + "»";
     }
-    private String pageIntroduction(Page page, Document.DocumentLanguage language) {
+    private String pageIntroduction(Page page, Document.DocumentLanguage language, int routePageCount) {
         if (page.getKind() == PageKind.LOGIN) {
             return language == Document.DocumentLanguage.ES
                     ? "Esta pantalla te permite ingresar al sistema. Ingresá tu usuario o correo electrónico y tu contraseña en el formulario y luego presioná el botón de inicio de sesión."
                     : "This screen lets you sign in to the application. Enter your username or email and your password in the form, then press the sign-in button.";
         }
         String title = boundedText(pageTitle(page, language), 3000);
-        String route = boundedText(moduleDeriver.routeFor(page.getUrl()), 3000);
-        return language == Document.DocumentLanguage.ES
+        String route = boundedText(moduleDeriver.routeTemplateFor(page.getUrl()), 3000);
+        String example = boundedText(moduleDeriver.routeFor(page.getUrl()), 3000);
+        boolean spanish = language == Document.DocumentLanguage.ES;
+        String introduction = spanish
                 ? "La ruta " + route + " muestra la página \"" + title + "\"."
                 : "The " + route + " route displays the \"" + title + "\" page.";
+        if (routePageCount < 2) return introduction;
+        return introduction + (spanish
+                ? " Esta pantalla es la misma para cada elemento; el ejemplo corresponde a " + example + "."
+                : " This screen is the same for every item; the example shown is " + example + ".");
     }
     private InstructionGroup instructionGroupFor(UIElement element) {
         return switch (normalizedKind(element.getKind())) {

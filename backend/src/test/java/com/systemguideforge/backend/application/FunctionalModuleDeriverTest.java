@@ -78,4 +78,32 @@ class FunctionalModuleDeriverTest {
         assertThat(modules.get(0).pages()).extracting(FunctionalModuleDeriver.ModulePage::analysisId)
                 .containsOnly("analysis-1");
     }
+
+    @Test
+    void replacesNumericAndUuidPathSegmentsWithAnIdPlaceholderInRouteTemplates() {
+        assertThat(deriver.routeTemplateFor("http://localhost/projects/1/board")).isEqualTo("/projects/{id}/board");
+        assertThat(deriver.routeTemplateFor("http://localhost/projects/3/board?tab=x#top")).isEqualTo("/projects/{id}/board");
+        assertThat(deriver.routeTemplateFor("http://localhost/items/123e4567-e89b-12d3-a456-426614174000")).isEqualTo("/items/{id}");
+        assertThat(deriver.routeTemplateFor("http://localhost/items/123E4567-E89B-12D3-A456-426614174000/edit")).isEqualTo("/items/{id}/edit");
+        assertThat(deriver.routeTemplateFor("http://localhost/orgs/7/projects/42")).isEqualTo("/orgs/{id}/projects/{id}");
+    }
+
+    @Test
+    void keepsNonIdSegmentsRootAndEmptyPathsLiteralInRouteTemplates() {
+        assertThat(deriver.routeTemplateFor("http://localhost/projects/new")).isEqualTo("/projects/new");
+        assertThat(deriver.routeTemplateFor("http://localhost/v2/items")).isEqualTo("/v2/items");
+        assertThat(deriver.routeTemplateFor("http://localhost/a1/12x")).isEqualTo("/a1/12x");
+        assertThat(deriver.routeTemplateFor("http://localhost/")).isEqualTo("/");
+        assertThat(deriver.routeTemplateFor("http://localhost")).isEqualTo("/");
+    }
+
+    @Test
+    void exposesThePageHeadingOnModulePages() {
+        Page page = new Page("analysis-1", "http://localhost/projects", "FlowPilot", "Projects", null);
+
+        var modules = deriver.derive(List.of(page));
+
+        assertThat(modules.get(0).pages()).extracting(FunctionalModuleDeriver.ModulePage::heading)
+                .containsExactly("Projects");
+    }
 }
