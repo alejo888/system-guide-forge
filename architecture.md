@@ -29,7 +29,7 @@ frontend/src/app/
     └── analysis/
 ```
 
-`proxy.conf.json` reenvía `/api` a `http://127.0.0.1:8080` durante `ng serve`. El navegador conserva únicamente tres preferencias o referencias locales: `sgf.language`, `sgf.document-language` y la última respuesta de aplicación en `sgf.application`. Esta última no contiene credenciales; puede quedar desactualizada y solo sirve para reabrir la configuración o cargar su historial. La evidencia, los análisis y los documentos no se persisten en el navegador: viven en PostgreSQL o en el estado de la vista mientras está abierta.
+`proxy.conf.json` reenvía `/api` a `http://127.0.0.1:8080` durante `ng serve`. El navegador conserva únicamente dos preferencias locales: `sgf.language` y `sgf.document-language`. El Resumen obtiene los sistemas registrados de `GET /api/applications` (ordenados por nombre y luego por identificador) y la edición carga el sistema desde `GET /api/applications/{id}` a partir de la ruta `/edit/{id}`, por lo que no depende de referencias locales que puedan quedar desactualizadas. Los sistemas, la evidencia, los análisis y los documentos no se persisten en el navegador: viven en PostgreSQL o en el estado de la vista mientras está abierta.
 
 ## 3. Backend actual
 

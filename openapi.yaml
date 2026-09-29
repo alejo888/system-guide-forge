@@ -91,11 +91,11 @@ paths:
     get:
       tags: [Applications]
       summary: List registered applications
-      description: Returns every registered local web system ordered by name. Credentials are never returned.
+      description: Returns every registered local web system ordered by name, then by id. Credentials are never returned.
       operationId: listApplications
       responses:
         '200':
-          description: Registered applications ordered by name; an empty array when none are registered.
+          description: Registered applications ordered by name, then by id; an empty array when none are registered.
           content:
             application/json:
               schema:
