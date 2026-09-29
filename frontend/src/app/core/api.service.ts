@@ -7,7 +7,7 @@ export type AnalysisStatus = 'RUNNING' | 'COMPLETED' | 'FAILED';
 export interface AnalysisResponse { id: string; applicationId: string; status: AnalysisStatus; startedAt: string; completedAt: string | null; failureMessage: string | null; }
 export interface AnalysisSummaryResponse { id: string; applicationId: string; status: AnalysisStatus; startedAt: string; completedAt: string | null; failureMessage: string | null; pageCount: number; }
 export type PageKind = 'LOGIN' | null;
-export interface PageResponse { id: string; analysisId: string; url: string; title: string; kind?: PageKind; }
+export interface PageResponse { id: string; analysisId: string; url: string; title: string; heading?: string | null; kind?: PageKind; }
     export interface FunctionalModulePage extends PageResponse {}
     export interface FunctionalModule { key: string; name: string; pages: FunctionalModulePage[]; }
 export type ActionClassification = 'SAFE' | 'MUTATING' | 'UNKNOWN';

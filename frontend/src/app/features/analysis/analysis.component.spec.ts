@@ -344,6 +344,32 @@ describe('AnalysisComponent document editing', () => {
         expect(component.pageLabel(first)).toBe('FlowPilot · /admin/users');
         expect(component.pageLabel(second)).toBe('FlowPilot · /reports');
       });
+      it('prefers the visible heading over the static title', () => {
+        const page = { id: 'page-1', analysisId: 'analysis-1', url: 'https://example.test/projects', title: 'FlowPilot', heading: 'Projects' };
+        component.pages.set([{ ...page, elements: [], screenshotUrl: null }]);
+        expect(component.pageLabel(page)).toBe('Projects');
+      });
+      it('falls back to the title when the heading is blank or missing', () => {
+        const blank = { id: 'page-1', analysisId: 'analysis-1', url: 'https://example.test/a', title: 'Alpha', heading: '   ' };
+        const missing = { id: 'page-2', analysisId: 'analysis-1', url: 'https://example.test/b', title: 'Beta', heading: null };
+        component.pages.set([{ ...blank, elements: [], screenshotUrl: null }, { ...missing, elements: [], screenshotUrl: null }]);
+        expect(component.pageLabel(blank)).toBe('Alpha');
+        expect(component.pageLabel(missing)).toBe('Beta');
+      });
+      it('keeps route disambiguation when headings repeat', () => {
+        const first = { id: 'page-1', analysisId: 'analysis-1', url: 'https://example.test/projects/1/board', title: 'FlowPilot', heading: 'Board' };
+        const second = { id: 'page-2', analysisId: 'analysis-1', url: 'https://example.test/projects/2/board', title: 'FlowPilot', heading: 'Board' };
+        component.pages.set([{ ...first, elements: [], screenshotUrl: null }, { ...second, elements: [], screenshotUrl: null }]);
+        expect(component.pageLabel(first)).toBe('Board · /projects/1/board');
+        expect(component.pageLabel(second)).toBe('Board · /projects/2/board');
+      });
+      it('finds a page by its heading', () => {
+        const page = { id: 'page-1', analysisId: 'analysis-1', url: 'https://example.test/x', title: 'FlowPilot', heading: 'Quarterly Roadmap' };
+        component.pages.set([{ ...page, elements: [], screenshotUrl: null }]);
+        component.modules.set([{ key: 'admin', name: 'Administration', pages: [page] }]);
+        component.searchQuery.set('roadmap');
+        expect(component.filteredModules()[0].pages).toEqual([page]);
+      });
       it('builds stable anchor ids for navigation', () => {
     expect(component.sectionAnchor('section-1')).toBe('manual-section-section-1');
     expect(component.pageAnchor('page-1')).toBe('discovered-page-page-1');

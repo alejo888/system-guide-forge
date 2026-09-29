@@ -308,6 +308,20 @@ class PlaywrightScreenAnalysisAdapterTest {
         assertThat(result.discoveredPages()).extracting(ScreenAnalysisAdapter.DiscoveredPage::title).containsExactly("App");
     }
 
+    @Test
+    void keepsHeadingsWhenSharedNavigationIsIncludedOnlyOnce() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Home</h1><a href=\"/next\">Menu</a></main></body></html>",
+                "<!doctype html><html><head><title>App</title></head><body><main><h1>Next page</h1><a href=\"/dashboard\">Menu</a><a href=\"#own\">Own link</a></main></body></html>");
+
+        // Regression guard: the shared "Menu" link is kept only on the start page, so the rebuild branch ran.
+        assertThat(result.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("Menu");
+        assertThat(result.discoveredPages()).singleElement().satisfies(page ->
+                assertThat(page.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).doesNotContain("Menu").contains("Own link"));
+        assertThat(result.heading()).isEqualTo("Home");
+        assertThat(result.discoveredPages()).extracting(ScreenAnalysisAdapter.DiscoveredPage::heading).containsExactly("Next page");
+    }
+
     private static ScreenAnalysisAdapter.ScreenAnalysisResult analyzeDashboard(String dashboardHtml, String nextHtml) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/login", exchange -> {
