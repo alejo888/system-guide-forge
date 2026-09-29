@@ -106,6 +106,21 @@ describe('DashboardComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('Register a local system');
   });
 
+  it('shows placeholders instead of zero counters when the systems could not be listed', async () => {
+    api.listApplications.and.rejectWith(new Error('offline'));
+    await render();
+    const counters = Array.from(fixture.nativeElement.querySelectorAll('.metric-card strong') as NodeListOf<HTMLElement>).map(counter => counter.textContent?.trim());
+    expect(counters).toEqual(['—', '—', '—']);
+  });
+
+  it('keeps the systems counter but hides analysis counters when a history request fails', async () => {
+    api.listApplications.and.resolveTo([portal]);
+    api.getApplicationAnalyses.and.rejectWith(new Error('offline'));
+    await render();
+    const counters = Array.from(fixture.nativeElement.querySelectorAll('.metric-card strong') as NodeListOf<HTMLElement>).map(counter => counter.textContent?.trim());
+    expect(counters).toEqual(['1', '—', '—']);
+  });
+
   it('does not claim an empty history when the systems could not be listed', async () => {
     api.listApplications.and.rejectWith(new Error('offline'));
     await render();
