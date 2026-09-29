@@ -70,7 +70,7 @@ Editar título y secciones
 - **RF14.** Permitir aprobar o retirar la inclusión documental de un elemento `UNKNOWN` antes de generar el manual, sin ejecutar el elemento ni ampliar el crawling.
 - **RF15.** Incluir en el manual solo elementos `SAFE` o `UNKNOWN` aprobados, con instrucciones funcionales y sin selectores ni lenguaje técnico de clasificación.
 - **RF16.** Eliminar el borrador existente al cambiar una aprobación de inclusión documental, para exigir una nueva generación sin contenido obsoleto.
-- **RF17.** Conservar en el navegador únicamente la última aplicación seleccionada y las preferencias de idioma; la evidencia y los documentos deben permanecer en el backend.
+- **RF17.** Listar en el Resumen todos los sistemas registrados a partir del backend y conservar en el navegador únicamente las preferencias de idioma; los sistemas, la evidencia y los documentos deben permanecer en el backend.
 - **RF18.** Normalizar las rutas excluidas como prefijos absolutos, quitar barras finales salvo en `/`, eliminar duplicados preservando el primer orden y rechazar consultas, fragmentos, escapes porcentuales, más de 50 rutas o rutas de más de 200 caracteres.
 - **RF19.** Cuando un análisis falle, conservar el registro y la evidencia parcial visibles, marcarlos como incompletos y permitir iniciar mediante el endpoint de creación existente un análisis nuevo que use la configuración actual de la aplicación. La generación de documentos permanece bloqueada para análisis `FAILED`.
 - **RF20.** Cuando la página inicial capturada sea de login, incluir en el manual generado una primera sección de inicio de sesión derivada de las etiquetas de usuario, contraseña y botón de envío detectadas en esa página.

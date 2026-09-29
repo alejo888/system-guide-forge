@@ -62,7 +62,7 @@ npm install
 npm start
 ```
 
-La aplicación queda en `http://localhost:4200`. El proxy de Angular reenvía las solicitudes `/api` a `http://127.0.0.1:8080`, evitando configurar CORS para el desarrollo local. El navegador conserva solo la última aplicación seleccionada y las preferencias de idioma en `localStorage`; la evidencia y los documentos permanecen en el backend.
+La aplicación queda en `http://localhost:4200`. El proxy de Angular reenvía las solicitudes `/api` a `http://127.0.0.1:8080`, evitando configurar CORS para el desarrollo local. El Resumen lista todos los sistemas registrados desde el backend (`GET /api/applications`) y cada uno se edita en `/edit/{id}`. El navegador solo conserva las preferencias de idioma en `localStorage`; los sistemas, la evidencia y los documentos permanecen en el backend.
 
 ## Variables de entorno
 

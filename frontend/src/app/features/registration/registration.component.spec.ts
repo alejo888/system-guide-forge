@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ActivatedRoute, provideRouter } from '@angular/router';
-import { ApiService, ApplicationResponse } from '../../core/api.service';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { ApiError, ApiService, ApplicationResponse } from '../../core/api.service';
 import { RegistrationComponent } from './registration.component';
 
 describe('RegistrationComponent crawler configuration', () => {
@@ -8,14 +8,16 @@ describe('RegistrationComponent crawler configuration', () => {
   let component: RegistrationComponent;
   let api: jasmine.SpyObj<ApiService>;
   let routeUrl: { path: string }[];
+  let routeParams: Record<string, string>;
 
   beforeEach(async () => {
     localStorage.clear();
     routeUrl = [];
-    api = jasmine.createSpyObj<ApiService>('ApiService', ['createProject', 'createApplication', 'testAccess']);
+    routeParams = {};
+    api = jasmine.createSpyObj<ApiService>('ApiService', ['createProject', 'createApplication', 'testAccess', 'getApplication', 'updateApplication']);
     api.createProject.and.resolveTo({ id: 'project-1', name: 'Workspace' });
     api.createApplication.and.resolveTo({ id: 'app-1', projectId: 'project-1', name: 'Portal', baseUrl: 'http://localhost:3000', loginUrl: 'http://localhost:3000/login', maxCrawlDepth: 4, excludedRoutes: ['/admin'] });
-    await TestBed.configureTestingModule({ imports: [RegistrationComponent], providers: [{ provide: ApiService, useValue: api }, provideRouter([]), { provide: ActivatedRoute, useFactory: () => ({ snapshot: { url: routeUrl } }) }] }).compileComponents();
+    await TestBed.configureTestingModule({ imports: [RegistrationComponent], providers: [{ provide: ApiService, useValue: api }, provideRouter([]), { provide: ActivatedRoute, useFactory: () => ({ snapshot: { url: routeUrl, paramMap: convertToParamMap(routeParams) } }) }] }).compileComponents();
     fixture = TestBed.createComponent(RegistrationComponent);
     component = fixture.componentInstance;
   });
@@ -118,13 +120,74 @@ describe('RegistrationComponent crawler configuration', () => {
     expect(api.createApplication).toHaveBeenCalledWith('project-1', jasmine.objectContaining({ excludedRoutes: ['/', '/admin'] }));
   });
 
-  it('hydrates crawler configuration from an existing application response', () => {
-    const application: ApplicationResponse = { id: 'app-1', projectId: 'project-1', name: 'Portal', baseUrl: 'http://localhost:3000', loginUrl: 'http://localhost:3000/login', maxCrawlDepth: 5, excludedRoutes: ['/admin'] };
-    localStorage.setItem('sgf.application', JSON.stringify(application));
-    routeUrl.push({ path: 'edit' });
-    const hydratedFixture = TestBed.createComponent(RegistrationComponent);
-    expect(hydratedFixture.componentInstance.editMode).toBeTrue();
-    expect(hydratedFixture.componentInstance.model().maxCrawlDepth).toBe(5);
-    expect(hydratedFixture.componentInstance.model().excludedRoutes).toEqual(['/admin']);
+  describe('edit mode', () => {
+    const existing: ApplicationResponse = { id: 'app-1', projectId: 'project-1', name: 'Portal', baseUrl: 'http://localhost:3000', loginUrl: 'http://localhost:3000/login', maxCrawlDepth: 5, excludedRoutes: ['/admin'] };
+
+    beforeEach(() => {
+      routeUrl.push({ path: 'edit' }, { path: 'app-1' });
+      routeParams['id'] = 'app-1';
+      api.getApplication.and.resolveTo(existing);
+    });
+
+    it('loads the application by route id and hydrates the form without credentials', async () => {
+      const edit = TestBed.createComponent(RegistrationComponent);
+      edit.detectChanges();
+      await edit.whenStable();
+      edit.detectChanges();
+      expect(api.getApplication).toHaveBeenCalledOnceWith('app-1');
+      expect(edit.componentInstance.editMode).toBeTrue();
+      expect(edit.componentInstance.model().name).toBe('Portal');
+      expect(edit.componentInstance.model().maxCrawlDepth).toBe(5);
+      expect(edit.componentInstance.model().excludedRoutes).toEqual(['/admin']);
+      expect(edit.componentInstance.model().username).toBe('');
+      expect(edit.componentInstance.model().password).toBe('');
+    });
+
+    it('does not allow submitting while the application is loading', async () => {
+      let finish!: (value: ApplicationResponse) => void;
+      api.getApplication.and.returnValue(new Promise(resolve => { finish = resolve; }));
+      const edit = TestBed.createComponent(RegistrationComponent);
+      edit.componentInstance.model.update(value => ({ ...value, username: 'tester', password: 'secret', baseUrl: 'http://localhost:3000', loginUrl: 'http://localhost:3000/login', name: 'Portal' }));
+      edit.detectChanges();
+      expect((edit.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBeTrue();
+      await edit.componentInstance.register();
+      expect(api.updateApplication).not.toHaveBeenCalled();
+      finish(existing);
+      await edit.whenStable();
+      edit.detectChanges();
+      expect((edit.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBeFalse();
+    });
+
+    it('shows a visible error instead of a blank form when the id is unknown', async () => {
+      api.getApplication.and.rejectWith(new ApiError(404, 'Application not found'));
+      const edit = TestBed.createComponent(RegistrationComponent);
+      edit.detectChanges();
+      await edit.whenStable();
+      edit.detectChanges();
+      expect(edit.nativeElement.querySelector('[role="alert"]')?.textContent).toContain('could not be loaded');
+      expect(edit.nativeElement.querySelector('form')).toBeNull();
+    });
+
+    it('updates by route id and never writes the retired application cache', async () => {
+      const setItem = spyOn(Storage.prototype, 'setItem').and.callThrough();
+      api.updateApplication.and.resolveTo(existing);
+      const edit = TestBed.createComponent(RegistrationComponent);
+      edit.detectChanges();
+      await edit.whenStable();
+      edit.componentInstance.model.update(value => ({ ...value, username: 'tester', password: 'secret' }));
+      await edit.componentInstance.register();
+      expect(api.updateApplication).toHaveBeenCalledWith('app-1', jasmine.objectContaining({ name: 'Portal', username: 'tester' }));
+      expect(setItem.calls.allArgs().map(args => args[0])).not.toContain(['sgf', 'application'].join('.'));
+    });
+  });
+
+  it('keeps the created application in component state and does not write the retired cache after registering', async () => {
+    const setItem = spyOn(Storage.prototype, 'setItem').and.callThrough();
+    api.testAccess.and.resolveTo({ reachable: true, authenticated: true });
+    component.model.update(value => ({ ...value, projectName: 'Workspace', name: 'Portal', baseUrl: 'http://localhost:3000', loginUrl: 'http://localhost:3000/login', username: 'tester', password: 'secret' }));
+    await component.register();
+    expect(component.applicationId()).toBe('app-1');
+    expect(api.testAccess).toHaveBeenCalledWith('app-1');
+    expect(setItem.calls.allArgs().map(args => args[0])).not.toContain(['sgf', 'application'].join('.'));
   });
 });

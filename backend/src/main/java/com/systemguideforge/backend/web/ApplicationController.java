@@ -14,6 +14,7 @@ public class ApplicationController {
     private final ProjectApplicationService service;
     public ApplicationController(ProjectApplicationService service){this.service=service;}
     @PostMapping("/api/projects/{projectId}/applications") public ResponseEntity<ApplicationResponse> create(@PathVariable String projectId,@Valid @RequestBody ApplicationInput input){ TargetApplication a=service.createApplication(projectId,input.name(),input.baseUrl(),input.loginUrl(),input.username(),input.password(),input.maxCrawlDepth(),input.excludedRoutes()); return ResponseEntity.created(URI.create("/api/applications/"+a.getId())).body(toResponse(a)); }
+    @GetMapping("/api/applications") public List<ApplicationResponse> list(){ return service.listApplications().stream().map(this::toResponse).toList(); }
     @GetMapping("/api/applications/{id}") public ResponseEntity<ApplicationResponse> get(@PathVariable String id){ return service.getApplication(id).map(a->ResponseEntity.ok(toResponse(a))).orElseGet(()->ResponseEntity.notFound().build()); }
     @PutMapping("/api/applications/{id}") public ResponseEntity<ApplicationResponse> update(@PathVariable String id,@Valid @RequestBody ApplicationInput input){
         try { TargetApplication a=service.updateApplication(id,input.name(),input.baseUrl(),input.loginUrl(),input.username(),input.password(),input.maxCrawlDepth(),input.excludedRoutes()); return ResponseEntity.ok(toResponse(a)); }
