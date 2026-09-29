@@ -71,6 +71,21 @@ class PersistenceTest {
     }
 
     @Test
+    void persistsAndRetrievesPageHeadingNullableAlongsideTheRawTitle() {
+        Project project = projects.save(new Project("Heading project"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost", "http://localhost/login", "u", "p"));
+        Analysis analysis = analyses.save(new Analysis(application.getId()));
+        Page withHeading = pages.save(new Page(analysis.getId(), "http://localhost/board", "App", "Project board", null));
+        Page withoutHeading = pages.save(new Page(analysis.getId(), "http://localhost/plain", "App"));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(pages.findById(withHeading.getId()).orElseThrow().getHeading()).isEqualTo("Project board");
+        assertThat(pages.findById(withHeading.getId()).orElseThrow().getTitle()).isEqualTo("App");
+        assertThat(pages.findById(withoutHeading.getId()).orElseThrow().getHeading()).isNull();
+    }
+
+    @Test
     void persistsAndRetrievesScreenshotContentExactly() {
         Project project = projects.save(new Project("Screenshot project"));
         TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost", "http://localhost/login", "u", "p"));

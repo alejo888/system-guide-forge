@@ -32,6 +32,19 @@ class AnalysisControllerTest {
     }
 
     @Test
+    void includesHeadingInPageResponsesNullWhenAbsent() throws Exception {
+        AnalysisService service = mock(AnalysisService.class);
+        when(service.pages("analysis-1")).thenReturn(List.of(new Page("analysis-1", "http://localhost/a", "App", "Project board", null), new Page("analysis-1", "http://localhost/b", "App")));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AnalysisController(service)).build();
+
+        mvc.perform(get("/api/analyses/analysis-1/pages"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[0].heading").value("Project board"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[0].title").value("App"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[1].heading").doesNotExist());
+    }
+
+    @Test
     void returnsNotFoundForMissingAnalysisPagesAndPageElements() throws Exception {
         AnalysisService service = mock(AnalysisService.class);
         when(service.pages("missing-analysis")).thenThrow(new java.util.NoSuchElementException());

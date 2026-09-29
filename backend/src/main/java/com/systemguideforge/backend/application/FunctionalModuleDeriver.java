@@ -10,11 +10,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 public class FunctionalModuleDeriver {
     // Contains "/", which moduleKey(url) can never produce: a decoded path segment never contains "/" (see moduleKey).
     // This keeps the login module key collision-free against any ordinary page whose first path segment is "login".
     private static final String LOGIN_MODULE_KEY = "sgf/login";
+
+    private static final Pattern ID_SEGMENT = Pattern.compile("[0-9]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 
     public List<Module> derive(List<Page> pages) {
         List<Page> loginPages = pages.stream().filter(page -> page.getKind() == PageKind.LOGIN).toList();
@@ -34,7 +37,7 @@ public class FunctionalModuleDeriver {
     private Module toModule(String key, List<Page> modulePages) {
         return new Module(key, displayName(key), modulePages.stream()
                 .sorted(Comparator.comparing(Page::getUrl).thenComparing(Page::getId))
-                .map(page -> new ModulePage(page.getId(), page.getAnalysisId(), page.getUrl(), page.getTitle(), page.getKind()))
+                .map(page -> new ModulePage(page.getId(), page.getAnalysisId(), page.getUrl(), page.getTitle(), page.getHeading(), page.getKind()))
                 .toList());
     }
 
@@ -45,6 +48,15 @@ public class FunctionalModuleDeriver {
     public String routeFor(String url) {
         String path = URI.create(url).getPath();
         return path == null || path.isBlank() ? "/" : path;
+    }
+
+    /** The route with every purely numeric or UUID path segment replaced by {@code {id}}; other segments stay literal. */
+    public String routeTemplateFor(String url) {
+        String[] segments = routeFor(url).split("/", -1);
+        for (int index = 0; index < segments.length; index++) {
+            if (ID_SEGMENT.matcher(segments[index]).matches()) segments[index] = "{id}";
+        }
+        return String.join("/", segments);
     }
 
     private String moduleKey(String url) {
@@ -70,5 +82,5 @@ public class FunctionalModuleDeriver {
     }
 
     public record Module(String key, String name, List<ModulePage> pages) {}
-    public record ModulePage(String id, String analysisId, String url, String title, PageKind kind) {}
+    public record ModulePage(String id, String analysisId, String url, String title, String heading, PageKind kind) {}
 }

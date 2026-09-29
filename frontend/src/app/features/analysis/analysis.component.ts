@@ -45,7 +45,8 @@ export class AnalysisComponent implements OnInit {
     }
   }
   pageEvidence(id: string): PageEvidence | undefined { return this.pages().find(page => page.id === id); }
-  pageLabel(page: PageResponse): string { const title = page.title?.trim(); if (!title) return this.routeLabel(page.url); return this.pages().filter(candidate => candidate.title?.trim() === title).length > 1 ? `${title} · ${this.routeLabel(page.url)}` : title; }
+  pageLabel(page: PageResponse): string { const base = this.baseLabel(page); if (!base) return this.routeLabel(page.url); return this.pages().filter(candidate => this.baseLabel(candidate) === base).length > 1 ? `${base} · ${this.routeLabel(page.url)}` : base; }
+  private baseLabel(page: PageResponse): string { return page.heading?.trim() || page.title?.trim() || ''; }
   elementLabel(element: ElementResponse): string { return element.accessibleName?.trim() || this.t('unnamed-element'); }
   isLoginPage(page: PageResponse): boolean { return page.kind === 'LOGIN'; }
   routeLabel(url: string): string { try { return new URL(url).pathname || '/'; } catch { return url || '/'; } }
@@ -54,7 +55,7 @@ export class AnalysisComponent implements OnInit {
   moduleAnchor(key: string): string { return `module-${this.anchorPart(key)}`; }
   private normalizedSearch(): string { return this.searchQuery().trim().toLocaleLowerCase(); }
   private searchText(...values: Array<string | null | undefined>): string { return values.filter(Boolean).join(' ').toLocaleLowerCase(); }
-  private pageMatches(page: PageResponse, query: string): boolean { if (!query) return true; const evidence = this.pageEvidence(page.id); const sections = this.editableSections().filter(section => section.sourcePageId === page.id); return this.searchText(page.title, page.url, ...sections.flatMap(section => [section.title, section.content]), ...(evidence?.elements || []).flatMap(element => [element.selector, element.accessibleName, element.kind])).includes(query); }
+  private pageMatches(page: PageResponse, query: string): boolean { if (!query) return true; const evidence = this.pageEvidence(page.id); const sections = this.editableSections().filter(section => section.sourcePageId === page.id); return this.searchText(page.title, page.heading, page.url, ...sections.flatMap(section => [section.title, section.content]), ...(evidence?.elements || []).flatMap(element => [element.selector, element.accessibleName, element.kind])).includes(query); }
   private anchorPart(value: string): string { return value.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'item'; }
   setSearchQuery(query: string): void { this.searchQuery.set(query); }
   setSelectedModule(module: string): void { this.selectedModule.set(module); }

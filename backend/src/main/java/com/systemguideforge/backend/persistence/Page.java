@@ -14,13 +14,17 @@ public class Page {
     private String loginUsernameLabel;
     private String loginPasswordLabel;
     private String loginSubmitLabel;
+    /** First visible h1 of the page (sanitized, nullable); the title stays the raw document title. */
+    private String heading;
     protected Page() {}
     public Page(String analysisId,String url,String title){this(analysisId,url,title,null);}
     public Page(String analysisId,String url,String title,PageKind kind){this(analysisId,url,title,kind,null,null,null);}
-    public Page(String analysisId,String url,String title,PageKind kind,String loginUsernameLabel,String loginPasswordLabel,String loginSubmitLabel){
+    public Page(String analysisId,String url,String title,String heading,PageKind kind){this(analysisId,url,title,kind,null,null,null,heading);}
+    public Page(String analysisId,String url,String title,PageKind kind,String loginUsernameLabel,String loginPasswordLabel,String loginSubmitLabel){this(analysisId,url,title,kind,loginUsernameLabel,loginPasswordLabel,loginSubmitLabel,null);}
+    public Page(String analysisId,String url,String title,PageKind kind,String loginUsernameLabel,String loginPasswordLabel,String loginSubmitLabel,String heading){
         this.id=UUID.randomUUID().toString();this.analysisId=analysisId;this.url=url;this.title=title;this.kind=kind;
-        this.loginUsernameLabel=loginUsernameLabel;this.loginPasswordLabel=loginPasswordLabel;this.loginSubmitLabel=loginSubmitLabel;
+        this.loginUsernameLabel=loginUsernameLabel;this.loginPasswordLabel=loginPasswordLabel;this.loginSubmitLabel=loginSubmitLabel;this.heading=heading;
     }
-    public String getId(){return id;} public String getAnalysisId(){return analysisId;} public String getUrl(){return url;} public String getTitle(){return title;} public PageKind getKind(){return kind;}
+    public String getId(){return id;} public String getAnalysisId(){return analysisId;} public String getUrl(){return url;} public String getTitle(){return title;} public String getHeading(){return heading;} public PageKind getKind(){return kind;}
     public String getLoginUsernameLabel(){return loginUsernameLabel;} public String getLoginPasswordLabel(){return loginPasswordLabel;} public String getLoginSubmitLabel(){return loginSubmitLabel;}
 }

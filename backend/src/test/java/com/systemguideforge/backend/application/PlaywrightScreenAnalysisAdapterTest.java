@@ -272,6 +272,80 @@ class PlaywrightScreenAnalysisAdapterTest {
         }
     }
 
+    @Test
+    void capturesFirstVisibleH1AsHeadingAndKeepsTheRawTitle() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard("""
+                <!doctype html><html><head><title>App</title></head><body><main>
+                <h1 style="display:none">Hidden heading</h1><h1>  Project
+                   board </h1><h1>Second</h1><a href="#x">Link</a></main></body></html>
+                """, null);
+
+        assertThat(result.heading()).isEqualTo("Project board");
+        assertThat(result.title()).isEqualTo("App");
+        assertThat(result.loginPage().heading()).isEqualTo("Sign in page");
+    }
+
+    @Test
+    void leavesHeadingNullWithoutAVisibleH1() throws Exception {
+        assertThat(analyzeDashboard("<!doctype html><html><head><title>App</title></head><body><main><h1 hidden>Nope</h1><h1>   </h1><a href=\"#x\">Link</a></main></body></html>", null).heading()).isNull();
+        assertThat(analyzeDashboard("<!doctype html><html><head><title>App</title></head><body><main><h2>Section</h2><a href=\"#x\">Link</a></main></body></html>", null).heading()).isNull();
+    }
+
+    @Test
+    void redactsSensitiveWordsAndCapsTheHeadingLength() throws Exception {
+        assertThat(analyzeDashboard("<!doctype html><html><body><main><h1>Reset password</h1><a href=\"#x\">Link</a></main></body></html>", null).heading())
+                .isEqualTo("Reset [redacted]");
+        assertThat(analyzeDashboard("<!doctype html><html><body><main><h1>" + "a".repeat(300) + "</h1><a href=\"#x\">Link</a></main></body></html>", null).heading())
+                .hasSize(255);
+    }
+
+    @Test
+    void capturesHeadingOnDiscoveredPages() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard("<!doctype html><html><body><main><h1>Home</h1><a href=\"/next\">Next</a></main></body></html>",
+                "<!doctype html><html><head><title>App</title></head><body><main><h1>Next page</h1><a href=\"/dashboard\">Back</a></main></body></html>");
+
+        assertThat(result.discoveredPages()).extracting(ScreenAnalysisAdapter.DiscoveredPage::heading).containsExactly("Next page");
+        assertThat(result.discoveredPages()).extracting(ScreenAnalysisAdapter.DiscoveredPage::title).containsExactly("App");
+    }
+
+    @Test
+    void keepsHeadingsWhenSharedNavigationIsIncludedOnlyOnce() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Home</h1><a href=\"/next\">Menu</a></main></body></html>",
+                "<!doctype html><html><head><title>App</title></head><body><main><h1>Next page</h1><a href=\"/dashboard\">Menu</a><a href=\"#own\">Own link</a></main></body></html>");
+
+        // Regression guard: the shared "Menu" link is kept only on the start page, so the rebuild branch ran.
+        assertThat(result.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("Menu");
+        assertThat(result.discoveredPages()).singleElement().satisfies(page ->
+                assertThat(page.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).doesNotContain("Menu").contains("Own link"));
+        assertThat(result.heading()).isEqualTo("Home");
+        assertThat(result.discoveredPages()).extracting(ScreenAnalysisAdapter.DiscoveredPage::heading).containsExactly("Next page");
+    }
+
+    private static ScreenAnalysisAdapter.ScreenAnalysisResult analyzeDashboard(String dashboardHtml, String nextHtml) throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/login", exchange -> {
+            if ("POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Location", "/dashboard");
+                exchange.sendResponseHeaders(302, -1);
+                exchange.close();
+                return;
+            }
+            respondHtml(exchange, "<!doctype html><html><head><title>Sign in</title></head><body><h1>Sign in page</h1><form method=\"post\">"
+                    + "<input name=\"username\" type=\"text\"><input name=\"password\" type=\"password\"><button type=\"submit\">Go</button></form></body></html>");
+        });
+        server.createContext("/dashboard", exchange -> respondHtml(exchange, dashboardHtml));
+        if (nextHtml != null) server.createContext("/next", exchange -> respondHtml(exchange, nextHtml));
+        server.start();
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            TargetApplication application = new TargetApplication("project", "app", baseUrl, baseUrl + "/login", "stored-user", "stored-password");
+            return new PlaywrightScreenAnalysisAdapter().analyze(application, "browser-user", "browser-password");
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private static void respondHtml(com.sun.net.httpserver.HttpExchange exchange, String html) throws IOException {
         byte[] body = html.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");

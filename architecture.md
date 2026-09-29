@@ -70,7 +70,7 @@ La profundidad configurada es de 0 a 5 (2 por defecto en el backend si se omite)
 
 ## 5. Persistencia y migraciones
 
-`FunctionalModuleDeriver` deriva los módulos funcionales en memoria a partir de las páginas persistidas; los módulos derivados no se almacenan en PostgreSQL. PostgreSQL almacena las entidades y datos persistidos: proyectos, aplicaciones objetivo, análisis, páginas, elementos, screenshots y documentos editables. Las screenshots se almacenan como `BYTEA` mediante `ScreenshotRepository`, junto con su relación a página y análisis.
+`FunctionalModuleDeriver` deriva los módulos funcionales en memoria a partir de las páginas persistidas y expone `routeTemplateFor`, que reemplaza los segmentos numéricos o UUID de una ruta por `{id}` para que el manual genere una sección por plantilla de ruta; los módulos derivados no se almacenan en PostgreSQL. PostgreSQL almacena las entidades y datos persistidos: proyectos, aplicaciones objetivo, análisis, páginas, elementos, screenshots y documentos editables. Las screenshots se almacenan como `BYTEA` mediante `ScreenshotRepository`, junto con su relación a página y análisis.
 
 Flyway aplica esta historia, en orden:
 
