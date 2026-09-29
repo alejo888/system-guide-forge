@@ -69,7 +69,7 @@ public class DocumentService {
         for (int position = 0; position < routeGroups.size(); position++) {
             List<Page> routeGroup = routeGroups.get(position);
             Page page = routeGroup.get(0);
-            List<UIElement> pageElements = elements.findByPageId(page.getId()).stream().sorted(Comparator.comparing(UIElement::getKind, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getSelector, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getId)).toList();
+            List<UIElement> pageElements = sectionElements(routeGroup);
             String name = sectionName(routeGroup, language);
             String content = describePage(page, name, pageElements, language, routeGroup.size());
             String title = boundedText(descriptiveTitle(page, name, language), TITLE_LIMIT);
@@ -84,12 +84,27 @@ public class DocumentService {
     private List<List<Page>> groupByRouteTemplate(List<Page> orderedPages) {
         Map<String, List<Page>> groups = new LinkedHashMap<>();
         for (Page page : orderedPages) {
-            String key = page.getKind() == PageKind.LOGIN ? "login:" + page.getId() : moduleDeriver.routeTemplateFor(page.getUrl());
+            String template = moduleDeriver.routeTemplateFor(page.getUrl());
+            boolean hasIdSegment = !template.equals(moduleDeriver.routeFor(page.getUrl()));
+            // Only pages that differ by an id segment collapse; query- or hash-only differences keep their own section.
+            String key = page.getKind() == PageKind.LOGIN || !hasIdSegment ? "page:" + page.getId() : moduleDeriver.moduleNameFor(page.getUrl()) + "|" + template;
             groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(page);
         }
         return new ArrayList<>(groups.values());
     }
 
+    /** The example page's elements plus approved UNKNOWN elements from the other collapsed pages, so no manual approval is lost. */
+    private List<UIElement> sectionElements(List<Page> routeGroup) {
+        Comparator<UIElement> order = Comparator.comparing(UIElement::getKind, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getSelector, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getId);
+        List<UIElement> result = new ArrayList<>(elements.findByPageId(routeGroup.get(0).getId()).stream().sorted(order).toList());
+        Set<String> seen = new HashSet<>(result.stream().map(this::elementIdentity).toList());
+        routeGroup.stream().skip(1).flatMap(page -> elements.findByPageId(page.getId()).stream().sorted(order))
+                .filter(element -> classification(element) == ActionClassification.UNKNOWN && element.isManualInclusionApproved())
+                .filter(element -> seen.add(elementIdentity(element)))
+                .forEach(result::add);
+        return result;
+    }
+    private String elementIdentity(UIElement element) { return element.getKind() + "|" + element.getAccessibleName(); }
     private String descriptiveTitle(Page page, String name, Document.DocumentLanguage language) {
         if (page.getKind() == PageKind.LOGIN) return language == Document.DocumentLanguage.ES ? "Cómo ingresar al sistema" : "How to sign in";
         return moduleDeriver.moduleNameFor(page.getUrl()) + ": " + name + " (" + moduleDeriver.routeTemplateFor(page.getUrl()) + ")";

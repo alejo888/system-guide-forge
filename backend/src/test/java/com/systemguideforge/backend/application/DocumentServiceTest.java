@@ -431,6 +431,51 @@ class DocumentServiceTest {
     }
 
     @Test
+    void doesNotCollapsePagesWithoutAnIdSegment() {
+        Page tabA = new Page("a", "http://localhost/projects?tab=a", "FlowPilot", "Projects A", null);
+        Page tabB = new Page("a", "http://localhost/projects?tab=b", "FlowPilot", "Projects B", null);
+        Page hashOne = new Page("a", "http://localhost/#/reports", "FlowPilot", "Reports", null);
+        Page hashTwo = new Page("a", "http://localhost/#/settings", "FlowPilot", "Settings", null);
+
+        Document document = generateForPages(Document.DocumentLanguage.EN, tabA, tabB, hashOne, hashTwo);
+
+        assertThat(document.getSections()).hasSize(4);
+        assertThat(document.getSections()).extracting(DocumentSection::getContent).noneMatch(content -> content.contains("same for every item"));
+        assertThat(document.getSections()).extracting(DocumentSection::getTitle).noneMatch(title -> title.contains("Item details"));
+    }
+
+    @Test
+    void doesNotCollapsePagesFromDifferentModulesThatShareATemplate() {
+        Page one = new Page("a", "http://localhost/1", "FlowPilot", "One", null);
+        Page two = new Page("a", "http://localhost/2", "FlowPilot", "Two", null);
+
+        Document document = generateForPages(Document.DocumentLanguage.EN, one, two);
+
+        assertThat(document.getSections()).hasSize(2);
+    }
+
+    @Test
+    void addsApprovedElementsFromOtherPagesOfACollapsedSection() {
+        Page board1 = new Page("a", "http://localhost/projects/1/board", "FlowPilot");
+        Page board2 = new Page("a", "http://localhost/projects/2/board", "FlowPilot");
+        UIElement approvedElsewhere = new UIElement(board2.getId(), "button", "#archive", "Archive board", ActionClassification.UNKNOWN);
+        approvedElsewhere.setManualInclusionApproved(true);
+        UIElement approvedDuplicate = new UIElement(board2.getId(), "link", "a.help", "Help", ActionClassification.UNKNOWN);
+        approvedDuplicate.setManualInclusionApproved(true);
+        UIElement unapproved = new UIElement(board2.getId(), "button", "#sync", "Sync now", ActionClassification.UNKNOWN);
+        Document document = generateForPages(Document.DocumentLanguage.EN, List.of(board1, board2), page -> page == board1
+                ? List.of(new UIElement(board1.getId(), "link", "a.help", "Help", ActionClassification.SAFE))
+                : List.of(approvedElsewhere, approvedDuplicate, unapproved,
+                        new UIElement(board2.getId(), "link", "a.record", "Record specific link", ActionClassification.SAFE)));
+
+        String content = document.getSections().get(0).getContent();
+        assertThat(document.getSections()).hasSize(1);
+        assertThat(content).contains("\"Help\"").contains("\"Archive board\"")
+                .doesNotContain("Sync now").doesNotContain("Record specific link");
+        assertThat(content.split("\"Help\"", -1)).hasSize(2);
+    }
+
+    @Test
     void usesTheExamplePageElementsForACollapsedSection() {
         Page board1 = new Page("a", "http://localhost/projects/1/board", "FlowPilot");
         Page board2 = new Page("a", "http://localhost/projects/2/board", "FlowPilot");
