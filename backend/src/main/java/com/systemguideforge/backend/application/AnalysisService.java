@@ -24,19 +24,19 @@ public class AnalysisService {
             int persistedPages = 0;
             if (result.loginPage() != null && persistLoginPage(analysis, result.loginPage())) persistedPages++;
             Set<String> visited = new HashSet<>();
-            if (persistPage(analysis, result.url(), result.title(), result.elements(), result.sanitizedScreenshot(), visited, null)) persistedPages++;
+            if (persistPage(analysis, result.url(), result.title(), result.heading(), result.elements(), result.sanitizedScreenshot(), visited, null)) persistedPages++;
             int maxCrawlDepth = Math.min(app.getMaxCrawlDepth(), MAX_CRAWL_DEPTH);
             for (var discovered : result.discoveredPages()) {
                 if (persistedPages >= MAX_CRAWL_PAGES) break;
                 if (discovered.classification() == ActionClassification.SAFE && discovered.depth() <= maxCrawlDepth
-                        && persistPage(analysis, discovered.url(), discovered.title(), discovered.elements(), discovered.sanitizedScreenshot(), visited, null)) persistedPages++;
+                        && persistPage(analysis, discovered.url(), discovered.title(), discovered.heading(), discovered.elements(), discovered.sanitizedScreenshot(), visited, null)) persistedPages++;
             }
             analysis.complete(); return analyses.save(analysis);
         } catch(Exception ex){analysis.fail(ex.getMessage()); return analyses.save(analysis);}
     }
-    private boolean persistPage(Analysis analysis, String url, String title, List<ScreenAnalysisAdapter.DetectedElement> detected, byte[] screenshot, Set<String> visited, PageKind kind) {
+    private boolean persistPage(Analysis analysis, String url, String title, String heading, List<ScreenAnalysisAdapter.DetectedElement> detected, byte[] screenshot, Set<String> visited, PageKind kind) {
         if (!visited.add(url)) return false;
-        Page page=pages.save(new Page(analysis.getId(),url,title,kind));
+        Page page=pages.save(new Page(analysis.getId(),url,title,kind,null,null,null,heading));
         for(var e:detected) elements.save(new UIElement(page.getId(),e.kind(),e.selector(),e.accessibleName(),e.classification()));
         if(screenshot!=null) screenshots.save(new Screenshot(page.getId(),screenshot));
         return true;
@@ -44,7 +44,7 @@ public class AnalysisService {
     /** The login page always persists once (its own dedup set), and carries its captured role labels. */
     private boolean persistLoginPage(Analysis analysis, ScreenAnalysisAdapter.LoginPage loginPage) {
         Page page = pages.save(new Page(analysis.getId(), loginPage.url(), loginPage.title(), PageKind.LOGIN,
-                loginPage.usernameLabel(), loginPage.passwordLabel(), loginPage.submitLabel()));
+                loginPage.usernameLabel(), loginPage.passwordLabel(), loginPage.submitLabel(), loginPage.heading()));
         for (var e : loginPage.elements()) elements.save(new UIElement(page.getId(), e.kind(), e.selector(), e.accessibleName(), e.classification()));
         if (loginPage.sanitizedScreenshot() != null) screenshots.save(new Screenshot(page.getId(), loginPage.sanitizedScreenshot()));
         return true;

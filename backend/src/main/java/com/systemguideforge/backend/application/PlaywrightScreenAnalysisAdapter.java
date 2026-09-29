@@ -69,11 +69,11 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                     throw new IllegalStateException("Unsafe navigation redirect rejected");
                 }
                 ScreenAnalysisResult current = analyzeCurrentPage(page, application, link.depth);
-                discovered.add(new DiscoveredPage(current.url(), current.title(), current.elements(), current.sanitizedScreenshot(), link.depth, ActionClassification.SAFE));
+                discovered.add(new DiscoveredPage(current.url(), current.title(), current.elements(), current.sanitizedScreenshot(), link.depth, ActionClassification.SAFE, current.heading()));
                 if (link.depth < application.getMaxCrawlDepth()) queue.addAll(links(page, application, link.depth + 1, budget));
             }
             ScreenAnalysisResult combined = withSharedNavigationIncludedOnce(first, discovered);
-            return new ScreenAnalysisResult(combined.url(), combined.title(), combined.elements(), combined.sanitizedScreenshot(), combined.discoveredPages(), loginPage);
+            return new ScreenAnalysisResult(combined.url(), combined.title(), combined.elements(), combined.sanitizedScreenshot(), combined.discoveredPages(), loginPage, combined.heading());
         } catch (Exception e) {
             String category = failureCategory(e);
             LOG.warn("Screen analysis failed: category={}, exception={}, origin={}", category, e.getClass().getName(), failureOrigin(e));
@@ -86,7 +86,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         try {
             ScreenAnalysisResult capture = loginCapture.capture(page, application);
             return new LoginPage(capture.url(), capture.title(), capture.elements(), capture.sanitizedScreenshot(),
-                    safeLabel(controlLabel(user)), safeLabel(controlLabel(pass)), safeLabel(submitLabel(submit)));
+                    safeLabel(controlLabel(user)), safeLabel(controlLabel(pass)), safeLabel(submitLabel(submit)), capture.heading());
         } catch (RuntimeException e) {
             LOG.warn("Login page capture failed: category={}, exception={}, origin={}", failureCategory(e), e.getClass().getName(), failureOrigin(e));
             return null;
@@ -150,13 +150,13 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     static ScreenAnalysisResult withSharedNavigationIncludedOnce(ScreenAnalysisResult first, List<DiscoveredPage> discovered) {
         Set<String> sharedNavigation = sharedNavigationKeys(Stream.concat(
                 Stream.of(first.elements()), discovered.stream().map(DiscoveredPage::elements)).toList());
-        if (sharedNavigation.isEmpty()) return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), discovered);
+        if (sharedNavigation.isEmpty()) return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), discovered, null, first.heading());
         List<DiscoveredPage> withoutRepeatedNavigation = discovered.stream()
                 .map(page -> new DiscoveredPage(page.url(), page.title(),
                         page.elements().stream().filter(element -> !isSharedNavigation(element, sharedNavigation)).toList(),
-                        page.sanitizedScreenshot(), page.depth(), ActionClassification.SAFE))
+                        page.sanitizedScreenshot(), page.depth(), ActionClassification.SAFE, page.heading()))
                 .toList();
-        return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), withoutRepeatedNavigation);
+        return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), withoutRepeatedNavigation, null, first.heading());
     }
 
     /** Immutable sets reject contains(null), so elements without a navigation key are never shared navigation. */
@@ -188,7 +188,24 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         Locator sensitiveFields = page.locator(SENSITIVE_FIELD_SELECTOR); sensitiveFields.count();
         byte[] screenshot = page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setFullPage(true).setMask(List.of(sensitiveFields)));
         if (screenshot.length == 0) throw new IllegalStateException("Sanitized screenshot unavailable");
-        return new ScreenAnalysisResult(safeUrl(page.url()), safe(page.title()), found, screenshot);
+        return new ScreenAnalysisResult(safeUrl(page.url()), safe(page.title()), found, screenshot, List.of(), null, heading(page));
+    }
+
+    static final int MAX_HEADING_LENGTH = 255;
+
+    /** First visible h1, whitespace-collapsed and redacted like titles; null when absent, blank, or the lookup fails. */
+    private static String heading(com.microsoft.playwright.Page page) {
+        try {
+            Object raw = page.evaluate("() => { const h = [...document.querySelectorAll('h1')].find(el => {"
+                    + "const style = window.getComputedStyle(el);"
+                    + "return style.display !== 'none' && style.visibility !== 'hidden' && el.getClientRects().length > 0; });"
+                    + "return h ? h.textContent : null; }");
+            if (!(raw instanceof String text)) return null;
+            String normalized = text.trim().replaceAll("\\s+", " ");
+            if (normalized.isEmpty()) return null;
+            String redacted = safe(normalized);
+            return redacted.length() <= MAX_HEADING_LENGTH ? redacted : redacted.substring(0, MAX_HEADING_LENGTH).trim();
+        } catch (RuntimeException e) { return null; }
     }
 
     private void waitForPageReady(com.microsoft.playwright.Page page) {

@@ -727,6 +727,11 @@ components:
         title:
           type: string
           nullable: true
+        heading:
+          type: string
+          nullable: true
+          maxLength: 255
+          description: Text of the first visible h1 of the page, sanitized like the title. Null when the page has no visible h1. The raw title is kept unchanged.
         kind:
           type: string
           enum: [LOGIN]

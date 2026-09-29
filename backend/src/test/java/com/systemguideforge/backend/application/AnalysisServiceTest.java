@@ -122,6 +122,23 @@ class AnalysisServiceTest {
     }
 
     @Test
+    void persistsHeadingForStartDiscoveredAndLoginPages() {
+        AnalysisRepository analyses=mock(AnalysisRepository.class); PageRepository pages=mock(PageRepository.class); UIElementRepository elements=mock(UIElementRepository.class); ScreenshotRepository screenshots=mock(ScreenshotRepository.class); TargetApplicationRepository apps=mock(TargetApplicationRepository.class); CredentialProtector protector=mock(CredentialProtector.class); ScreenAnalysisAdapter adapter=mock(ScreenAnalysisAdapter.class);
+        TargetApplication app=TestFixtures.application("app-id");
+        when(apps.findById(app.getId())).thenReturn(java.util.Optional.of(app)); when(analyses.existsByStatusIn(any())).thenReturn(false); when(analyses.save(any())).thenAnswer(i->i.getArgument(0)); when(analyses.saveAndFlush(any())).thenAnswer(i->i.getArgument(0)); when(protector.decrypt(any())).thenReturn("secret"); when(pages.save(any())).thenAnswer(i->i.getArgument(0));
+        var loginPage = new ScreenAnalysisAdapter.LoginPage("http://localhost/login", "App", List.of(), new byte[]{9}, "Email", "Secret", "Go", "Welcome back");
+        var discovered = new ScreenAnalysisAdapter.DiscoveredPage("http://localhost/projects/1", "App", List.of(), new byte[]{2}, 1, ActionClassification.SAFE, "Project board");
+        when(adapter.analyze(any(), any(), any())).thenReturn(new ScreenAnalysisAdapter.ScreenAnalysisResult("http://localhost/home", "App", List.of(), new byte[]{1}, List.of(discovered), loginPage, "Dashboard"));
+
+        new AnalysisService(analyses,pages,elements,screenshots,apps,protector,adapter).start(app.getId());
+
+        org.mockito.ArgumentCaptor<Page> captor = org.mockito.ArgumentCaptor.forClass(Page.class);
+        verify(pages, times(3)).save(captor.capture());
+        assertThat(captor.getAllValues()).extracting(Page::getHeading).containsExactly("Welcome back", "Dashboard", "Project board");
+        assertThat(captor.getAllValues()).extracting(Page::getTitle).containsOnly("App");
+    }
+
+    @Test
     void persistsLoginRoleLabelsOnlyOnTheLoginPage() {
         AnalysisRepository analyses=mock(AnalysisRepository.class); PageRepository pages=mock(PageRepository.class); UIElementRepository elements=mock(UIElementRepository.class); ScreenshotRepository screenshots=mock(ScreenshotRepository.class); TargetApplicationRepository apps=mock(TargetApplicationRepository.class); CredentialProtector protector=mock(CredentialProtector.class); ScreenAnalysisAdapter adapter=mock(ScreenAnalysisAdapter.class);
         TargetApplication app=TestFixtures.application("app-id");
