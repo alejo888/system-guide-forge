@@ -70,8 +70,9 @@ public class DocumentService {
             List<Page> routeGroup = routeGroups.get(position);
             Page page = routeGroup.get(0);
             List<UIElement> pageElements = elements.findByPageId(page.getId()).stream().sorted(Comparator.comparing(UIElement::getKind, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getSelector, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getId)).toList();
-            String content = describePage(page, pageElements, language, routeGroup.size());
-            String title = boundedText(descriptiveTitle(page, language), TITLE_LIMIT);
+            String name = sectionName(routeGroup, language);
+            String content = describePage(page, name, pageElements, language, routeGroup.size());
+            String title = boundedText(descriptiveTitle(page, name, language), TITLE_LIMIT);
             String screenshotId = screenshots.findByPageIdOrderByIdAsc(page.getId()).stream().findFirst().map(Screenshot::getId).orElse(null);
             DocumentSection section = sections.save(new DocumentSection(document.getId(), position, page.getId(), screenshotId, title, content));
             document.addSection(section);
@@ -89,10 +90,16 @@ public class DocumentService {
         return new ArrayList<>(groups.values());
     }
 
-    private String descriptiveTitle(Page page, Document.DocumentLanguage language) {
+    private String descriptiveTitle(Page page, String name, Document.DocumentLanguage language) {
         if (page.getKind() == PageKind.LOGIN) return language == Document.DocumentLanguage.ES ? "Cómo ingresar al sistema" : "How to sign in";
-        String pageTitle = pageTitle(page, language);
-        return moduleDeriver.moduleNameFor(page.getUrl()) + ": " + pageTitle + " (" + moduleDeriver.routeTemplateFor(page.getUrl()) + ")";
+        return moduleDeriver.moduleNameFor(page.getUrl()) + ": " + name + " (" + moduleDeriver.routeTemplateFor(page.getUrl()) + ")";
+    }
+    /** Collapsed pages whose names differ show record data (e.g. each project's name), so the section uses a generic name instead. */
+    private String sectionName(List<Page> routeGroup, Document.DocumentLanguage language) {
+        String exampleName = pageTitle(routeGroup.get(0), language);
+        boolean recordSpecific = routeGroup.stream().map(page -> pageTitle(page, language)).anyMatch(name -> !name.equals(exampleName));
+        if (!recordSpecific) return exampleName;
+        return language == Document.DocumentLanguage.ES ? "Detalle del elemento" : "Item details";
     }
     /** The visible heading when present, else the raw title, else a generic label. */
     private String pageTitle(Page page, Document.DocumentLanguage language) {
@@ -102,10 +109,10 @@ public class DocumentService {
     }
     private String documentTitle(Document.DocumentType type, String applicationName, Document.DocumentLanguage language) { return (type == Document.DocumentType.USER_MANUAL ? (language == Document.DocumentLanguage.ES ? "Manual de usuario" : "User manual") : type.name()) + " \"" + boundedText(applicationName, 200) + "\""; }
 
-    private String describePage(Page page, List<UIElement> pageElements, Document.DocumentLanguage language, int routePageCount) {
+    private String describePage(Page page, String name, List<UIElement> pageElements, Document.DocumentLanguage language, int routePageCount) {
         boolean spanish = language == Document.DocumentLanguage.ES;
         StringBuilder result = new StringBuilder();
-        result.append(pageIntroduction(page, language, routePageCount)).append("\n\n")
+        result.append(pageIntroduction(page, name, language, routePageCount)).append("\n\n")
                 .append(spanish ? "Pasos:\n" : "Steps:\n");
         if (page.getKind() == PageKind.LOGIN) {
             appendLoginSteps(page, spanish, result);
@@ -159,13 +166,13 @@ public class DocumentService {
         if (trimmed.isEmpty() || trimmed.contains("[redacted]")) return null;
         return "«" + trimmed + "»";
     }
-    private String pageIntroduction(Page page, Document.DocumentLanguage language, int routePageCount) {
+    private String pageIntroduction(Page page, String name, Document.DocumentLanguage language, int routePageCount) {
         if (page.getKind() == PageKind.LOGIN) {
             return language == Document.DocumentLanguage.ES
                     ? "Esta pantalla te permite ingresar al sistema. Ingresá tu usuario o correo electrónico y tu contraseña en el formulario y luego presioná el botón de inicio de sesión."
                     : "This screen lets you sign in to the application. Enter your username or email and your password in the form, then press the sign-in button.";
         }
-        String title = boundedText(pageTitle(page, language), 3000);
+        String title = boundedText(name, 3000);
         String route = boundedText(moduleDeriver.routeTemplateFor(page.getUrl()), 3000);
         String example = boundedText(moduleDeriver.routeFor(page.getUrl()), 3000);
         boolean spanish = language == Document.DocumentLanguage.ES;

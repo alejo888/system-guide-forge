@@ -365,19 +365,36 @@ class DocumentServiceTest {
     }
 
     @Test
+    void usesAGenericNameWhenCollapsedPagesShowRecordSpecificHeadings() {
+        Page mobile = new Page("a", "http://localhost/projects/1", "FlowPilot", "FlowPilot Mobile App", null);
+        Page migration = new Page("a", "http://localhost/projects/3", "FlowPilot", "Internal API Migration", null);
+
+        Document english = generateForPages(Document.DocumentLanguage.EN, migration, mobile);
+        assertThat(english.getSections()).extracting(DocumentSection::getTitle).containsExactly("Projects: Item details (/projects/{id})");
+        assertThat(english.getSections().get(0).getContent())
+                .startsWith("The /projects/{id} route displays the \"Item details\" page. This screen is the same for every item; the example shown is /projects/1.")
+                .doesNotContain("FlowPilot Mobile App");
+
+        Document spanish = generateForPages(Document.DocumentLanguage.ES, migration, mobile);
+        assertThat(spanish.getSections()).extracting(DocumentSection::getTitle).containsExactly("Projects: Detalle del elemento (/projects/{id})");
+        assertThat(spanish.getSections().get(0).getContent())
+                .startsWith("La ruta /projects/{id} muestra la página \"Detalle del elemento\". Esta pantalla es la misma para cada elemento; el ejemplo corresponde a /projects/1.");
+    }
+
+    @Test
     void collapsesPagesThatDifferOnlyByIdIntoOneSectionUsingTheFirstPageAsExample() {
-        Page board3 = new Page("a", "http://localhost/projects/3/board", "FlowPilot", "Board three", null);
-        Page board1 = new Page("a", "http://localhost/projects/1/board", "FlowPilot", "Board one", null);
+        Page board3 = new Page("a", "http://localhost/projects/3/board", "FlowPilot", "Board", null);
+        Page board1 = new Page("a", "http://localhost/projects/1/board", "FlowPilot", "Board", null);
         Page create = new Page("a", "http://localhost/projects/new", "FlowPilot", "New project", null);
 
         Document english = generateForPages(Document.DocumentLanguage.EN, board3, board1, create);
 
         assertThat(english.getSections()).extracting(DocumentSection::getTitle)
-                .containsExactly("Projects: Board one (/projects/{id}/board)", "Projects: New project (/projects/new)");
+                .containsExactly("Projects: Board (/projects/{id}/board)", "Projects: New project (/projects/new)");
         assertThat(english.getSections()).extracting(DocumentSection::getPosition).containsExactly(0, 1);
         assertThat(english.getSections().get(0).getSourcePageId()).isEqualTo(board1.getId());
         assertThat(english.getSections().get(0).getContent()).startsWith(
-                "The /projects/{id}/board route displays the \"Board one\" page. This screen is the same for every item; the example shown is /projects/1/board.");
+                "The /projects/{id}/board route displays the \"Board\" page. This screen is the same for every item; the example shown is /projects/1/board.");
         assertThat(english.getSections().get(1).getContent())
                 .startsWith("The /projects/new route displays the \"New project\" page.")
                 .doesNotContain("same for every item");
@@ -385,7 +402,7 @@ class DocumentServiceTest {
         Document spanish = generateForPages(Document.DocumentLanguage.ES, board3, board1);
         assertThat(spanish.getSections()).hasSize(1);
         assertThat(spanish.getSections().get(0).getContent()).startsWith(
-                "La ruta /projects/{id}/board muestra la página \"Board one\". Esta pantalla es la misma para cada elemento; el ejemplo corresponde a /projects/1/board.");
+                "La ruta /projects/{id}/board muestra la página \"Board\". Esta pantalla es la misma para cada elemento; el ejemplo corresponde a /projects/1/board.");
     }
 
     @Test
