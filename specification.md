@@ -76,6 +76,7 @@ Editar título y secciones
 - **RF20.** Cuando la página inicial capturada sea de login, incluir en el manual generado una primera sección de inicio de sesión derivada de las etiquetas de usuario, contraseña y botón de envío detectadas en esa página.
 - **RF21.** Al abrir un análisis, buscar y mostrar automáticamente el borrador existente, si lo hay, sin bloquear la posibilidad de generar uno nuevo.
 - **RF22.** Permitir exportar el borrador persistido a DOCX, incrustando las capturas sanitizadas disponibles y excluyendo las secciones ocultas.
+- **RF23.** Nombrar las secciones del manual con el `h1` visible de cada página cuando exista (si no, con el título) y agrupar en una sola sección las páginas cuyas rutas difieren solo en segmentos numéricos o UUID, conservando la evidencia por página.
 
 ## 5. Requisitos no funcionales
 
