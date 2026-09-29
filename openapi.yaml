@@ -87,6 +87,22 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
+  /applications:
+    get:
+      tags: [Applications]
+      summary: List registered applications
+      description: Returns every registered local web system ordered by name. Credentials are never returned.
+      operationId: listApplications
+      responses:
+        '200':
+          description: Registered applications ordered by name; an empty array when none are registered.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApplicationResponse'
+
   /applications/{applicationId}:
     put:
       tags: [Applications]

@@ -21,6 +21,25 @@ class ProjectApplicationServiceTest {
     @InjectMocks ProjectApplicationService service;
 
     @Test
+    void listsApplicationsInRepositoryOrder() {
+        var first = new com.systemguideforge.backend.persistence.TargetApplication("p", "Alpha", "http://localhost", "http://localhost/login", "u", "p");
+        var second = new com.systemguideforge.backend.persistence.TargetApplication("p", "Beta", "http://localhost", "http://localhost/login", "u", "p");
+        when(applications.findAllByOrderByNameAscIdAsc()).thenReturn(java.util.List.of(first, second));
+
+        assertEquals(java.util.List.of(first, second), service.listApplications());
+        verify(applications).findAllByOrderByNameAscIdAsc();
+        verifyNoMoreInteractions(applications);
+        verifyNoInteractions(protector);
+    }
+
+    @Test
+    void listsNoApplicationsWhenNoneAreRegistered() {
+        when(applications.findAllByOrderByNameAscIdAsc()).thenReturn(java.util.List.of());
+
+        assertTrue(service.listApplications().isEmpty());
+    }
+
+    @Test
     void createsApplicationWithValidatedCrawlerConfiguration() {
         when(projects.existsById("project-id")).thenReturn(true);
         when(protector.encrypt("user")).thenReturn("encrypted-user");

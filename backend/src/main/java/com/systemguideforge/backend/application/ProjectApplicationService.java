@@ -24,6 +24,7 @@ public class ProjectApplicationService {
         if (!projects.existsById(projectId)) throw new IllegalArgumentException("Project not found");
         return applications.save(new TargetApplication(projectId,name,baseUrl,loginUrl,protector.encrypt(username),protector.encrypt(password),effectiveDepth(maxCrawlDepth),normalizeRoutes(excludedRoutes)));
     }
+    public List<TargetApplication> listApplications() { return applications.findAllByOrderByNameAscIdAsc(); }
     public Optional<TargetApplication> getApplication(String id) { return applications.findById(id); }
     public TargetApplication updateApplication(String id, String name, String baseUrl, String loginUrl, String username, String password) {
         return updateApplication(id, name, baseUrl, loginUrl, username, password, DEFAULT_CRAWL_DEPTH, List.of());

@@ -41,6 +41,7 @@ class PersistenceTest {
         registry.add("spring.datasource.password", postgres::getPassword);
     }
 
+    @Autowired jakarta.persistence.EntityManager entityManager;
     @Autowired ProjectRepository projects;
     @Autowired TargetApplicationRepository applications;
         @Autowired ExcludedRouteRepository excludedRoutes;
@@ -233,6 +234,24 @@ class PersistenceTest {
             assertThat(excludedRoutes.findByApplicationIdOrderByPath(application.getId())).extracting(ExcludedRoute::getPath)
                     .containsExactly("/admin", "/settings");
         }
+
+    @Test
+    void listsApplicationsOrderedByNameThenIdWithExcludedRoutesLoaded() {
+        Project project = projects.save(new Project("List project"));
+        TargetApplication beta = applications.save(new TargetApplication(project.getId(), "Beta", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 2, List.of("/admin", "/settings")));
+        TargetApplication alphaOne = applications.save(new TargetApplication(project.getId(), "Alpha", "http://localhost:8081", "http://localhost:8081/login", "u", "p"));
+        TargetApplication alphaTwo = applications.save(new TargetApplication(project.getId(), "Alpha", "http://localhost:8082", "http://localhost:8082/login", "u", "p"));
+        applications.flush();
+        entityManager.clear();
+
+        List<TargetApplication> listed = applications.findAllByOrderByNameAscIdAsc();
+
+        List<String> alphaIds = java.util.stream.Stream.of(alphaOne.getId(), alphaTwo.getId()).sorted().toList();
+        assertThat(listed).extracting(TargetApplication::getId)
+                .containsExactly(alphaIds.get(0), alphaIds.get(1), beta.getId());
+        entityManager.clear();
+        assertThat(listed.get(2).getExcludedRoutes()).containsExactly("/admin", "/settings");
+    }
 
     @Test
     void persistsProjectAndApplicationWithoutPlaintextCredentials() {
