@@ -15,6 +15,39 @@ class ActionClassifierTest {
     }
 
     @Test
+    void classifiesControlsAsMutatingFromTheirAccessibleNameInEnglishAndSpanish() {
+        assertThat(ActionClassifier.classifyControl("button", "button", "Create task")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", null, "Add member")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Log out")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Crear tarea")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Cerrar sesión")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Eliminar proyecto")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Añadir miembro")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("input", "submit", "Buscar")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Quitarme del proyecto")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Eliminarlo")).isEqualTo(ActionClassification.MUTATING);
+    }
+
+    @Test
+    void keepsControlsWithoutAMutatingVerbAsUnknown() {
+        assertThat(ActionClassifier.classifyControl("button", "button", "Abrir menú")).isEqualTo(ActionClassification.UNKNOWN);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Mostrar contraseña")).isEqualTo(ActionClassification.UNKNOWN);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Recreate view")).isEqualTo(ActionClassification.UNKNOWN);
+        assertThat(ActionClassifier.classifyControl("button", "button", null)).isEqualTo(ActionClassification.UNKNOWN);
+        assertThat(ActionClassifier.classifyControl("div", null, "Crear tarea")).isEqualTo(ActionClassification.UNKNOWN);
+    }
+
+    @Test
+    void classifiesTextEntryFieldsByTypeOnlyAndIgnoresTheirLabel() {
+        assertThat(ActionClassifier.classifyControl("input", "text", "Add a comment")).isEqualTo(ActionClassification.UNKNOWN);
+        assertThat(ActionClassifier.classifyControl("input", null, "save-draft")).isEqualTo(ActionClassification.UNKNOWN);
+        assertThat(ActionClassifier.classifyControl("input", "search", "Agregar filtro")).isEqualTo(ActionClassification.UNKNOWN);
+        assertThat(ActionClassifier.classifyControl("textarea", null, "Agregar comentario")).isEqualTo(ActionClassification.UNKNOWN);
+        assertThat(ActionClassifier.classifyControl("input", "button", "Eliminar")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("input", "reset", "Borrar formulario")).isEqualTo(ActionClassification.MUTATING);
+    }
+
+    @Test
     void treatsSensitiveFieldsAsUnknownRatherThanExecutableActions() {
         assertThat(ActionClassifier.classify("input", "type", "password")).isEqualTo(ActionClassification.UNKNOWN);
         assertThat(ActionClassifier.classify("input", "name", "api-key")).isEqualTo(ActionClassification.UNKNOWN);
