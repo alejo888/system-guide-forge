@@ -3,6 +3,8 @@ import { Router, RouterLink } from '@angular/router';
 import { ApiService, AnalysisSummaryResponse, ApplicationResponse, LocalizationService } from '../../core/api.service';
 
 type LoadState = 'loading' | 'ready' | 'error';
+// 'unavailable': history was never requested because the systems could not be listed.
+type HistoryState = LoadState | 'unavailable';
 type StartState = 'starting' | 'error';
 type DashboardAnalysis = AnalysisSummaryResponse & { applicationName: string };
 
@@ -18,7 +20,7 @@ export class DashboardComponent implements OnInit {
   readonly applications = signal<ApplicationResponse[]>([]);
   readonly analyses = signal<DashboardAnalysis[]>([]);
   readonly applicationsState = signal<LoadState>('loading');
-  readonly historyState = signal<LoadState>('loading');
+  readonly historyState = signal<HistoryState>('loading');
   readonly startStates = signal<Record<string, StartState>>({});
   readonly totalPages = computed(() => this.analyses().reduce((total, analysis) => total + analysis.pageCount, 0));
 
@@ -37,7 +39,7 @@ export class DashboardComponent implements OnInit {
   private async load(): Promise<void> {
     let applications: ApplicationResponse[];
     try { applications = await this.api.listApplications(); }
-    catch { this.applicationsState.set('error'); this.historyState.set('ready'); return; }
+    catch { this.applicationsState.set('error'); this.historyState.set('unavailable'); return; }
     this.applications.set(applications);
     this.applicationsState.set('ready');
     await this.loadHistory(applications);

@@ -106,6 +106,14 @@ describe('DashboardComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('Register a local system');
   });
 
+  it('does not claim an empty history when the systems could not be listed', async () => {
+    api.listApplications.and.rejectWith(new Error('offline'));
+    await render();
+    expect(fixture.nativeElement.textContent).not.toContain('No analyses yet');
+    expect(fixture.nativeElement.querySelectorAll('[role="alert"]').length).toBe(1);
+    expect(api.getApplicationAnalyses).not.toHaveBeenCalled();
+  });
+
   it('renders the history error state without half-rendering when any history request fails', async () => {
     api.getApplicationAnalyses.and.callFake(async id => { if (id === 'app-2') throw new Error('gone'); return portalAnalyses; });
     await render();
