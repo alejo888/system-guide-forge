@@ -476,6 +476,25 @@ class DocumentServiceTest {
     }
 
     @Test
+    void keepsApprovalsThatMatchAnExcludedExampleElementOrHaveNoName() {
+        Page board1 = new Page("a", "http://localhost/projects/1/board", "FlowPilot");
+        Page board2 = new Page("a", "http://localhost/projects/2/board", "FlowPilot");
+        UIElement approvedSameName = new UIElement(board2.getId(), "button", "#export", "Export", ActionClassification.UNKNOWN);
+        approvedSameName.setManualInclusionApproved(true);
+        UIElement approvedUnnamedOne = new UIElement(board2.getId(), "button", "#icon-one", null, ActionClassification.UNKNOWN);
+        approvedUnnamedOne.setManualInclusionApproved(true);
+        UIElement approvedUnnamedTwo = new UIElement(board2.getId(), "button", "#icon-two", null, ActionClassification.UNKNOWN);
+        approvedUnnamedTwo.setManualInclusionApproved(true);
+        Document document = generateForPages(Document.DocumentLanguage.EN, List.of(board1, board2), page -> page == board1
+                ? List.of(new UIElement(board1.getId(), "button", "#export", "Export", ActionClassification.UNKNOWN))
+                : List.of(approvedSameName, approvedUnnamedOne, approvedUnnamedTwo));
+
+        String content = document.getSections().get(0).getContent();
+        assertThat(content).contains("\"Export\"");
+        assertThat(content.split("\"this control\"", -1)).hasSize(3);
+    }
+
+    @Test
     void usesTheExamplePageElementsForACollapsedSection() {
         Page board1 = new Page("a", "http://localhost/projects/1/board", "FlowPilot");
         Page board2 = new Page("a", "http://localhost/projects/2/board", "FlowPilot");

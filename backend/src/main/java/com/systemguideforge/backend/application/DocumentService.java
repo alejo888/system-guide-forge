@@ -97,14 +97,18 @@ public class DocumentService {
     private List<UIElement> sectionElements(List<Page> routeGroup) {
         Comparator<UIElement> order = Comparator.comparing(UIElement::getKind, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getSelector, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getId);
         List<UIElement> result = new ArrayList<>(elements.findByPageId(routeGroup.get(0).getId()).stream().sorted(order).toList());
-        Set<String> seen = new HashSet<>(result.stream().map(this::elementIdentity).toList());
+        // Only elements the manual will actually show count as duplicates; excluded ones must not hide an approval.
+        Set<String> seen = new HashSet<>(result.stream().filter(this::isIncludedInManual).map(this::elementIdentity).toList());
         routeGroup.stream().skip(1).flatMap(page -> elements.findByPageId(page.getId()).stream().sorted(order))
                 .filter(element -> classification(element) == ActionClassification.UNKNOWN && element.isManualInclusionApproved())
                 .filter(element -> seen.add(elementIdentity(element)))
                 .forEach(result::add);
         return result;
     }
-    private String elementIdentity(UIElement element) { return element.getKind() + "|" + element.getAccessibleName(); }
+    private String elementIdentity(UIElement element) {
+        boolean named = element.getAccessibleName() != null && !element.getAccessibleName().isBlank();
+        return element.getKind() + "|" + (named ? "name:" + element.getAccessibleName() : "selector:" + element.getSelector());
+    }
     private String descriptiveTitle(Page page, String name, Document.DocumentLanguage language) {
         if (page.getKind() == PageKind.LOGIN) return language == Document.DocumentLanguage.ES ? "Cómo ingresar al sistema" : "How to sign in";
         return moduleDeriver.moduleNameFor(page.getUrl()) + ": " + name + " (" + moduleDeriver.routeTemplateFor(page.getUrl()) + ")";
