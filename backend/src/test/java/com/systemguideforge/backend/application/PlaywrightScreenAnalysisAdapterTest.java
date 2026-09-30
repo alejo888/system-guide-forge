@@ -322,6 +322,16 @@ class PlaywrightScreenAnalysisAdapterTest {
         assertThat(result.discoveredPages()).extracting(ScreenAnalysisAdapter.DiscoveredPage::heading).containsExactly("Next page");
     }
 
+    @Test
+    void accessibleNameSkipsAriaHiddenIconTextAndSeparatesAdjacentVisibleSpans() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Home</h1><a href=\"#home\" style=\"display:flex\"><span aria-hidden=\"true\">FP</span><span>FlowPilot</span></a>"
+                        + "<button style=\"display:flex\"><span>Nuevo</span><span>proyecto</span></button><button>Hel<b>lo</b></button></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("FlowPilot", "Nuevo proyecto", "Hello").doesNotContain("FPFlowPilot", "Nuevoproyecto", "Hel lo");
+    }
+
     private static ScreenAnalysisAdapter.ScreenAnalysisResult analyzeDashboard(String dashboardHtml, String nextHtml) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/login", exchange -> {
