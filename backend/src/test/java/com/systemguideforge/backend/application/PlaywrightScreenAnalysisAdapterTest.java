@@ -323,6 +323,18 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void capturesTheSameOriginLinkTargetPathWithoutQueryFragmentOrFragmentOnlyLinks() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Home</h1><a href=\"/next?token=abc#top\">Proyectos</a><a href=\"#home\">Ancla</a>"
+                        + "<a href=\"https://external.example/x\">Externo</a><button>Guardar</button></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "Proyectos".equals(element.accessibleName())).extracting(ScreenAnalysisAdapter.DetectedElement::targetPath).containsExactly("/next");
+        assertThat(result.elements()).filteredOn(element -> List.of("Ancla", "Externo", "Guardar").contains(element.accessibleName()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::targetPath).containsOnlyNulls();
+    }
+
+    @Test
     void accessibleNameSkipsAriaHiddenIconTextAndSeparatesAdjacentVisibleSpans() throws Exception {
         ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
                 "<!doctype html><html><body><main><h1>Home</h1><a href=\"#home\" style=\"display:flex\"><span aria-hidden=\"true\">FP</span><span>FlowPilot</span></a>"

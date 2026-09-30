@@ -37,7 +37,7 @@ public class AnalysisService {
     private boolean persistPage(Analysis analysis, String url, String title, String heading, List<ScreenAnalysisAdapter.DetectedElement> detected, byte[] screenshot, Set<String> visited, PageKind kind) {
         if (!visited.add(url)) return false;
         Page page=pages.save(new Page(analysis.getId(),url,title,kind,null,null,null,heading));
-        for(var e:detected) elements.save(new UIElement(page.getId(),e.kind(),e.selector(),e.accessibleName(),e.classification()));
+        for(var e:detected) elements.save(new UIElement(page.getId(),e.kind(),e.selector(),e.accessibleName(),e.classification(),e.targetPath()));
         if(screenshot!=null) screenshots.save(new Screenshot(page.getId(),screenshot));
         return true;
     }
@@ -45,7 +45,7 @@ public class AnalysisService {
     private boolean persistLoginPage(Analysis analysis, ScreenAnalysisAdapter.LoginPage loginPage) {
         Page page = pages.save(new Page(analysis.getId(), loginPage.url(), loginPage.title(), PageKind.LOGIN,
                 loginPage.usernameLabel(), loginPage.passwordLabel(), loginPage.submitLabel(), loginPage.heading()));
-        for (var e : loginPage.elements()) elements.save(new UIElement(page.getId(), e.kind(), e.selector(), e.accessibleName(), e.classification()));
+        for (var e : loginPage.elements()) elements.save(new UIElement(page.getId(), e.kind(), e.selector(), e.accessibleName(), e.classification(), e.targetPath()));
         if (loginPage.sanitizedScreenshot() != null) screenshots.save(new Screenshot(page.getId(), loginPage.sanitizedScreenshot()));
         return true;
     }
@@ -66,7 +66,7 @@ public class AnalysisService {
     }
     public Optional<Analysis> get(String id){return analyses.findById(id);}
     public List<Page> pages(String id){analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); return pages.findByAnalysisId(id).stream().sorted(Comparator.comparingInt(page -> page.getKind() == PageKind.LOGIN ? 0 : 1)).toList();}
-    public List<FunctionalModuleDeriver.Module> modules(String id){ analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); return new FunctionalModuleDeriver().derive(pages.findByAnalysisId(id)); }
+    public List<FunctionalModuleDeriver.Module> modules(String id){ analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); List<Page> analysisPages=pages.findByAnalysisId(id); return new FunctionalModuleDeriver().derive(analysisPages, analysisPages.stream().flatMap(page->elements.findByPageId(page.getId()).stream()).toList()); }
     public List<UIElement> elements(String id){pages.findById(id).orElseThrow(java.util.NoSuchElementException::new); return elements.findByPageId(id);}
     public Optional<Screenshot> screenshot(String pageId){return screenshots.findByPageId(pageId);}
     public List<AnalysisSummary> history(String applicationId) {

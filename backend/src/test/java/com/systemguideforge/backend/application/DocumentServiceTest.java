@@ -507,6 +507,20 @@ class DocumentServiceTest {
     }
 
     @Test
+    void titlesASpanishSectionWithTheAppOwnNavigationLabelAndTranslatesFixedNames() {
+        Page dashboard = new Page("a", "http://localhost/dashboard", "Dashboard");
+        Page board = new Page("a", "http://localhost/projects/1/board", "FlowPilot");
+        Page landing = new Page("a", "http://localhost/", "Landing");
+        Page reports = new Page("a", "http://localhost/monthly-reports", "Reports");
+        Document document = generateForPages(Document.DocumentLanguage.ES, List.of(dashboard, board, landing, reports), page -> page == dashboard
+                ? List.of(new UIElement(dashboard.getId(), "a", "a:nth-of-type(1)", "Proyectos", ActionClassification.SAFE, "/projects"))
+                : List.of());
+
+        assertThat(document.getSections()).extracting(DocumentSection::getTitle).contains(
+                "Proyectos: FlowPilot (/projects/{id}/board)", "Inicio: Landing (/)", "Monthly Reports: Reports (/monthly-reports)");
+    }
+
+    @Test
     void omitsEmptyInstructionGroups() {
         String content = groupedManualContent(Document.DocumentLanguage.EN, List.of(
                 new UIElement("page-1", "link", "a.catalog", "Browse catalog", ActionClassification.SAFE)));

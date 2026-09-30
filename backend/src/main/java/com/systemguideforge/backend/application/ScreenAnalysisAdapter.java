@@ -43,5 +43,10 @@ public interface ScreenAnalysisAdapter {
         }
     }
 
-    record DetectedElement(String kind, String selector, String accessibleName, ActionClassification classification) {}
+    /** targetPath is the sanitized same-origin path of an anchor (never a query, fragment or credentials); null otherwise. */
+    record DetectedElement(String kind, String selector, String accessibleName, ActionClassification classification, String targetPath) {
+        public DetectedElement(String kind, String selector, String accessibleName, ActionClassification classification) {
+            this(kind, selector, accessibleName, classification, null);
+        }
+    }
 }

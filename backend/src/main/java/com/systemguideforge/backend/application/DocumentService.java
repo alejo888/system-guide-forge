@@ -65,6 +65,7 @@ public class DocumentService {
         List<Page> sourcePages = pages.findByAnalysisId(analysisId);
         Map<String, Page> pagesById = sourcePages.stream().collect(Collectors.toMap(Page::getId, page -> page));
         List<Page> derivedPages = moduleDeriver.derive(sourcePages).stream().flatMap(module -> module.pages().stream()).map(modulePage -> pagesById.get(modulePage.id())).toList();
+        Map<String, String> labels = moduleDeriver.navigationLabels(sourcePages.stream().flatMap(page -> elements.findByPageId(page.getId()).stream()).toList());
         List<List<Page>> routeGroups = groupByRouteTemplate(derivedPages);
         for (int position = 0; position < routeGroups.size(); position++) {
             List<Page> routeGroup = routeGroups.get(position);
@@ -72,7 +73,7 @@ public class DocumentService {
             List<UIElement> pageElements = sectionElements(routeGroup);
             String name = sectionName(routeGroup, language);
             String content = describePage(page, name, pageElements, language, routeGroup.size());
-            String title = boundedText(descriptiveTitle(page, name, language), TITLE_LIMIT);
+            String title = boundedText(descriptiveTitle(page, name, language, labels), TITLE_LIMIT);
             String screenshotId = screenshots.findByPageIdOrderByIdAsc(page.getId()).stream().findFirst().map(Screenshot::getId).orElse(null);
             DocumentSection section = sections.save(new DocumentSection(document.getId(), position, page.getId(), screenshotId, title, content));
             document.addSection(section);
@@ -87,7 +88,7 @@ public class DocumentService {
             String template = moduleDeriver.routeTemplateFor(page.getUrl());
             boolean hasIdSegment = !template.equals(moduleDeriver.routeFor(page.getUrl()));
             // Only pages that differ by an id segment collapse; query- or hash-only differences keep their own section.
-            String key = page.getKind() == PageKind.LOGIN || !hasIdSegment ? "page:" + page.getId() : moduleDeriver.moduleNameFor(page.getUrl()) + "|" + template;
+            String key = page.getKind() == PageKind.LOGIN || !hasIdSegment ? "page:" + page.getId() : moduleDeriver.moduleKeyFor(page.getUrl()) + "|" + template;
             groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(page);
         }
         return new ArrayList<>(groups.values());
@@ -109,9 +110,9 @@ public class DocumentService {
         boolean named = element.getAccessibleName() != null && !element.getAccessibleName().isBlank();
         return element.getKind() + "|" + (named ? "name:" + element.getAccessibleName() : "selector:" + element.getSelector());
     }
-    private String descriptiveTitle(Page page, String name, Document.DocumentLanguage language) {
+    private String descriptiveTitle(Page page, String name, Document.DocumentLanguage language, Map<String, String> labels) {
         if (page.getKind() == PageKind.LOGIN) return language == Document.DocumentLanguage.ES ? "Cómo ingresar al sistema" : "How to sign in";
-        return moduleDeriver.moduleNameFor(page.getUrl()) + ": " + name + " (" + moduleDeriver.routeTemplateFor(page.getUrl()) + ")";
+        return moduleDeriver.moduleNameFor(page.getUrl(), labels, language) + ": " + name + " (" + moduleDeriver.routeTemplateFor(page.getUrl()) + ")";
     }
     /** Collapsed pages whose names differ show record data (e.g. each project's name), so the section uses a generic name instead. */
     private String sectionName(List<Page> routeGroup, Document.DocumentLanguage language) {

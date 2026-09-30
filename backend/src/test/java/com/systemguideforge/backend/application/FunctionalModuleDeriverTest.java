@@ -1,7 +1,9 @@
 package com.systemguideforge.backend.application;
 
+import com.systemguideforge.backend.persistence.Document;
 import com.systemguideforge.backend.persistence.Page;
 import com.systemguideforge.backend.persistence.PageKind;
+import com.systemguideforge.backend.persistence.UIElement;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -105,5 +107,70 @@ class FunctionalModuleDeriverTest {
 
         assertThat(modules.get(0).pages()).extracting(FunctionalModuleDeriver.ModulePage::heading)
                 .containsExactly("Projects");
+    }
+
+    private static UIElement link(Page page, String name, String targetPath) {
+        return new UIElement(page.getId(), "a", "a:nth-of-type(1)", name, ActionClassification.SAFE, targetPath);
+    }
+
+    @Test
+    void namesAModuleAfterTheAppNavigationLinkPointingToItsRootRoute() {
+        Page home = new Page("analysis-1", "http://localhost/dashboard", "Dashboard");
+        Page projects = new Page("analysis-1", "http://localhost/projects", "Projects");
+
+        var modules = deriver.derive(List.of(home, projects), List.of(link(home, "Proyectos", "/projects"), link(home, "Panel", "/dashboard")));
+
+        assertThat(modules).extracting(FunctionalModuleDeriver.Module::name).containsExactly("Panel", "Proyectos");
+    }
+
+    @Test
+    void fallsBackToTheUrlDerivedNameWhenNoUsableLinkPointsToTheModule() {
+        Page home = new Page("analysis-1", "http://localhost/dashboard", "Dashboard");
+        Page reports = new Page("analysis-1", "http://localhost/monthly-reports", "Reports");
+        Page projects = new Page("analysis-1", "http://localhost/projects", "Projects");
+
+        var modules = deriver.derive(List.of(home, reports, projects), List.of(
+                link(home, "[redacted] menu", "/monthly-reports"),
+                link(home, "   ", "/projects"),
+                link(home, "Deep", "/projects/1/board"),
+                link(home, "Brand", "/")));
+
+        assertThat(modules).extracting(FunctionalModuleDeriver.Module::name).containsExactly("Dashboard", "Monthly Reports", "Projects");
+    }
+
+    @Test
+    void picksTheMostFrequentLinkLabelAndBreaksTiesAlphabetically() {
+        Page page = new Page("analysis-1", "http://localhost/projects", "Projects");
+        Page other = new Page("analysis-1", "http://localhost/tasks", "Tasks");
+
+        var labels = deriver.navigationLabels(List.of(
+                link(page, "Proyectos", "/projects"), link(other, "Mis proyectos", "/projects/"), link(page, "Mis proyectos", "/projects"),
+                link(page, "Tareas B", "/tasks"), link(page, "Tareas A", "/tasks")));
+
+        assertThat(labels).containsEntry("projects", "Mis proyectos").containsEntry("tasks", "Tareas A");
+    }
+
+    @Test
+    void ignoresNonLinkElementsAndLinksWithoutATargetPath() {
+        Page page = new Page("analysis-1", "http://localhost/projects", "Projects");
+
+        var labels = deriver.navigationLabels(List.of(
+                new UIElement(page.getId(), "button", "#b", "Botón", ActionClassification.SAFE, "/projects"),
+                link(page, "Sin destino", null)));
+
+        assertThat(labels).isEmpty();
+    }
+
+    @Test
+    void translatesTheFixedSgfNamesOnlyWhenTheDocumentLanguageIsKnown() {
+        var none = java.util.Map.<String, String>of();
+
+        assertThat(deriver.moduleNameFor("http://localhost/", none, Document.DocumentLanguage.ES)).isEqualTo("Inicio");
+        assertThat(deriver.moduleNameFor("http://localhost/", none, Document.DocumentLanguage.EN)).isEqualTo("Home");
+        assertThat(deriver.moduleNameFor("http://localhost/", none, null)).isEqualTo("Home");
+        assertThat(deriver.loginModuleName(Document.DocumentLanguage.ES)).isEqualTo("Ingreso al sistema");
+        assertThat(deriver.loginModuleName(Document.DocumentLanguage.EN)).isEqualTo("Sign in");
+        assertThat(deriver.loginModuleName(null)).isEqualTo("Login");
+        assertThat(deriver.moduleNameFor("http://localhost/projects/1", java.util.Map.of("projects", "Proyectos"), Document.DocumentLanguage.ES)).isEqualTo("Proyectos");
     }
 }
