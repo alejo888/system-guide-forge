@@ -1,7 +1,7 @@
 import { ComponentFixture, fakeAsync, TestBed, tick } from '@angular/core/testing';
 import { ActivatedRoute, Router } from '@angular/router';
 import { AnalysisComponent } from './analysis.component';
-import { ApiError, ApiService, DocumentResponse } from '../../core/api.service';
+import { ApiError, ApiService, DocumentResponse, LocalizationService } from '../../core/api.service';
 
 const document: DocumentResponse = {
   id: 'doc-1', title: 'Guide', applicationId: 'app-1', sourceAnalysisId: 'analysis-1', status: 'DRAFT', language: 'en', type: 'user_manual',
@@ -549,5 +549,53 @@ describe('AnalysisComponent auto-loaded draft', () => {
     await fixture.whenStable();
 
     expect(component.document()?.id).toBe('doc-generated');
+  });
+});
+
+describe('AnalysisComponent heading and completed status text', () => {
+  let fixture: ComponentFixture<AnalysisComponent>;
+  let component: AnalysisComponent;
+
+  beforeEach(async () => {
+    localStorage.setItem('sgf.language', 'en');
+    const api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getAnalysisModules', 'getAnalysisDocument']);
+    api.getAnalysis.and.resolveTo({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null });
+    api.getAnalysisPages.and.resolveTo([]);
+    api.getAnalysisModules.and.resolveTo([]);
+    api.getAnalysisDocument.and.rejectWith(new ApiError(404, 'Document not found'));
+    await TestBed.configureTestingModule({ imports: [AnalysisComponent], providers: [
+      { provide: ApiService, useValue: api }, { provide: Router, useValue: jasmine.createSpyObj<Router>('Router', ['navigate']) }, { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => 'analysis-1' } } } },
+    ] }).compileComponents();
+    fixture = TestBed.createComponent(AnalysisComponent); component = fixture.componentInstance;
+    component.analysis.set({ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '', completedAt: null, failureMessage: null }); component.state.set('ready');
+  });
+
+  const evidence = (count: number) => Array.from({ length: count }, (_, index) => ({ id: `page-${index}`, analysisId: 'analysis-1', url: `http://localhost/p${index}`, title: `P${index}`, elements: [], screenshotUrl: null }) as unknown as Parameters<AnalysisComponent['pages']['set']>[0][number]);
+  const text = (selector: string) => (fixture.nativeElement.querySelector(selector)?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+  it('reads the Spanish heading once and keeps the English heading', () => {
+    TestBed.inject(LocalizationService).setLanguage('es');
+    fixture.detectChanges();
+    expect(text('h1')).toBe('Panel de análisis.');
+    TestBed.inject(LocalizationService).setLanguage('en');
+    fixture.detectChanges();
+    expect(text('h1')).toBe('Analysis dashboard.');
+  });
+
+  it('states the real analyzed page count in Spanish and English with singular forms', () => {
+    const localization = TestBed.inject(LocalizationService);
+    localization.setLanguage('es');
+    component.pages.set(evidence(7));
+    fixture.detectChanges();
+    expect(text('.progress-card p')).toBe('Se analizaron 7 páginas sin ejecutar controles.');
+    component.pages.set(evidence(1));
+    fixture.detectChanges();
+    expect(text('.progress-card p')).toBe('Se analizó 1 página sin ejecutar controles.');
+    localization.setLanguage('en');
+    fixture.detectChanges();
+    expect(text('.progress-card p')).toBe('Analyzed 1 page without running any controls.');
+    component.pages.set(evidence(3));
+    fixture.detectChanges();
+    expect(text('.progress-card p')).toBe('Analyzed 3 pages without running any controls.');
   });
 });

@@ -184,7 +184,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     private ScreenAnalysisResult analyzeCurrentPage(com.microsoft.playwright.Page page, TargetApplication app, int depth) {
         waitForPageReady(page);
         List<DetectedElement> found = new ArrayList<>();
-        detect(page, "button", found); detect(page, "a", found); detect(page, "input", found); detect(page, "textarea", found);
+        detect(page, "button", found, app); detect(page, "a", found, app); detect(page, "input", found, app); detect(page, "textarea", found, app);
         Locator sensitiveFields = page.locator(SENSITIVE_FIELD_SELECTOR); sensitiveFields.count();
         byte[] screenshot = page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setFullPage(true).setMask(List.of(sensitiveFields)));
         if (screenshot.length == 0) throw new IllegalStateException("Sanitized screenshot unavailable");
@@ -294,12 +294,21 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                 && Objects.equals(left.getScheme(), right.getScheme()) && Objects.equals(left.getHost(), right.getHost()) && left.getPort() == right.getPort();
     }
     private static String normalizedPath(URI uri) { String path = uri.getPath(); return path == null || path.isBlank() ? "/" : path.length() > 1 && path.endsWith("/") ? path.substring(0, path.length() - 1) : path; }
-    private void detect(com.microsoft.playwright.Page page, String kind, List<DetectedElement> found) {
+    private void detect(com.microsoft.playwright.Page page, String kind, List<DetectedElement> found, TargetApplication app) {
         Locator locator = page.locator(kind); int count = Math.min(locator.count(), 500);
         for (int i = 0; i < count; i++) { Locator item = locator.nth(i); String selector = kind + ":nth-of-type(" + (i + 1) + ")";
             String aria=item.getAttribute("aria-label"), name=item.getAttribute("name"), id=item.getAttribute("id"), placeholder=item.getAttribute("placeholder"), type=item.getAttribute("type"), href=item.getAttribute("href");
             String visibleText=text(item); String label=first(aria,name,placeholder,visibleText); String pressLabel=first(aria,visibleText,item.getAttribute("value")); String attribute="a".equals(kind)?"href":"type"; String value="a".equals(kind)?href:type;
-            found.add(new DetectedElement(kind,selector,safe(label),classifyFixtureElement(item,kind,attribute,value,pressLabel,name,id,placeholder))); }
+            found.add(new DetectedElement(kind,selector,safe(label),classifyFixtureElement(item,kind,attribute,value,pressLabel,name,id,placeholder),"a".equals(kind)?targetPath(href,page.url(),app.getBaseUrl()):null,"a".equals(kind)&&inNavigation(item))); }
+    }
+    private static final String NAVIGATION_LANDMARKS = "nav, header, aside, [role=navigation], [role=banner]";
+    private static boolean inNavigation(Locator item){try{return Boolean.TRUE.equals(item.evaluate("(el, selector) => el.closest(selector) !== null", NAVIGATION_LANDMARKS));}catch(Exception e){return false;}}
+    /** Same-origin path of an anchor (no query or fragment, via the same sanitizing as crawled links); fragment-only hrefs point nowhere new. */
+    static String targetPath(String href, String currentUrl, String baseUrl) {
+        if (href == null || href.isBlank() || href.trim().startsWith("#")) return null;
+        String resolved = internalSafeUrl(href, currentUrl, baseUrl);
+        if (resolved == null) return null;
+        try { String path = normalizedPath(URI.create(resolved)); return path.length() <= 255 ? path : null; } catch (RuntimeException e) { return null; }
     }
     private static ActionClassification classifyFixtureElement(Locator item,String kind,String attribute,String value,String pressLabel,String name,String id,String placeholder){ if(isSensitiveField(kind,value,name,id,placeholder))return ActionClassification.UNKNOWN; ActionClassification metadata=ActionClassifier.classifyFixtureMetadata(item.getAttribute("data-action-type")); if(metadata!=null)return metadata; return "a".equals(kind)?ActionClassifier.classify(kind,attribute,value):ActionClassifier.classifyControl(kind,value,pressLabel); }
     private static boolean isSensitiveField(String kind,String type,String name,String id,String placeholder){if(!"input".equals(kind)&&!"textarea".equals(kind))return false; return String.join(" ",type==null?"":type,name==null?"":name,id==null?"":id,placeholder==null?"":placeholder).matches("(?i).*(password|api[-_]?key|secret|token|credential).*");}

@@ -102,6 +102,26 @@ class AnalysisServiceTest {
     }
 
     @Test
+    void persistsTheLinkTargetPathAndNamesModulesFromNavigationLabels() {
+        AnalysisRepository analyses=mock(AnalysisRepository.class); PageRepository pages=mock(PageRepository.class); UIElementRepository elements=mock(UIElementRepository.class); ScreenshotRepository screenshots=mock(ScreenshotRepository.class); TargetApplicationRepository apps=mock(TargetApplicationRepository.class); CredentialProtector protector=mock(CredentialProtector.class); ScreenAnalysisAdapter adapter=mock(ScreenAnalysisAdapter.class);
+        TargetApplication app=TestFixtures.application("app-id");
+        when(apps.findById(app.getId())).thenReturn(java.util.Optional.of(app)); when(analyses.existsByStatusIn(any())).thenReturn(false); when(analyses.save(any())).thenAnswer(i->i.getArgument(0)); when(analyses.saveAndFlush(any())).thenAnswer(i->i.getArgument(0)); when(protector.decrypt(any())).thenReturn("secret"); when(pages.save(any())).thenAnswer(i->i.getArgument(0));
+        var nav = new ScreenAnalysisAdapter.DetectedElement("a", "a:nth-of-type(1)", "Proyectos", ActionClassification.SAFE, "/projects");
+        when(adapter.analyze(any(), any(), any())).thenReturn(new ScreenAnalysisAdapter.ScreenAnalysisResult("http://localhost/dashboard", "Home", List.of(nav), new byte[]{1}));
+
+        Analysis result=new AnalysisService(analyses,pages,elements,screenshots,apps,protector,adapter).start(app.getId());
+
+        org.mockito.ArgumentCaptor<UIElement> captor = org.mockito.ArgumentCaptor.forClass(UIElement.class);
+        verify(elements).save(captor.capture());
+        assertThat(captor.getValue().getTargetPath()).isEqualTo("/projects");
+        Page dashboard = new Page(result.getId(), "http://localhost/dashboard", "Home"), projects = new Page(result.getId(), "http://localhost/projects", "Projects");
+        when(analyses.findById(result.getId())).thenReturn(java.util.Optional.of(result));
+        when(pages.findByAnalysisId(result.getId())).thenReturn(List.of(dashboard, projects));
+        when(elements.findByPageId(dashboard.getId())).thenReturn(List.of(captor.getValue()));
+        assertThat(new AnalysisService(analyses,pages,elements,screenshots,apps,protector,adapter).modules(result.getId())).extracting(FunctionalModuleDeriver.Module::name).containsExactly("Dashboard", "Proyectos");
+    }
+
+    @Test
     void persistsLoginPageFirstMarkedAsLoginKindBeforeTheAuthenticatedPage() {
         AnalysisRepository analyses=mock(AnalysisRepository.class); PageRepository pages=mock(PageRepository.class); UIElementRepository elements=mock(UIElementRepository.class); ScreenshotRepository screenshots=mock(ScreenshotRepository.class); TargetApplicationRepository apps=mock(TargetApplicationRepository.class); CredentialProtector protector=mock(CredentialProtector.class); ScreenAnalysisAdapter adapter=mock(ScreenAnalysisAdapter.class);
         TargetApplication app=TestFixtures.application("app-id");

@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { ApiError, ApiService, ApplicationResponse } from '../../core/api.service';
+import { ApiError, ApiService, ApplicationResponse, LocalizationService } from '../../core/api.service';
 import { RegistrationComponent } from './registration.component';
 
 describe('RegistrationComponent crawler configuration', () => {
@@ -189,5 +189,38 @@ describe('RegistrationComponent crawler configuration', () => {
     expect(component.applicationId()).toBe('app-1');
     expect(api.testAccess).toHaveBeenCalledWith('app-1');
     expect(setItem.calls.allArgs().map(args => args[0])).not.toContain(['sgf', 'application'].join('.'));
+  });
+
+  describe('access test result text', () => {
+    async function showAccessResult(result: Awaited<ReturnType<ApiService['testAccess']>>, language: 'en' | 'es'): Promise<string> {
+      TestBed.inject(LocalizationService).setLanguage(language);
+      api.testAccess.and.resolveTo(result);
+      component.applicationId.set('app-1');
+      component.model.update(value => ({ ...value, projectName: 'Workspace', name: 'Portal', baseUrl: 'http://localhost:3000', loginUrl: 'http://localhost:3000/login', username: 'tester', password: 'secret' }));
+      await component.testAccess();
+      fixture.detectChanges();
+      return fixture.nativeElement.querySelector('.result-card p')?.textContent ?? '';
+    }
+
+    it('translates the backend result code instead of showing the English message', async () => {
+      const rejected = { reachable: true, authenticated: false, message: 'Login rejected or still pending', code: 'NOT_AUTHENTICATED' as const };
+      expect(await showAccessResult(rejected, 'es')).toContain('no aceptó');
+      expect(await showAccessResult(rejected, 'es')).not.toContain('Login rejected');
+      expect(await showAccessResult({ reachable: true, authenticated: true, message: 'Login successful', code: 'AUTHENTICATED' }, 'es')).toContain('aceptó las credenciales');
+      expect(await showAccessResult({ reachable: false, authenticated: false, message: 'Browser login unavailable or failed', code: 'BROWSER_LOGIN_FAILED' }, 'es')).toContain('navegador');
+      expect(await showAccessResult({ reachable: true, authenticated: false, message: 'Login form unavailable', code: 'LOGIN_FORM_UNAVAILABLE' }, 'es')).toContain('formulario');
+      expect(await showAccessResult(rejected, 'en')).toContain('rejected');
+    });
+
+    it('falls back to the generic text, never a raw key, for a code without a translation', async () => {
+      const unknown = { reachable: true, authenticated: false, message: 'Something new', code: 'SOMETHING_NEW' } as unknown as Awaited<ReturnType<ApiService['testAccess']>>;
+      expect(await showAccessResult(unknown, 'es')).toBe('El sistema respondió, pero no se confirmó la autenticación.');
+      expect(await showAccessResult({ ...unknown, authenticated: true }, 'en')).toBe('Credentials were accepted by the local system.');
+    });
+
+    it('falls back to the generic accepted or unconfirmed text when no code is present', async () => {
+      expect(await showAccessResult({ reachable: true, authenticated: true }, 'es')).toContain('El sistema local aceptó las credenciales');
+      expect(await showAccessResult({ reachable: true, authenticated: false }, 'en')).toContain('authentication was not confirmed');
+    });
   });
 });
