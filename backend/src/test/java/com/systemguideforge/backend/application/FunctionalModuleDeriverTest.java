@@ -173,4 +173,30 @@ class FunctionalModuleDeriverTest {
         assertThat(deriver.loginModuleName(null)).isEqualTo("Login");
         assertThat(deriver.moduleNameFor("http://localhost/projects/1", java.util.Map.of("projects", "Proyectos"), Document.DocumentLanguage.ES)).isEqualTo("Proyectos");
     }
+
+    private static UIElement navLink(Page page, String name, String targetPath) {
+        return new UIElement(page.getId(), "a", "a:nth-of-type(1)", name, ActionClassification.SAFE, targetPath, true);
+    }
+
+    @Test
+    void prefersNavigationLandmarkLinksOverMoreFrequentInContentLinks() {
+        Page page = new Page("analysis-1", "http://localhost/dashboard", "Dashboard");
+
+        var labels = deriver.navigationLabels(List.of(
+                link(page, "Ver todos", "/projects"), link(page, "Ver todos", "/projects"), link(page, "Ver todos", "/projects"),
+                navLink(page, "Proyectos", "/projects")));
+
+        assertThat(labels).containsEntry("projects", "Proyectos");
+    }
+
+    @Test
+    void usesAllLinksForAModuleWithoutLandmarkLinksAndLandmarksOnlyWhereTheyExist() {
+        Page page = new Page("analysis-1", "http://localhost/dashboard", "Dashboard");
+
+        var labels = deriver.navigationLabels(List.of(
+                link(page, "Ver todos", "/projects"), link(page, "Ver todos", "/projects"), link(page, "Proyectos", "/projects"),
+                link(page, "Tareas", "/tasks"), navLink(page, "Reportes", "/reports")));
+
+        assertThat(labels).containsEntry("projects", "Ver todos").containsEntry("tasks", "Tareas").containsEntry("reports", "Reportes");
+    }
 }

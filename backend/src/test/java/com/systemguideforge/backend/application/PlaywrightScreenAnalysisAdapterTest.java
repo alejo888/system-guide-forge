@@ -335,6 +335,19 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void flagsLinksInsideNavigationLandmarksOnly() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><header><a href=\"/next\">Cabecera</a></header><nav><a href=\"/next\">Menu</a></nav><div role=\"navigation\"><a href=\"/next\">Rol</a></div>"
+                        + "<main><h1>Home</h1><a href=\"/next\">Ver todos</a><button>Guardar</button></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> List.of("Cabecera", "Menu", "Rol").contains(element.accessibleName()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::inNavigation).containsExactly(true, true, true);
+        assertThat(result.elements()).filteredOn(element -> List.of("Ver todos", "Guardar").contains(element.accessibleName()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::inNavigation).containsExactly(false, false);
+    }
+
+    @Test
     void accessibleNameSkipsAriaHiddenIconTextAndSeparatesAdjacentVisibleSpans() throws Exception {
         ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
                 "<!doctype html><html><body><main><h1>Home</h1><a href=\"#home\" style=\"display:flex\"><span aria-hidden=\"true\">FP</span><span>FlowPilot</span></a>"

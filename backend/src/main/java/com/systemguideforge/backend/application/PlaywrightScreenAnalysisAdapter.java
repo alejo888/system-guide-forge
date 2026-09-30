@@ -299,8 +299,10 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         for (int i = 0; i < count; i++) { Locator item = locator.nth(i); String selector = kind + ":nth-of-type(" + (i + 1) + ")";
             String aria=item.getAttribute("aria-label"), name=item.getAttribute("name"), id=item.getAttribute("id"), placeholder=item.getAttribute("placeholder"), type=item.getAttribute("type"), href=item.getAttribute("href");
             String visibleText=text(item); String label=first(aria,name,placeholder,visibleText); String pressLabel=first(aria,visibleText,item.getAttribute("value")); String attribute="a".equals(kind)?"href":"type"; String value="a".equals(kind)?href:type;
-            found.add(new DetectedElement(kind,selector,safe(label),classifyFixtureElement(item,kind,attribute,value,pressLabel,name,id,placeholder),"a".equals(kind)?targetPath(href,page.url(),app.getBaseUrl()):null)); }
+            found.add(new DetectedElement(kind,selector,safe(label),classifyFixtureElement(item,kind,attribute,value,pressLabel,name,id,placeholder),"a".equals(kind)?targetPath(href,page.url(),app.getBaseUrl()):null,"a".equals(kind)&&inNavigation(item))); }
     }
+    private static final String NAVIGATION_LANDMARKS = "nav, header, aside, [role=navigation], [role=banner]";
+    private static boolean inNavigation(Locator item){try{return Boolean.TRUE.equals(item.evaluate("(el, selector) => el.closest(selector) !== null", NAVIGATION_LANDMARKS));}catch(Exception e){return false;}}
     /** Same-origin path of an anchor (no query or fragment, via the same sanitizing as crawled links); fragment-only hrefs point nowhere new. */
     static String targetPath(String href, String currentUrl, String baseUrl) {
         if (href == null || href.isBlank() || href.trim().startsWith("#")) return null;

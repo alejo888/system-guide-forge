@@ -1,0 +1,1 @@
+ALTER TABLE ui_elements ADD COLUMN in_navigation BOOLEAN NOT NULL DEFAULT FALSE;

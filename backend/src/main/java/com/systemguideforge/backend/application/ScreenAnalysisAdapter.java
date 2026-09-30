@@ -43,10 +43,13 @@ public interface ScreenAnalysisAdapter {
         }
     }
 
-    /** targetPath is the sanitized same-origin path of an anchor (never a query, fragment or credentials); null otherwise. */
-    record DetectedElement(String kind, String selector, String accessibleName, ActionClassification classification, String targetPath) {
+    /** inNavigation: the anchor sits inside a navigation landmark. targetPath is the sanitized same-origin path of an anchor (never a query, fragment or credentials); null otherwise. */
+    record DetectedElement(String kind, String selector, String accessibleName, ActionClassification classification, String targetPath, boolean inNavigation) {
+        public DetectedElement(String kind, String selector, String accessibleName, ActionClassification classification, String targetPath) {
+            this(kind, selector, accessibleName, classification, targetPath, false);
+        }
         public DetectedElement(String kind, String selector, String accessibleName, ActionClassification classification) {
-            this(kind, selector, accessibleName, classification, null);
+            this(kind, selector, accessibleName, classification, null, false);
         }
     }
 }

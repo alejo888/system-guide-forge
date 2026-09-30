@@ -65,19 +65,20 @@ public class FunctionalModuleDeriver {
 
     /**
      * Module key to the accessible name of the links that point at that module's root route (one path segment, e.g. /projects).
-     * The most frequent name wins and ties break alphabetically; blank, redacted and overlong names and the home route are ignored.
+     * Links inside a navigation landmark win over in-content links; the most frequent name wins and ties break alphabetically; blank, redacted and overlong names and the home route are ignored.
      */
     public Map<String, String> navigationLabels(List<UIElement> elements) {
-        Map<String, Map<String, Integer>> counts = new HashMap<>();
+        Map<String, Map<String, Integer>> counts = new HashMap<>(), landmarkCounts = new HashMap<>();
         for (UIElement element : elements) {
             if (!"a".equalsIgnoreCase(element.getKind()) || element.getTargetPath() == null) continue;
             String key = rootRouteKey(element.getTargetPath());
             String name = element.getAccessibleName() == null ? "" : element.getAccessibleName().trim();
             if (key == null || name.isEmpty() || name.length() > MAX_LABEL_LENGTH || name.contains("[redacted]")) continue;
             counts.computeIfAbsent(key, ignored -> new HashMap<>()).merge(name, 1, Integer::sum);
+            if (element.isInNavigation()) landmarkCounts.computeIfAbsent(key, ignored -> new HashMap<>()).merge(name, 1, Integer::sum);
         }
         Map<String, String> labels = new java.util.TreeMap<>();
-        counts.forEach((key, byName) -> byName.entrySet().stream()
+        counts.forEach((key, all) -> (landmarkCounts.containsKey(key) ? landmarkCounts.get(key) : all).entrySet().stream()
                 .sorted(Map.Entry.<String, Integer>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
                 .findFirst().ifPresent(best -> labels.put(key, best.getKey())));
         return labels;
