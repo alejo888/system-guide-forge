@@ -44,6 +44,8 @@ export class AnalysisComponent implements OnInit {
       this.draftLookupState.set('idle');
     }
   }
+  /** The completed-status sentence with the real number of pages that were analyzed. */
+  completedText(): string { const count = this.pages().length; return count === 1 ? this.t('progress-completed-one') : this.t('progress-completed-many').replace('{n}', String(count)); }
   pageEvidence(id: string): PageEvidence | undefined { return this.pages().find(page => page.id === id); }
   pageLabel(page: PageResponse): string { const base = this.baseLabel(page); if (!base) return this.routeLabel(page.url); return this.pages().filter(candidate => this.baseLabel(candidate) === base).length > 1 ? `${base} · ${this.routeLabel(page.url)}` : base; }
   private baseLabel(page: PageResponse): string { return page.heading?.trim() || page.title?.trim() || ''; }
