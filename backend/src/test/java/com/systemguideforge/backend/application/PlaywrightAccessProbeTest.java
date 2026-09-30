@@ -63,7 +63,7 @@ class PlaywrightAccessProbeTest {
             AccessResult accepted = probe.test(new AccessRequest(base, base + "/ok", "user", "pw"));
             assertThat(accepted.code()).isEqualTo(AccessResultCode.AUTHENTICATED);
             assertThat(accepted.authenticated()).isTrue();
-            assertThat(probe.test(new AccessRequest(base, base + "/rejected", "user", "pw")).code()).isIn(AccessResultCode.NOT_AUTHENTICATED, AccessResultCode.BROWSER_LOGIN_FAILED);
+            assertThat(probe.test(new AccessRequest(base, base + "/rejected", "user", "pw")).code()).isEqualTo(AccessResultCode.NOT_AUTHENTICATED);
         } finally {
             server.stop(0);
         }

@@ -36,8 +36,13 @@ public final class PlaywrightAccessProbe implements AccessProbe {
             usernameField.fill(request.username());
             passwordField.fill(request.password());
             submitButton.click();
-            page.waitForURL(url -> isSuccessfulRedirect(url, request),
-                    new Page.WaitForURLOptions().setTimeout(10_000));
+            try {
+                page.waitForURL(url -> isSuccessfulRedirect(url, request),
+                        new Page.WaitForURLOptions().setTimeout(10_000));
+            } catch (com.microsoft.playwright.TimeoutError timeout) {
+                // No redirect away from the login page: the credentials were rejected or the login is still pending.
+                return new AccessResult(true, false, "Login rejected or still pending", AccessResultCode.NOT_AUTHENTICATED);
+            }
 
             boolean authenticated = isAuthenticatedAfterRedirect(page.url(), request);
             return new AccessResult(true, authenticated,

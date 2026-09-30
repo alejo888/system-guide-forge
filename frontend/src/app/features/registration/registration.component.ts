@@ -75,7 +75,8 @@ export class RegistrationComponent {
 
   /** The translated text for the backend result code; without a code the generic accepted/unconfirmed text is used. */
   accessText(access: AccessTestResult): string {
-    if (access.code) return this.t('access-code-' + access.code.toLowerCase().replace(/_/g, '-'));
+    const key = access.code ? 'access-code-' + access.code.toLowerCase().replace(/_/g, '-') : null;
+    if (key && this.localization.has(key)) return this.t(key);
     return this.t(access.authenticated ? 'access-accepted' : 'access-unconfirmed');
   }
 
