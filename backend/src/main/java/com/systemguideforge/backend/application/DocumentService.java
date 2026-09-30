@@ -131,9 +131,9 @@ public class DocumentService {
     private String describePage(Page page, String name, List<UIElement> pageElements, Document.DocumentLanguage language, int routePageCount) {
         boolean spanish = language == Document.DocumentLanguage.ES;
         StringBuilder result = new StringBuilder();
-        result.append(pageIntroduction(page, name, language, routePageCount)).append("\n\n")
-                .append(spanish ? "Pasos:\n" : "Steps:\n");
+        result.append(pageIntroduction(page, name, language, routePageCount)).append("\n\n");
         if (page.getKind() == PageKind.LOGIN) {
+            result.append(spanish ? "Pasos:\n" : "Steps:\n");
             appendLoginSteps(page, spanish, result);
             return boundedText(result.toString(), CONTENT_LIMIT);
         }
@@ -220,14 +220,14 @@ public class DocumentService {
     private String instructionFor(UIElement element, int step, boolean spanish) {
         String name = "\"" + boundedText(displayName(element, spanish), 3000) + "\"";
         String instruction = switch (normalizedKind(element.getKind())) {
-            case "link" -> spanish ? "Abrí el enlace " + name + " para continuar." : "Open the link " + name + " to continue.";
-            case "button", "submit" -> spanish ? "Seleccioná el botón " + name + " para continuar." : "Select the button " + name + " to continue.";
+            case "link" -> spanish ? "Abrí el enlace " + name + "." : "Open the " + name + " link.";
+            case "button", "submit" -> spanish ? "Presioná el botón " + name + "." : "Press the " + name + " button.";
             case "input" -> spanish ? "Ingresá la información en el campo " + name + "." : "Enter the information in the field " + name + ".";
             case "textarea" -> spanish ? "Escribí la información en el campo " + name + "." : "Write the information in the field " + name + ".";
             case "select", "dropdown", "combobox" -> spanish ? "Elegí una opción en " + name + "." : "Choose an option in " + name + ".";
             case "checkbox" -> spanish ? "Marcá la opción " + name + "." : "Select the option " + name + ".";
             case "radio" -> spanish ? "Seleccioná la opción " + name + "." : "Select the option " + name + ".";
-            default -> spanish ? "Usá el control " + name + " para continuar." : "Use the control " + name + " to continue.";
+            default -> spanish ? "Usá " + name + "." : "Use " + name + ".";
         };
         return step + ". " + instruction;
     }
