@@ -73,6 +73,12 @@ export class RegistrationComponent {
     } catch { this.fail(this.t(this.editMode ? 'update-error' : 'register-error'));  }
   }
 
+  /** The translated text for the backend result code; without a code the generic accepted/unconfirmed text is used. */
+  accessText(access: AccessTestResult): string {
+    if (access.code) return this.t('access-code-' + access.code.toLowerCase().replace(/_/g, '-'));
+    return this.t(access.authenticated ? 'access-accepted' : 'access-unconfirmed');
+  }
+
   async testAccess(): Promise<void> {
     if (!this.applicationId()) return;
     this.state.set('testing');

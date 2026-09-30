@@ -1,6 +1,7 @@
 package com.systemguideforge.backend.web;
 
 import com.systemguideforge.backend.application.AccessResult;
+import com.systemguideforge.backend.application.AccessResultCode;
 import com.systemguideforge.backend.application.ProjectApplicationService;
 import com.systemguideforge.backend.persistence.TargetApplication;
 import org.junit.jupiter.api.Test;
@@ -68,13 +69,14 @@ class ApplicationControllerTest {
     @Test
     void serializesAccessTestAuthenticationState() throws Exception {
         ProjectApplicationService service = mock(ProjectApplicationService.class);
-        when(service.testAccess("app-1")).thenReturn(new AccessResult(true, true, "Access successful"));
+        when(service.testAccess("app-1")).thenReturn(new AccessResult(true, true, "Access successful", AccessResultCode.AUTHENTICATED));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new ApplicationController(service)).build();
 
         mvc.perform(post("/api/applications/app-1/test-access"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.reachable").value(true))
-                .andExpect(jsonPath("$.authenticated").value(true));
+                .andExpect(jsonPath("$.authenticated").value(true))
+                .andExpect(jsonPath("$.code").value("AUTHENTICATED"));
     }
 
     @Test
