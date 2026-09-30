@@ -91,7 +91,7 @@ class DocumentServiceTest {
         assertThat(document.getTitle()).isEqualTo("Manual de usuario \"FlowPilot\"");
             assertThat(document.getLanguage()).isEqualTo(Document.DocumentLanguage.ES);
         assertThat(document.getType()).isEqualTo(Document.DocumentType.USER_MANUAL);
-        assertThat(document.getSections().getFirst().getContent()).contains("La ruta /admin muestra la página \"Panel\".", "Pasos", "No se identificaron acciones").doesNotContain("Save", "#save", "SAFE", "UNKNOWN", "MUTATING", "clasificación", "Referencia técnica");
+        assertThat(document.getSections().getFirst().getContent()).contains("La ruta /admin muestra la página \"Panel\".", "No se identificaron acciones").doesNotContain("Pasos", "Save", "#save", "SAFE", "UNKNOWN", "MUTATING", "clasificación", "Referencia técnica");
 
     }
 
@@ -130,8 +130,8 @@ class DocumentServiceTest {
         assertThat(document.getSections().get(0).getSourcePageId()).isEqualTo(alpha.getId());
         assertThat(document.getSections().get(0).getScreenshotId()).isNotNull();
         assertThat(document.getSections().get(0).getContent())
-                .contains("The /admin/users route displays the \"FlowPilot\" page.", "Steps", "1.", "Help", "Open the link")
-                .doesNotContain("Save", "#save", "#query", "SAFE", "UNKNOWN", "MUTATING", "classification", "Technical reference");
+                .contains("The /admin/users route displays the \"FlowPilot\" page.", "1.", "Help", "Open the \"Help\" link.")
+                .doesNotContain("Steps", "Save", "#save", "#query", "SAFE", "UNKNOWN", "MUTATING", "classification", "Technical reference");
     }
 
     @Test
@@ -225,7 +225,7 @@ class DocumentServiceTest {
         assertThat(english.getSections().getFirst().getSourcePageId()).isEqualTo(login.getId());
         assertThat(english.getSections().getFirst().getTitle()).isEqualTo("How to sign in");
         assertThat(english.getSections().getFirst().getContent())
-                .contains("Enter your username or email in the «Email» field.")
+                .contains("Steps:\n1. Enter your username or email in the «Email» field.")
                 // The password label "[redacted]" (safe() already redacted it) falls back to generic wording.
                 .contains("Enter your password.")
                 .contains("Press «Ingresar».")
@@ -236,7 +236,7 @@ class DocumentServiceTest {
 
         assertThat(spanish.getSections().getFirst().getTitle()).isEqualTo("Cómo ingresar al sistema");
         assertThat(spanish.getSections().getFirst().getContent())
-                .contains("Ingresá tu usuario o correo electrónico en el campo «Email».")
+                .contains("Pasos:\n1. Ingresá tu usuario o correo electrónico en el campo «Email».")
                 .contains("Ingresá tu contraseña.")
                 .contains("Presioná «Ingresar».")
                 .doesNotContain("[redacted]", "FPFlowPilot", "Registrate gratis");
@@ -271,9 +271,9 @@ class DocumentServiceTest {
     void usesNaturalControlSpecificInstructionsInEnglishAndSpanish() {
         String english = generatedManualContent(Document.DocumentLanguage.EN);
         assertThat(english).contains(
-                "Open the link \"Help\" to continue.",
-                "Select the button \"Continue\" to continue.",
-                "Select the button \"Submit\" to continue.",
+                "Open the \"Help\" link.",
+                "Press the \"Continue\" button.",
+                "Press the \"Submit\" button.",
                 "Enter the information in the field \"Email\".",
                 "Write the information in the field \"Notes\".",
                 "Choose an option in \"Country\".",
@@ -281,16 +281,16 @@ class DocumentServiceTest {
                 "Choose an option in \"Role\".",
                 "Select the option \"Terms\".",
                 "Select the option \"Plan\".",
-                "Use the control \"Custom action\" to continue.",
-                "Use the control \"Approved custom action\" to continue.",
+                "Use \"Custom action\".",
+                "Use \"Approved custom action\".",
                 "Enter the information in the field \"Approved email\".")
                 .doesNotContain("approved procedure");
 
         String spanish = generatedManualContent(Document.DocumentLanguage.ES);
         assertThat(spanish).contains(
-                "Abrí el enlace \"Help\" para continuar.",
-                "Seleccioná el botón \"Continue\" para continuar.",
-                "Seleccioná el botón \"Submit\" para continuar.",
+                "Abrí el enlace \"Help\".",
+                "Presioná el botón \"Continue\".",
+                "Presioná el botón \"Submit\".",
                 "Ingresá la información en el campo \"Email\".",
                 "Escribí la información en el campo \"Notes\".",
                 "Elegí una opción en \"Country\".",
@@ -298,8 +298,8 @@ class DocumentServiceTest {
                 "Elegí una opción en \"Role\".",
                 "Marcá la opción \"Terms\".",
                 "Seleccioná la opción \"Plan\".",
-                "Usá el control \"Custom action\" para continuar.",
-                "Usá el control \"Approved custom action\" para continuar.",
+                "Usá \"Custom action\".",
+                "Usá \"Approved custom action\".",
                 "Ingresá la información en el campo \"Approved email\".")
                 .doesNotContain("procedimiento aprobado");
     }
@@ -309,16 +309,16 @@ class DocumentServiceTest {
         String english = groupedManualContent(Document.DocumentLanguage.EN);
         assertThat(english).contains(
                 "The /catalog route displays the \"Catalog\" page.",
-                "Navigation:\n1. Open the link \"Browse catalog\" to continue.",
+                "Navigation:\n1. Open the \"Browse catalog\" link.",
                 "Information:\n2. Enter the information in the field \"Search catalog\".",
-                "Actions:\n3. Select the button \"Apply filters\" to continue.\n4. Select the option \"Compact view\".");
+                "Actions:\n3. Press the \"Apply filters\" button.\n4. Select the option \"Compact view\".");
 
         String spanish = groupedManualContent(Document.DocumentLanguage.ES);
         assertThat(spanish).contains(
                 "La ruta /catalog muestra la página \"Catalog\".",
-                "Navegación:\n1. Abrí el enlace \"Browse catalog\" para continuar.",
+                "Navegación:\n1. Abrí el enlace \"Browse catalog\".",
                 "Información:\n2. Ingresá la información en el campo \"Search catalog\".",
-                "Acciones:\n3. Seleccioná el botón \"Apply filters\" para continuar.\n4. Seleccioná la opción \"Compact view\".");
+                "Acciones:\n3. Presioná el botón \"Apply filters\".\n4. Seleccioná la opción \"Compact view\".");
     }
 
     @Test
@@ -512,8 +512,8 @@ class DocumentServiceTest {
                 new UIElement("page-1", "link", "a.catalog", "Browse catalog", ActionClassification.SAFE)));
 
         assertThat(content)
-                .contains("Navigation:\n1. Open the link \"Browse catalog\" to continue.")
-                .doesNotContain("Information:", "Actions:");
+                .contains("Navigation:\n1. Open the \"Browse catalog\" link.")
+                .doesNotContain("Information:", "Actions:", "Steps:");
     }
 
     @Test
