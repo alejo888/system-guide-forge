@@ -326,10 +326,10 @@ class PlaywrightScreenAnalysisAdapterTest {
     void accessibleNameSkipsAriaHiddenIconTextAndSeparatesAdjacentVisibleSpans() throws Exception {
         ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
                 "<!doctype html><html><body><main><h1>Home</h1><a href=\"#home\" style=\"display:flex\"><span aria-hidden=\"true\">FP</span><span>FlowPilot</span></a>"
-                        + "<button style=\"display:flex\"><span>Nuevo</span><span>proyecto</span></button><button>Hel<b>lo</b></button></main></body></html>",
+                        + "<button style=\"display:flex\"><span>Nuevo</span><span>proyecto</span></button><button>Hel<b>lo</b></button><button>Guardar<span style=\"display:none\">oculto</span></button></main></body></html>",
                 "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
 
-        assertThat(result.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("FlowPilot", "Nuevo proyecto", "Hello").doesNotContain("FPFlowPilot", "Nuevoproyecto", "Hel lo");
+        assertThat(result.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("FlowPilot", "Nuevo proyecto", "Hello", "Guardar").doesNotContain("FPFlowPilot", "Nuevoproyecto", "Hel lo", "Guardaroculto", "Guardar oculto");
     }
 
     private static ScreenAnalysisAdapter.ScreenAnalysisResult analyzeDashboard(String dashboardHtml, String nextHtml) throws Exception {
