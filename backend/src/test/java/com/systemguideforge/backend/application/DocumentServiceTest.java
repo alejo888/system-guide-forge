@@ -322,6 +322,33 @@ class DocumentServiceTest {
     }
 
     @Test
+    void listsEachNamedControlOnceAndTreatsCapturedAnchorsAsNavigationLinks() {
+        Page projects = new Page("a", "http://localhost/projects", "Proyectos");
+        Document document = generateForPages(Document.DocumentLanguage.ES, List.of(projects), page -> List.of(
+                new UIElement(page.getId(), "a", "a:nth-of-type(1)", "FlowPilot", ActionClassification.SAFE, "/"),
+                new UIElement(page.getId(), "a", "a:nth-of-type(2)", "FlowPilot", ActionClassification.SAFE, "/"),
+                new UIElement(page.getId(), "a", "a:nth-of-type(3)", "Tablero", ActionClassification.SAFE, "/projects/1/board"),
+                new UIElement(page.getId(), "a", "a:nth-of-type(4)", "Tablero", ActionClassification.SAFE, "/projects/3/board"),
+                new UIElement(page.getId(), "button", "button:nth-of-type(1)", "Filtrar", ActionClassification.SAFE),
+                new UIElement(page.getId(), "button", "button:nth-of-type(2)", "Filtrar", ActionClassification.SAFE)));
+
+        assertThat(document.getSections().get(0).getContent()).contains(
+                "Navegación:\n1. Abrí el enlace \"FlowPilot\".\n2. Abrí el enlace \"Tablero\".\n",
+                "Acciones:\n3. Presioná el botón \"Filtrar\".\n");
+    }
+
+    @Test
+    void keepsUnnamedControlsDistinctBySelector() {
+        Page form = new Page("a", "http://localhost/form", "Form");
+        Document document = generateForPages(Document.DocumentLanguage.EN, List.of(form), page -> List.of(
+                new UIElement(page.getId(), "input", "input:nth-of-type(1)", "", ActionClassification.SAFE),
+                new UIElement(page.getId(), "input", "input:nth-of-type(2)", "", ActionClassification.SAFE)));
+
+        assertThat(document.getSections().get(0).getContent()).contains(
+                "1. Enter the information in the field \"this control\".\n2. Enter the information in the field \"this control\".");
+    }
+
+    @Test
     void usesEachPageRouteAndTitleToCreateDistinctEvidenceBasedIntroductions() {
         Analysis analysis = new Analysis("application-1");
         analysis.complete();
