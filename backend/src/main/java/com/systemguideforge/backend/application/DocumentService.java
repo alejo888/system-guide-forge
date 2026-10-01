@@ -139,9 +139,11 @@ public class DocumentService {
             return boundedText(result.toString(), CONTENT_LIMIT);
         }
         int step = 1;
+        // Repeated controls (a logo in header and sidebar, the same link on every card) would produce identical instructions.
+        Set<String> listed = new HashSet<>();
+        List<UIElement> manualElements = pageElements.stream().filter(this::isIncludedInManual).filter(element -> listed.add(elementIdentity(element))).toList();
         for (InstructionGroup group : InstructionGroup.values()) {
-            List<UIElement> groupElements = pageElements.stream()
-                    .filter(this::isIncludedInManual)
+            List<UIElement> groupElements = manualElements.stream()
                     .filter(element -> instructionGroupFor(element) == group)
                     .toList();
             boolean groupStarted = false;
@@ -240,7 +242,11 @@ public class DocumentService {
                 .map(DocumentSection::getContent)
                 .anyMatch(content -> content != null && (content.contains("Technical reference: classification") || content.contains("Referencia técnica: clasificación")));
     }
-    private String normalizedKind(String kind) { return kind == null ? "" : kind.trim().toLowerCase(Locale.ROOT); }
+    /** Captured anchors are stored with their tag name "a"; they are links for the manual. */
+    private String normalizedKind(String kind) {
+        String normalized = kind == null ? "" : kind.trim().toLowerCase(Locale.ROOT);
+        return normalized.equals("a") ? "link" : normalized;
+    }
     private String displayName(UIElement element, boolean spanish) { return element.getAccessibleName() != null && !element.getAccessibleName().isBlank() ? element.getAccessibleName() : (spanish ? "este control" : "this control"); }
     private ActionClassification classification(UIElement element) { return element.getActionClassification() == null ? ActionClassification.UNKNOWN : element.getActionClassification(); }
     private static String boundedText(String value, int limit) { if (value == null) return ""; if (value.length() <= limit) return value; if (limit <= 3) return value.substring(0, limit); int prefixLength = (limit - 3) / 2; return value.substring(0, prefixLength) + "..." + value.substring(value.length() - (limit - 3 - prefixLength)); }
