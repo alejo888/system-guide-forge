@@ -334,7 +334,7 @@ class DocumentServiceTest {
 
         assertThat(document.getSections().get(0).getContent()).contains(
                 "Navegación:\n1. Abrí el enlace \"FlowPilot\".\n2. Abrí el enlace \"Tablero\".\n",
-                "Acciones:\n3. Presioná el botón \"Filtrar\".\n");
+                "Acciones:\n3. Presioná el botón \"Filtrar\".\n").doesNotContain("4. ");
     }
 
     @Test
