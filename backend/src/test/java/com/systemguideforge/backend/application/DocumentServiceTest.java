@@ -521,6 +521,19 @@ class DocumentServiceTest {
     }
 
     @Test
+    void titlesASectionWithTheAppNavigationLabelInsteadOfMoreFrequentBackLinks() {
+        Page dashboard = new Page("a", "http://localhost/dashboard", "Dashboard");
+        Page board = new Page("a", "http://localhost/projects/1/board", "FlowPilot");
+        Page backlog = new Page("a", "http://localhost/projects/1/backlog", "Backlog");
+        Document document = generateForPages(Document.DocumentLanguage.ES, List.of(dashboard, board, backlog), page -> page == dashboard
+                ? List.of(new UIElement(dashboard.getId(), "a", "a:nth-of-type(1)", "Proyectos", ActionClassification.SAFE, "/projects", true))
+                : List.of(new UIElement(page.getId(), "a", "a:nth-of-type(1)", "Volver a proyectos", ActionClassification.SAFE, "/projects", true)));
+
+        assertThat(document.getSections()).extracting(DocumentSection::getTitle).contains(
+                "Proyectos: FlowPilot (/projects/{id}/board)", "Proyectos: Backlog (/projects/{id}/backlog)");
+    }
+
+    @Test
     void omitsEmptyInstructionGroups() {
         String content = groupedManualContent(Document.DocumentLanguage.EN, List.of(
                 new UIElement("page-1", "link", "a.catalog", "Browse catalog", ActionClassification.SAFE)));

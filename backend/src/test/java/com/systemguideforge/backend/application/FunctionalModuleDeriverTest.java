@@ -199,4 +199,35 @@ class FunctionalModuleDeriverTest {
 
         assertThat(labels).containsEntry("projects", "Ver todos").containsEntry("tasks", "Tareas").containsEntry("reports", "Reportes");
     }
+
+    @Test
+    void prefersLinksFromOtherModulesOverMoreFrequentBackLinksFromTheModuleOwnSubpages() {
+        Page home = new Page("analysis-1", "http://localhost/", "Home");
+        Page projects = new Page("analysis-1", "http://localhost/projects", "Projects");
+        Page detail = new Page("analysis-1", "http://localhost/projects/1", "Detail");
+        Page board = new Page("analysis-1", "http://localhost/projects/1/board", "Board");
+        Page backlog = new Page("analysis-1", "http://localhost/projects/1/backlog", "Backlog");
+
+        var modules = deriver.derive(List.of(home, projects, detail, board, backlog), List.of(
+                navLink(home, "Proyectos", "/projects"),
+                navLink(detail, "Volver a proyectos", "/projects"), navLink(board, "Volver a proyectos", "/projects"),
+                navLink(backlog, "Volver a proyectos", "/projects")));
+
+        assertThat(modules).extracting(FunctionalModuleDeriver.Module::name).containsExactly("Home", "Proyectos");
+    }
+
+    @Test
+    void countsLinksOnTheModuleRootPageAndFallsBackToBackLinksWhenNothingElseNamesTheModule() {
+        Page projects = new Page("analysis-1", "http://localhost/projects", "Projects");
+        Page detail = new Page("analysis-1", "http://localhost/projects/1", "Detail");
+        Page board = new Page("analysis-1", "http://localhost/projects/1/board", "Board");
+        Page tasks = new Page("analysis-1", "http://localhost/tasks/7", "Task");
+
+        var labels = deriver.navigationLabels(List.of(projects, detail, board, tasks), List.of(
+                navLink(projects, "Proyectos", "/projects"),
+                navLink(detail, "Volver a proyectos", "/projects"), navLink(board, "Volver a proyectos", "/projects"),
+                navLink(tasks, "Volver a tareas", "/tasks")));
+
+        assertThat(labels).containsEntry("projects", "Proyectos").containsEntry("tasks", "Volver a tareas");
+    }
 }
