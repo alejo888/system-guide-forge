@@ -65,7 +65,7 @@ public class DocumentService {
         List<Page> sourcePages = pages.findByAnalysisId(analysisId);
         Map<String, Page> pagesById = sourcePages.stream().collect(Collectors.toMap(Page::getId, page -> page));
         List<Page> derivedPages = moduleDeriver.derive(sourcePages).stream().flatMap(module -> module.pages().stream()).map(modulePage -> pagesById.get(modulePage.id())).toList();
-        Map<String, String> labels = moduleDeriver.navigationLabels(sourcePages.stream().flatMap(page -> elements.findByPageId(page.getId()).stream()).toList());
+        Map<String, String> labels = moduleDeriver.navigationLabels(sourcePages, sourcePages.stream().flatMap(page -> elements.findByPageId(page.getId()).stream()).toList());
         List<List<Page>> routeGroups = groupByRouteTemplate(derivedPages);
         for (int position = 0; position < routeGroups.size(); position++) {
             List<Page> routeGroup = routeGroups.get(position);

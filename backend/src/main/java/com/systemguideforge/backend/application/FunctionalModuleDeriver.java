@@ -28,7 +28,7 @@ public class FunctionalModuleDeriver {
 
     /** Module names come from the app's own navigation links found in {@code elements}; see {@link #navigationLabels}. */
     public List<Module> derive(List<Page> pages, List<UIElement> elements) {
-        Map<String, String> labels = navigationLabels(elements);
+        Map<String, String> labels = navigationLabels(pages, elements);
         List<Page> loginPages = pages.stream().filter(page -> page.getKind() == PageKind.LOGIN).toList();
         List<Page> otherPages = pages.stream().filter(page -> page.getKind() != PageKind.LOGIN).toList();
 
@@ -63,25 +63,45 @@ public class FunctionalModuleDeriver {
         return displayName(LOGIN_MODULE_KEY, Map.of(), language);
     }
 
+    public Map<String, String> navigationLabels(List<UIElement> elements) { return navigationLabels(List.of(), elements); }
+
     /**
      * Module key to the accessible name of the links that point at that module's root route (one path segment, e.g. /projects).
-     * Links inside a navigation landmark win over in-content links; the most frequent name wins and ties break alphabetically; blank, redacted and overlong names and the home route are ignored.
+     * Back links (from a deeper page of the same module, e.g. /projects/1 to /projects) count only when no other link names the module.
+     * Within that pool, links inside a navigation landmark win over in-content links; the most frequent name wins and ties break alphabetically.
+     * Blank, redacted and overlong names and the home route are ignored. Elements whose page is not in {@code pages} are never back links.
      */
-    public Map<String, String> navigationLabels(List<UIElement> elements) {
+    public Map<String, String> navigationLabels(List<Page> pages, List<UIElement> elements) {
+        Map<String, String> pageUrls = new HashMap<>();
+        for (Page page : pages) pageUrls.put(page.getId(), page.getUrl());
         Map<String, Map<String, Integer>> counts = new HashMap<>(), landmarkCounts = new HashMap<>();
+        Map<String, Map<String, Integer>> backCounts = new HashMap<>(), backLandmarkCounts = new HashMap<>();
         for (UIElement element : elements) {
             if (!"a".equalsIgnoreCase(element.getKind()) || element.getTargetPath() == null) continue;
             String key = rootRouteKey(element.getTargetPath());
             String name = element.getAccessibleName() == null ? "" : element.getAccessibleName().trim();
             if (key == null || name.isEmpty() || name.length() > MAX_LABEL_LENGTH || name.contains("[redacted]")) continue;
-            counts.computeIfAbsent(key, ignored -> new HashMap<>()).merge(name, 1, Integer::sum);
-            if (element.isInNavigation()) landmarkCounts.computeIfAbsent(key, ignored -> new HashMap<>()).merge(name, 1, Integer::sum);
+            boolean back = isBackLink(pageUrls.get(element.getPageId()), key);
+            (back ? backCounts : counts).computeIfAbsent(key, ignored -> new HashMap<>()).merge(name, 1, Integer::sum);
+            if (element.isInNavigation()) (back ? backLandmarkCounts : landmarkCounts).computeIfAbsent(key, ignored -> new HashMap<>()).merge(name, 1, Integer::sum);
         }
         Map<String, String> labels = new java.util.TreeMap<>();
-        counts.forEach((key, all) -> (landmarkCounts.containsKey(key) ? landmarkCounts.get(key) : all).entrySet().stream()
-                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
-                .findFirst().ifPresent(best -> labels.put(key, best.getKey())));
+        backCounts.forEach((key, all) -> mostFrequent(backLandmarkCounts.getOrDefault(key, all)).ifPresent(best -> labels.put(key, best)));
+        counts.forEach((key, all) -> mostFrequent(landmarkCounts.getOrDefault(key, all)).ifPresent(best -> labels.put(key, best)));
         return labels;
+    }
+
+    private java.util.Optional<String> mostFrequent(Map<String, Integer> names) {
+        return names.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
+                .findFirst().map(Map.Entry::getKey);
+    }
+
+    /** True when the link sits on a page deeper than the root route of the module it points to. */
+    private boolean isBackLink(String sourceUrl, String targetKey) {
+        if (sourceUrl == null) return false;
+        String path = routeFor(sourceUrl);
+        return moduleKey(sourceUrl).equals(targetKey) && rootRouteKey(path) == null;
     }
 
     /** The module key when the path is exactly one non-empty segment; null for the home route and deeper routes. */
