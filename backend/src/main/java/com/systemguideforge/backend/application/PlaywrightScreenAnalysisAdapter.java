@@ -294,11 +294,25 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                 && Objects.equals(left.getScheme(), right.getScheme()) && Objects.equals(left.getHost(), right.getHost()) && left.getPort() == right.getPort();
     }
     private static String normalizedPath(URI uri) { String path = uri.getPath(); return path == null || path.isBlank() ? "/" : path.length() > 1 && path.endsWith("/") ? path.substring(0, path.length() - 1) : path; }
+    /** Narrow DOM label extraction: ignore descendant controls so their current/default values cannot become names. */
+    private static final String HUMAN_LABEL_SCRIPT = "el => {"
+            + "const clean = root => { if (root.matches('input, textarea, select')) return ''; const copy = root.cloneNode(true); copy.querySelectorAll('input, textarea, select').forEach(control => control.remove()); return (copy.textContent || '').replace(/\\s+/g, ' ').trim(); };"
+            + "const refs = (el.getAttribute('aria-labelledby') || '').trim().split(/\\s+/).filter(Boolean);"
+            + "const referenced = refs.map(id => document.getElementById(id)).filter(Boolean).map(clean).filter(Boolean).join(' ');"
+            + "if (referenced) return referenced;"
+            + "const aria = (el.getAttribute('aria-label') || '').trim(); if (aria) return aria;"
+            + "const labels = el.labels ? [...el.labels].map(clean).filter(Boolean).join(' ') : ''; return labels || null; }";
+
+    private static String humanLabel(Locator item) {
+        try { Object label = item.evaluate(HUMAN_LABEL_SCRIPT); return label instanceof String value ? first(value) : null; }
+        catch (RuntimeException e) { return null; }
+    }
+
     private void detect(com.microsoft.playwright.Page page, String kind, List<DetectedElement> found, TargetApplication app) {
         Locator locator = page.locator(kind); int count = Math.min(locator.count(), 500);
         for (int i = 0; i < count; i++) { Locator item = locator.nth(i); String selector = kind + ":nth-of-type(" + (i + 1) + ")";
             String aria=item.getAttribute("aria-label"), name=item.getAttribute("name"), id=item.getAttribute("id"), placeholder=item.getAttribute("placeholder"), type=item.getAttribute("type"), href=item.getAttribute("href");
-            String visibleText=text(item); String label=first(aria,name,placeholder,visibleText); String pressLabel=first(aria,visibleText,item.getAttribute("value")); String attribute="a".equals(kind)?"href":"type"; String value="a".equals(kind)?href:type;
+            String visibleText=("input".equals(kind)||"textarea".equals(kind))?null:text(item); String label=first(humanLabel(item),visibleText,placeholder); String pressLabel=first(aria,visibleText,item.getAttribute("value")); String attribute="a".equals(kind)?"href":"type"; String value="a".equals(kind)?href:type;
             found.add(new DetectedElement(kind,selector,safe(label),classifyFixtureElement(item,kind,attribute,value,pressLabel,name,id,placeholder),"a".equals(kind)?targetPath(href,page.url(),app.getBaseUrl()):null,"a".equals(kind)&&inNavigation(item))); }
     }
     private static final String NAVIGATION_LANDMARKS = "nav, header, aside, [role=navigation], [role=banner]";

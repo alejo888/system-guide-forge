@@ -216,8 +216,8 @@ class PlaywrightScreenAnalysisAdapterTest {
                             tuple("Cerrar sesión", ActionClassification.MUTATING),
                             tuple("Delete project", ActionClassification.MUTATING),
                             tuple("Abrir menú", ActionClassification.UNKNOWN),
-                            // The form-field name is not what the user reads; classification uses the visible label.
-                            tuple("action", ActionClassification.MUTATING));
+                            // The machine name is not what the user reads; classification still uses the visible label.
+                            tuple("Eliminar", ActionClassification.MUTATING));
             assertThat(elements).filteredOn(element -> "input".equals(element.kind()))
                     .extracting(ScreenAnalysisAdapter.DetectedElement::classification)
                     .containsExactly(ActionClassification.MUTATING);
@@ -355,6 +355,42 @@ class PlaywrightScreenAnalysisAdapterTest {
                 "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
 
         assertThat(result.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("FlowPilot", "Nuevo proyecto", "Hello", "Guardar").doesNotContain("FPFlowPilot", "Nuevoproyecto", "Hel lo", "Guardaroculto", "Guardar oculto");
+    }
+
+    @Test
+    void recoversHumanLabelsWithoutInventingNamesOrLeakingControlValues() throws Exception {
+        var elements = analyzeDashboard("""
+                <!doctype html><html><body><main><h1>Form</h1>
+                <label>Start date <input type="date" name="startDate" value="2025-01-01"></label>
+                <label for="owner">Owner</label><input id="owner" name="ownerField">
+                <span id="first">Project</span><span id="second">code</span>
+                <input aria-labelledby="first second" aria-label="Wrong" placeholder="Wrong placeholder">
+                <input aria-labelledby="missing" aria-label="Fallback aria">
+                <input aria-labelledby="missing" placeholder="Hint">
+                <input name="machineOnly"><textarea id="direct-textarea" name="machineTextarea">private-fixture-value</textarea>
+                <input id="direct-input" value="direct-input-value">
+                <input aria-labelledby="direct-textarea" aria-label="Safe fallback">
+                <input aria-labelledby="direct-input" placeholder="Input fallback">
+                <label>Notes <textarea>nested-private-value</textarea></label>
+                <label for="referenced">Reference <input value="associated-private-value"></label><input id="referenced">
+                <span id="reference-label">Reference <textarea>reference-private-value</textarea></span>
+                <input aria-labelledby="reference-label">
+                <button>Save changes</button><a href="#local">View details</a>
+                </main></body></html>
+                """, null).elements();
+        assertThat(elements).filteredOn(e -> "input".equals(e.kind()) || "textarea".equals(e.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactly(tuple("Start date", ActionClassification.UNKNOWN), tuple("Owner", ActionClassification.UNKNOWN),
+                        tuple("Project code", ActionClassification.UNKNOWN), tuple("Fallback aria", ActionClassification.UNKNOWN),
+                        tuple("Hint", ActionClassification.UNKNOWN), tuple(null, ActionClassification.UNKNOWN),
+                        tuple(null, ActionClassification.UNKNOWN), tuple("Safe fallback", ActionClassification.UNKNOWN),
+                        tuple("Input fallback", ActionClassification.UNKNOWN), tuple(null, ActionClassification.UNKNOWN),
+                        tuple("Reference", ActionClassification.UNKNOWN), tuple("Reference", ActionClassification.UNKNOWN),
+                        tuple(null, ActionClassification.UNKNOWN), tuple("Notes", ActionClassification.UNKNOWN), tuple(null, ActionClassification.UNKNOWN));
+        assertThat(elements).filteredOn(e -> "button".equals(e.kind()) || "a".equals(e.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("Save changes", "View details");
+        assertThat(elements).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName)
+                .doesNotContain("nested-private-value", "reference-private-value", "associated-private-value", "private-fixture-value", "direct-input-value");
     }
 
     private static ScreenAnalysisAdapter.ScreenAnalysisResult analyzeDashboard(String dashboardHtml, String nextHtml) throws Exception {
