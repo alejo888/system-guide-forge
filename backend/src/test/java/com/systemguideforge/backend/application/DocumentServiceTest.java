@@ -81,7 +81,7 @@ class DocumentServiceTest {
         when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
         when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.empty());
         when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(page));
-        when(elements.findByPageId(page.getId())).thenReturn(List.of(new UIElement(page.getId(), "button", "#save", "Save", ActionClassification.MUTATING)));
+        when(elements.findByPageId(page.getId())).thenReturn(List.of(new UIElement(page.getId(), "button", "#save", "Save", ActionClassification.UNKNOWN)));
         when(documents.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -130,8 +130,9 @@ class DocumentServiceTest {
         assertThat(document.getSections().get(0).getSourcePageId()).isEqualTo(alpha.getId());
         assertThat(document.getSections().get(0).getScreenshotId()).isNotNull();
         assertThat(document.getSections().get(0).getContent())
-                .contains("The /admin/users route displays the \"FlowPilot\" page.", "1.", "Help", "Open the \"Help\" link.")
-                .doesNotContain("Steps", "Save", "#save", "#query", "SAFE", "UNKNOWN", "MUTATING", "classification", "Technical reference");
+                .contains("The /admin/users route displays the \"FlowPilot\" page.", "1.", "Help", "Open the \"Help\" link.",
+                        "Enter the information in the field \"Search\".", "Press the \"Save\" button.")
+                .doesNotContain("Steps", "#save", "#query", "SAFE", "UNKNOWN", "MUTATING", "classification", "Technical reference");
     }
 
     @Test
@@ -169,12 +170,12 @@ class DocumentServiceTest {
     }
 
     @Test
-    void includesOnlySafeAndApprovedUnknownElementsWithoutTechnicalMetadata() {
+    void includesSafeApprovedUnknownAndDescribedFormControlsWithoutTechnicalMetadata() {
         Analysis analysis = new Analysis("application-1");
         analysis.complete();
         Page page = new Page(analysis.getId(), "http://localhost/home", "Home");
         UIElement safe = new UIElement(page.getId(), "link", "a.help", "Help", ActionClassification.SAFE);
-        UIElement approvedUnknown = new UIElement(page.getId(), "input", "#query", "Search", ActionClassification.UNKNOWN);
+        UIElement approvedUnknown = new UIElement(page.getId(), "button", "#query", "Search", ActionClassification.UNKNOWN);
         approvedUnknown.setManualInclusionApproved(true);
         UIElement unapprovedUnknown = new UIElement(page.getId(), "button", "#advanced", "Advanced", ActionClassification.UNKNOWN);
         UIElement mutating = new UIElement(page.getId(), "button", "#save", "Save", ActionClassification.MUTATING);
@@ -193,8 +194,61 @@ class DocumentServiceTest {
         Document document = service(analyses, pages, elements, mock(ScreenshotRepository.class), documents, sections).generate(analysis.getId());
 
         assertThat(document.getSections().getFirst().getContent())
-                .contains("Help", "Search")
-                .doesNotContain("Save", "Advanced", "a.help", "#query", "SAFE", "UNKNOWN", "MUTATING", "classification", "Technical reference");
+                .contains("Help", "Search", "Press the \"Save\" button.")
+                .doesNotContain("Advanced", "a.help", "#query", "#save", "SAFE", "UNKNOWN", "MUTATING", "classification", "Technical reference");
+    }
+
+    @Test
+    void describesNamedFormFieldsAndMutatingActionsWithoutApprovalInSpanish() {
+        String content = groupedManualContent(Document.DocumentLanguage.ES, List.of(
+                new UIElement("page-1", "input", "#name", "Nombre", ActionClassification.UNKNOWN),
+                new UIElement("page-1", "textarea", "#description", "Descripción", ActionClassification.UNKNOWN),
+                new UIElement("page-1", "button", "#save", "Guardar", ActionClassification.MUTATING),
+                // A submit input is classified MUTATING and is described as an action, not as a field.
+                new UIElement("page-1", "input", "#create", "Crear sprint", ActionClassification.MUTATING)));
+
+        assertThat(content)
+                .contains("Información:\n1. Ingresá la información en el campo \"Nombre\".\n2. Escribí la información en el campo \"Descripción\".\n"
+                        + "Acciones:\n3. Presioná el botón \"Guardar\".\n4. Presioná el botón \"Crear sprint\".")
+                .doesNotContain("No se identificaron acciones", "#name", "#save", "UNKNOWN", "MUTATING");
+    }
+
+    @Test
+    void keepsRequiringApprovalForUnknownControlsThatAreNotFormFields() {
+        String content = groupedManualContent(Document.DocumentLanguage.ES, List.of(
+                new UIElement("page-1", "button", "#menu", "Abrir menú", ActionClassification.UNKNOWN),
+                new UIElement("page-1", "link", "a.more", "Ver más", ActionClassification.UNKNOWN),
+                new UIElement("page-1", "select", "#country", "País", ActionClassification.UNKNOWN)));
+
+        assertThat(content)
+                .contains("No se identificaron acciones")
+                .doesNotContain("Abrir menú", "Ver más", "País");
+    }
+
+    @Test
+    void skipsAutomaticallyDescribedControlsWithoutAPrintableName() {
+        String content = groupedManualContent(Document.DocumentLanguage.EN, List.of(
+                new UIElement("page-1", "link", "a.help", "Help", ActionClassification.SAFE),
+                new UIElement("page-1", "input", "#unnamed", null, ActionClassification.UNKNOWN),
+                new UIElement("page-1", "textarea", "#blank", "  ", ActionClassification.UNKNOWN),
+                new UIElement("page-1", "button", "#icon", "", ActionClassification.MUTATING),
+                new UIElement("page-1", "input", "#secret", "[redacted]", ActionClassification.UNKNOWN),
+                new UIElement("page-1", "button", "#wipe", "Delete [redacted]", ActionClassification.MUTATING)));
+
+        assertThat(content)
+                .contains("Navigation:\n1. Open the \"Help\" link.")
+                .doesNotContain("this control", "[redacted]", "Information:", "Actions:", "2.");
+    }
+
+    @Test
+    void describesNamedFormFieldsAndMutatingActionsWithoutApprovalInEnglish() {
+        String content = groupedManualContent(Document.DocumentLanguage.EN, List.of(
+                new UIElement("page-1", "input", "#name", "Name", ActionClassification.UNKNOWN),
+                new UIElement("page-1", "textarea", "#notes", "Notes", ActionClassification.UNKNOWN),
+                new UIElement("page-1", "button", "#save", "Save", ActionClassification.MUTATING)));
+
+        assertThat(content).contains("Information:\n1. Enter the information in the field \"Name\".\n2. Write the information in the field \"Notes\".\n"
+                + "Actions:\n3. Press the \"Save\" button.");
     }
 
     @Test
@@ -706,8 +760,8 @@ class DocumentServiceTest {
 
         assertThat(result).isSameAs(existing);
         assertThat(result.getSections().getFirst().getContent())
-                .contains("Help")
-                .doesNotContain("Technical reference", "classification", "SAFE", "a.help", "#save", "Save", "MUTATING");
+                .contains("Help", "Press the \"Save\" button.")
+                .doesNotContain("Technical reference", "classification", "SAFE", "a.help", "#save", "MUTATING");
         verify(sections).deleteAll(List.of(legacySection));
     }
 

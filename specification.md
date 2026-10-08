@@ -17,8 +17,8 @@ Permitir que una persona documente un sistema web local recorriéndolo de forma 
 - Detección de hasta 500 elementos de cada tipo `button`, `a`, `input` y `textarea` por página.
 - Screenshots PNG sanitizados de página completa, almacenados en PostgreSQL como `BYTEA`.
 - Bloqueo de controles `MUTATING` y `UNKNOWN`; ningún control se ejecuta durante el análisis.
-- Revisión posterior al análisis para aprobar la inclusión documental de elementos `UNKNOWN`, sin habilitar su ejecución.
-- Generación determinista de un manual con idioma `en` o `es` y tipo `user_manual`; incluye controles `SAFE` y elementos `UNKNOWN` aprobados, sin etiquetas de clasificación ni selectores técnicos. Cuando la página inicial es de login, el manual incluye como primer paso una sección de inicio de sesión derivada de las etiquetas detectadas.
+- Revisión posterior al análisis para aprobar la inclusión documental de elementos `UNKNOWN` que no son campos de formulario, sin habilitar su ejecución.
+- Generación determinista de un manual con idioma `en` o `es` y tipo `user_manual`; incluye controles `SAFE`, elementos `UNKNOWN` aprobados y, automáticamente, los campos de formulario con nombre (solo su etiqueta, nunca su valor) y las acciones `MUTATING` con nombre, que se describen sin ejecutarse; no usa etiquetas de clasificación ni selectores técnicos. Cuando la página inicial es de login, el manual incluye como primer paso una sección de inicio de sesión derivada de las etiquetas detectadas.
 - Carga automática del borrador existente al abrir un análisis, sin bloquear la generación de uno nuevo.
 - Edición del título y de las secciones del documento generado.
 - Exportación del borrador persistido a DOCX.
@@ -67,8 +67,8 @@ Editar título y secciones
 - **RF11.** Reutilizar el borrador cuando coinciden análisis, idioma y tipo.
 - **RF12.** Al cambiar idioma o tipo, mostrar una advertencia localizada y reemplazar transaccionalmente secciones y contenido editable, destruyendo las ediciones previas.
 - **RF13.** Editar el título y las secciones del manual generado.
-- **RF14.** Permitir aprobar o retirar la inclusión documental de un elemento `UNKNOWN` antes de generar el manual, sin ejecutar el elemento ni ampliar el crawling.
-- **RF15.** Incluir en el manual solo elementos `SAFE` o `UNKNOWN` aprobados, con instrucciones funcionales y sin selectores ni lenguaje técnico de clasificación.
+- **RF14.** Permitir aprobar o retirar la inclusión documental de un elemento `UNKNOWN` antes de generar el manual, sin ejecutar el elemento ni ampliar el crawling. Los campos de formulario `UNKNOWN` con nombre no requieren esta aprobación.
+- **RF15.** Incluir en el manual los elementos `SAFE` y `UNKNOWN` aprobados y, sin necesidad de aprobación, los campos de formulario (`input`, `textarea`) con nombre y las acciones `MUTATING` con nombre, con instrucciones funcionales y sin selectores ni lenguaje técnico de clasificación. De los campos se usa solo la etiqueta, nunca su valor; las acciones `MUTATING` se describen sin ejecutarse. Los controles incluidos automáticamente sin nombre o con una etiqueta censurada (`[redacted]`) se omiten. Los demás controles `UNKNOWN` (botones, enlaces y otros tipos) siguen requiriendo aprobación manual.
 - **RF16.** Eliminar el borrador existente al cambiar una aprobación de inclusión documental, para exigir una nueva generación sin contenido obsoleto.
 - **RF17.** Listar en el Resumen todos los sistemas registrados a partir del backend y conservar en el navegador únicamente las preferencias de idioma; los sistemas, la evidencia y los documentos deben permanecer en el backend.
 - **RF18.** Normalizar las rutas excluidas como prefijos absolutos, quitar barras finales salvo en `/`, eliminar duplicados preservando el primer orden y rechazar consultas, fragmentos, escapes porcentuales, más de 50 rutas o rutas de más de 200 caracteres.

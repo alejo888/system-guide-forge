@@ -207,7 +207,7 @@ public class DocumentService {
                 : " This screen is the same for every item; the example shown is " + example + ".");
     }
     private InstructionGroup instructionGroupFor(UIElement element) {
-        return switch (normalizedKind(element.getKind())) {
+        return switch (manualKind(element)) {
             case "link" -> InstructionGroup.NAVIGATION;
             case "input", "textarea", "select", "dropdown", "combobox" -> InstructionGroup.INFORMATION;
             default -> InstructionGroup.ACTIONS;
@@ -222,7 +222,7 @@ public class DocumentService {
     }
     private String instructionFor(UIElement element, int step, boolean spanish) {
         String name = "\"" + boundedText(displayName(element, spanish), 3000) + "\"";
-        String instruction = switch (normalizedKind(element.getKind())) {
+        String instruction = switch (manualKind(element)) {
             case "link" -> spanish ? "Abrí el enlace " + name + "." : "Open the " + name + " link.";
             case "button", "submit" -> spanish ? "Presioná el botón " + name + "." : "Press the " + name + " button.";
             case "input" -> spanish ? "Ingresá la información en el campo " + name + "." : "Enter the information in the field " + name + ".";
@@ -234,7 +234,18 @@ public class DocumentService {
         };
         return step + ". " + instruction;
     }
-    private boolean isIncludedInManual(UIElement element) { return classification(element) == ActionClassification.SAFE || (classification(element) == ActionClassification.UNKNOWN && element.isManualInclusionApproved()); }
+    /** SAFE and approved UNKNOWN controls, plus named form fields and named MUTATING actions: describing a control never executes it. */
+    private boolean isIncludedInManual(UIElement element) {
+        ActionClassification classification = classification(element);
+        if (classification == ActionClassification.SAFE || (classification == ActionClassification.UNKNOWN && element.isManualInclusionApproved())) return true;
+        boolean describedWithoutApproval = classification == ActionClassification.MUTATING || (classification == ActionClassification.UNKNOWN && isFormField(element));
+        return describedWithoutApproval && hasPrintableName(element);
+    }
+    private boolean isFormField(UIElement element) { String kind = normalizedKind(element.getKind()); return kind.equals("input") || kind.equals("textarea"); }
+    /** Automatically described controls need a real, unredacted name; "this control" or "[redacted]" would only add noise. */
+    private boolean hasPrintableName(UIElement element) { String name = element.getAccessibleName(); return name != null && !name.isBlank() && !name.contains("[redacted]"); }
+    /** MUTATING controls (including submit inputs) are always presented as actions to press. */
+    private String manualKind(UIElement element) { return classification(element) == ActionClassification.MUTATING ? "button" : normalizedKind(element.getKind()); }
     private enum InstructionGroup { NAVIGATION, INFORMATION, ACTIONS }
     private boolean isLegacyTechnicalUserManual(Document document) {
         if (document.getType() != Document.DocumentType.USER_MANUAL) return false;

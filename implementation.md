@@ -40,7 +40,7 @@ La generación es determinista y usa únicamente la evidencia observada:
 - Tipo admitido: `user_manual`.
 - Si ya existe un documento con el mismo análisis, idioma y tipo, la solicitud devuelve ese borrador y conserva las ediciones.
 - Antes de generar el manual, una persona puede aprobar o retirar la inclusión documental de un elemento `UNKNOWN`. Esta decisión no cambia su clasificación ni autoriza crawling o ejecución.
-- El manual incluye controles `SAFE` y elementos `UNKNOWN` aprobados, con instrucciones funcionales; omite acciones mutantes, elementos desconocidos sin aprobar, selectores y lenguaje técnico de clasificación.
+- El manual incluye controles `SAFE` y elementos `UNKNOWN` aprobados, con instrucciones funcionales. Además describe automáticamente los campos de formulario (`input`, `textarea`) con nombre, usando solo su etiqueta y nunca su valor, y las acciones `MUTATING` con nombre (por ejemplo, "Guardar" o un `input` de tipo `submit`) como acciones que se presionan, sin ejecutarlas. Omite los controles incluidos automáticamente sin nombre o con etiqueta censurada (`[redacted]`), los demás elementos `UNKNOWN` sin aprobar (botones, enlaces y otros tipos), los selectores y el lenguaje técnico de clasificación.
 - Si la página inicial fue capturada como página de login (`PageKind.LOGIN`), el manual incluye una primera sección "Cómo ingresar al sistema" ("How to sign in"), generada a partir de las etiquetas de usuario, contraseña y botón de envío detectadas en esa página.
 - Los nombres de sección prefieren el `h1` visible de la página (`heading`) sobre el `<title>`, que suele ser estático en aplicaciones de una sola página.
 - Las páginas cuyas rutas difieren solo en segmentos numéricos o UUID se agrupan en una única sección por plantilla de ruta (por ejemplo, `/projects/{id}/board`), usando como ejemplo la primera página por URL. Solo se agrupan páginas del mismo módulo cuya ruta contiene al menos un segmento de identificador; las páginas que difieren únicamente en la consulta (`?tab=`) o el fragmento (`#/...`) conservan su propia sección. Si las páginas agrupadas muestran encabezados distintos, la sección usa un nombre genérico ("Detalle del elemento" / "Item details"). Los pasos se basan en los controles de la página de ejemplo y suman los elementos `UNKNOWN` aprobados en las demás páginas del grupo, para que ninguna aprobación manual se pierda. La evidencia (páginas, elementos y capturas) se conserva por página.
@@ -55,8 +55,8 @@ La generación es determinista y usa únicamente la evidencia observada:
 | Clasificación | Comportamiento |
 | --- | --- |
 | `SAFE` | Puede habilitar el crawling de un enlace de navegación de solo lectura. |
-| `MUTATING` | Se bloquea; nunca se ejecuta. |
-| `UNKNOWN` | Se bloquea por defecto; puede aprobarse solo para incluir instrucciones en el manual, sin ejecutarse. |
+| `MUTATING` | Se bloquea; nunca se ejecuta. Si tiene nombre, el manual la documenta como acción. |
+| `UNKNOWN` | Se bloquea por defecto. Los campos de formulario con nombre se documentan automáticamente (solo la etiqueta); los demás controles pueden aprobarse solo para incluir instrucciones en el manual, sin ejecutarse. |
 
 El análisis no adivina el efecto de un control ni envía formularios, confirma operaciones, modifica datos o descarga contenido cuyo efecto no sea claramente de solo lectura.
 
