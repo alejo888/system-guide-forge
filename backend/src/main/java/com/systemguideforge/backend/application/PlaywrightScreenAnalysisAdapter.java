@@ -193,19 +193,26 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
 
     static final int MAX_HEADING_LENGTH = 255;
 
-    /** First visible h1, whitespace-collapsed and redacted like titles; null when absent, blank, or the lookup fails. */
+    /** Narrow heading policy: first rendered nonblank h1, then h2; no ARIA or deeper heading inference. */
     private static String heading(com.microsoft.playwright.Page page) {
         try {
-            Object raw = page.evaluate("() => { const h = [...document.querySelectorAll('h1')].find(el => {"
-                    + "const style = window.getComputedStyle(el);"
-                    + "return style.display !== 'none' && style.visibility !== 'hidden' && el.getClientRects().length > 0; });"
-                    + "return h ? h.textContent : null; }");
+            Object raw = page.evaluate("() => { for (const tag of ['h1', 'h2']) {"
+                    + "for (const el of document.querySelectorAll(tag)) {"
+                    + "if (!el.getClientRects().length) continue;"
+                    + "const style = getComputedStyle(el);"
+                    + "if (el.hidden || style.display === 'none' || style.visibility === 'hidden') continue;"
+                    + "const text = el.innerText.trim(); if (text) return text;"
+                    + "} } return null; }");
             if (!(raw instanceof String text)) return null;
             String normalized = text.trim().replaceAll("\\s+", " ");
             if (normalized.isEmpty()) return null;
             String redacted = safe(normalized);
-            return redacted.length() <= MAX_HEADING_LENGTH ? redacted : redacted.substring(0, MAX_HEADING_LENGTH).trim();
-        } catch (RuntimeException e) { return null; }
+            int end = redacted.offsetByCodePoints(0, Math.min(redacted.codePointCount(0, redacted.length()), MAX_HEADING_LENGTH));
+            return redacted.substring(0, end).trim();
+        } catch (RuntimeException e) {
+            LOG.warn("Heading capture failed: exception={}", e.getClass().getName());
+            return null;
+        }
     }
 
     private void waitForPageReady(com.microsoft.playwright.Page page) {
@@ -294,11 +301,36 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                 && Objects.equals(left.getScheme(), right.getScheme()) && Objects.equals(left.getHost(), right.getHost()) && left.getPort() == right.getPort();
     }
     private static String normalizedPath(URI uri) { String path = uri.getPath(); return path == null || path.isBlank() ? "/" : path.length() > 1 && path.endsWith("/") ? path.substring(0, path.length() - 1) : path; }
+    /**
+     * Narrow DOM label extraction: ignore descendant controls so their current/default values cannot become names,
+     * and hidden descendants so text the user cannot see never reaches the manual. A referenced label root may itself
+     * be hidden (aria-labelledby allows it), so only its descendants are filtered.
+     */
+    private static final String HUMAN_LABEL_SCRIPT = "el => {"
+            + "const clean = root => { if (root.matches('input, textarea, select')) return '';"
+            + "const rootHidden = getComputedStyle(root).visibility === 'hidden';"
+            + "const collect = node => { let out = ''; for (const child of node.childNodes) {"
+            + "if (child.nodeType === 3) { out += child.textContent || ''; continue; }"
+            + "if (child.nodeType !== 1 || child.matches('input, textarea, select, script, style, template') || child.hidden || child.getAttribute('aria-hidden') === 'true') continue;"
+            + "const style = getComputedStyle(child); if (style.display === 'none' || (!rootHidden && style.visibility === 'hidden')) continue;"
+            + "const gap = style.display === 'inline' || style.display === 'contents' ? '' : ' '; out += gap + collect(child) + gap; } return out; };"
+            + "return collect(root).replace(/\\s+/g, ' ').trim(); };"
+            + "const refs = (el.getAttribute('aria-labelledby') || '').trim().split(/\\s+/).filter(Boolean);"
+            + "const referenced = refs.map(id => document.getElementById(id)).filter(Boolean).map(clean).filter(Boolean).join(' ');"
+            + "if (referenced) return referenced;"
+            + "const aria = (el.getAttribute('aria-label') || '').trim(); if (aria) return aria;"
+            + "const labels = el.labels ? [...el.labels].map(clean).filter(Boolean).join(' ') : ''; return labels || null; }";
+
+    private static String humanLabel(Locator item) {
+        try { Object label = item.evaluate(HUMAN_LABEL_SCRIPT); return label instanceof String value ? first(value) : null; }
+        catch (RuntimeException e) { return null; }
+    }
+
     private void detect(com.microsoft.playwright.Page page, String kind, List<DetectedElement> found, TargetApplication app) {
         Locator locator = page.locator(kind); int count = Math.min(locator.count(), 500);
         for (int i = 0; i < count; i++) { Locator item = locator.nth(i); String selector = kind + ":nth-of-type(" + (i + 1) + ")";
             String aria=item.getAttribute("aria-label"), name=item.getAttribute("name"), id=item.getAttribute("id"), placeholder=item.getAttribute("placeholder"), type=item.getAttribute("type"), href=item.getAttribute("href");
-            String visibleText=text(item); String label=first(aria,name,placeholder,visibleText); String pressLabel=first(aria,visibleText,item.getAttribute("value")); String attribute="a".equals(kind)?"href":"type"; String value="a".equals(kind)?href:type;
+            String visibleText=("input".equals(kind)||"textarea".equals(kind))?null:text(item); String buttonValue="input".equals(kind)&&type!=null&&type.trim().matches("(?i)submit|button|reset")?item.getAttribute("value"):null; String label=first(humanLabel(item),visibleText,buttonValue,placeholder); String pressLabel=first(aria,visibleText,item.getAttribute("value")); String attribute="a".equals(kind)?"href":"type"; String value="a".equals(kind)?href:type;
             found.add(new DetectedElement(kind,selector,safe(label),classifyFixtureElement(item,kind,attribute,value,pressLabel,name,id,placeholder),"a".equals(kind)?targetPath(href,page.url(),app.getBaseUrl()):null,"a".equals(kind)&&inNavigation(item))); }
     }
     private static final String NAVIGATION_LANDMARKS = "nav, header, aside, [role=navigation], [role=banner]";

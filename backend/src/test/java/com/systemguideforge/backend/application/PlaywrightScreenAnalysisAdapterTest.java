@@ -216,8 +216,8 @@ class PlaywrightScreenAnalysisAdapterTest {
                             tuple("Cerrar sesión", ActionClassification.MUTATING),
                             tuple("Delete project", ActionClassification.MUTATING),
                             tuple("Abrir menú", ActionClassification.UNKNOWN),
-                            // The form-field name is not what the user reads; classification uses the visible label.
-                            tuple("action", ActionClassification.MUTATING));
+                            // The machine name is not what the user reads; classification still uses the visible label.
+                            tuple("Eliminar", ActionClassification.MUTATING));
             assertThat(elements).filteredOn(element -> "input".equals(element.kind()))
                     .extracting(ScreenAnalysisAdapter.DetectedElement::classification)
                     .containsExactly(ActionClassification.MUTATING);
@@ -286,9 +286,24 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
-    void leavesHeadingNullWithoutAVisibleH1() throws Exception {
-        assertThat(analyzeDashboard("<!doctype html><html><head><title>App</title></head><body><main><h1 hidden>Nope</h1><h1>   </h1><a href=\"#x\">Link</a></main></body></html>", null).heading()).isNull();
-        assertThat(analyzeDashboard("<!doctype html><html><head><title>App</title></head><body><main><h2>Section</h2><a href=\"#x\">Link</a></main></body></html>", null).heading()).isNull();
+    void fallsBackToUsefulVisibleH2ButPrefersUsefulH1RegardlessOfDomOrder() throws Exception {
+        assertThat(analyzeDashboard("<!doctype html><html><body><main><h2>Section</h2><a href=\"#x\">Link</a></main></body></html>", null).heading()).isEqualTo("Section");
+        assertThat(analyzeDashboard("<!doctype html><html><body><main><h2>Earlier</h2><h1>Primary</h1><a href=\"#x\">Link</a></main></body></html>", null).heading()).isEqualTo("Primary");
+        assertThat(analyzeDashboard("<!doctype html><html><body><main><h1> </h1><h1>Useful</h1><h2>Secondary</h2><a href=\"#x\">Link</a></main></body></html>", null).heading()).isEqualTo("Useful");
+    }
+
+    @Test
+    void skipsBlankAndHiddenHeadingsAndIgnoresHiddenDescendantText() throws Exception {
+        assertThat(analyzeDashboard("<!doctype html><html><body><main><h1 hidden>Nope</h1><h1> </h1><h2 style=\"display:none\">Nope</h2><h2>Visible <span hidden>secret</span> section</h2><a href=\"#x\">Link</a></main></body></html>", null).heading()).isEqualTo("Visible section");
+        assertThat(analyzeDashboard("<!doctype html><html><head><title>App</title></head><body><main><h1 hidden>Nope</h1><h1> </h1><h2 hidden>Nope</h2><h2> </h2><a href=\"#x\">Link</a></main></body></html>", null).heading()).isNull();
+    }
+
+    @Test
+    void normalizesRedactsAndTruncatesH2ByCodePoints() throws Exception {
+        assertThat(analyzeDashboard("<!doctype html><html><body><main><h2>  Reset   password </h2><a href=\"#x\">Link</a></main></body></html>", null).heading()).isEqualTo("Reset [redacted]");
+        String heading = analyzeDashboard("<!doctype html><html><body><main><h2>" + "a".repeat(254) + "😀more</h2><a href=\"#x\">Link</a></main></body></html>", null).heading();
+        assertThat(heading).isEqualTo("a".repeat(254) + "😀");
+        assertThat(heading.codePointCount(0, heading.length())).isEqualTo(255);
     }
 
     @Test
@@ -297,6 +312,17 @@ class PlaywrightScreenAnalysisAdapterTest {
                 .isEqualTo("Reset [redacted]");
         assertThat(analyzeDashboard("<!doctype html><html><body><main><h1>" + "a".repeat(300) + "</h1><a href=\"#x\">Link</a></main></body></html>", null).heading())
                 .hasSize(255);
+    }
+
+    @Test
+    void propagatesFallbackH2OnLoginAndDiscoveredPages() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h2>Home section</h2><a href=\"/next\">Next</a></main></body></html>",
+                "<!doctype html><html><body><main><h1 hidden>Hidden</h1><h2>Next section</h2><a href=\"/dashboard\">Back</a></main></body></html>",
+                "<h2>Sign in section</h2>");
+        assertThat(result.heading()).isEqualTo("Home section");
+        assertThat(result.loginPage().heading()).isEqualTo("Sign in section");
+        assertThat(result.discoveredPages()).extracting(ScreenAnalysisAdapter.DiscoveredPage::heading).containsExactly("Next section");
     }
 
     @Test
@@ -357,7 +383,107 @@ class PlaywrightScreenAnalysisAdapterTest {
         assertThat(result.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("FlowPilot", "Nuevo proyecto", "Hello", "Guardar").doesNotContain("FPFlowPilot", "Nuevoproyecto", "Hel lo", "Guardaroculto", "Guardar oculto");
     }
 
+    @Test
+    void recoversHumanLabelsWithoutInventingNamesOrLeakingControlValues() throws Exception {
+        var elements = analyzeDashboard("""
+                <!doctype html><html><body><main><h1>Form</h1>
+                <label>Start date <input type="date" name="startDate" value="2025-01-01"></label>
+                <label for="owner">Owner</label><input id="owner" name="ownerField">
+                <span id="first">Project</span><span id="second">code</span>
+                <input aria-labelledby="first second" aria-label="Wrong" placeholder="Wrong placeholder">
+                <input aria-labelledby="missing" aria-label="Fallback aria">
+                <input aria-labelledby="missing" placeholder="Hint">
+                <input name="machineOnly"><textarea id="direct-textarea" name="machineTextarea">private-fixture-value</textarea>
+                <input id="direct-input" value="direct-input-value">
+                <input aria-labelledby="direct-textarea" aria-label="Safe fallback">
+                <input aria-labelledby="direct-input" placeholder="Input fallback">
+                <label>Notes <textarea>nested-private-value</textarea></label>
+                <label for="referenced">Reference <input value="associated-private-value"></label><input id="referenced">
+                <span id="reference-label">Reference <textarea>reference-private-value</textarea></span>
+                <input aria-labelledby="reference-label">
+                <button>Save changes</button><a href="#local">View details</a>
+                </main></body></html>
+                """, null).elements();
+        assertThat(elements).filteredOn(e -> "input".equals(e.kind()) || "textarea".equals(e.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactly(tuple("Start date", ActionClassification.UNKNOWN), tuple("Owner", ActionClassification.UNKNOWN),
+                        tuple("Project code", ActionClassification.UNKNOWN), tuple("Fallback aria", ActionClassification.UNKNOWN),
+                        tuple("Hint", ActionClassification.UNKNOWN), tuple(null, ActionClassification.UNKNOWN),
+                        tuple(null, ActionClassification.UNKNOWN), tuple("Safe fallback", ActionClassification.UNKNOWN),
+                        tuple("Input fallback", ActionClassification.UNKNOWN), tuple(null, ActionClassification.UNKNOWN),
+                        tuple("Reference", ActionClassification.UNKNOWN), tuple("Reference", ActionClassification.UNKNOWN),
+                        tuple(null, ActionClassification.UNKNOWN), tuple("Notes", ActionClassification.UNKNOWN), tuple(null, ActionClassification.UNKNOWN));
+        assertThat(elements).filteredOn(e -> "button".equals(e.kind()) || "a".equals(e.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("Save changes", "View details");
+        assertThat(elements).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName)
+                .doesNotContain("nested-private-value", "reference-private-value", "associated-private-value", "private-fixture-value", "direct-input-value");
+    }
+
+    @Test
+    void humanLabelsExcludeHiddenDescendantText() throws Exception {
+        var elements = analyzeDashboard("""
+                <!doctype html><html><head><style>.gone{display:none}.ghost{visibility:hidden}</style></head><body><main><h1>Form</h1>
+                <label>Due <span class="gone">hidden-display</span><span aria-hidden="true">hidden-aria</span><span class="ghost">hidden-visibility</span><span hidden>hidden-attribute</span><script>var hiddenScript = 1;</script><style>.x{}</style>date <input name="due"></label>
+                <span id="hidden-ref" style="display:none">Assignee <span class="gone">hidden-ref-child</span></span>
+                <input aria-labelledby="hidden-ref">
+                <span id="ghost-ref" style="visibility:hidden">Reviewer</span>
+                <input aria-labelledby="ghost-ref">
+                </main></body></html>
+                """, null).elements();
+        assertThat(elements).filteredOn(e -> "input".equals(e.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName)
+                .containsExactly("Due date", "Assignee", "Reviewer");
+    }
+
+    @Test
+    void namesButtonLikeInputsFromTheirValueButNeverOtherInputs() throws Exception {
+        var elements = analyzeDashboard("""
+                <!doctype html><html><body><main><h1>Form</h1>
+                <form><input type="submit" value="Save draft"><input type="button" value="Preview"><input type="reset" value="Clear form">
+                <input type="submit" value="Ignored value" aria-label="Publish"><input type="text" value="typed-private-value"></form>
+                </main></body></html>
+                """, null).elements();
+        assertThat(elements).filteredOn(e -> "input".equals(e.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName)
+                .containsExactly("Save draft", "Preview", "Clear form", "Publish", null);
+    }
+
+    @Test
+    void headingEvaluationFailureLeavesHeadingNullAndLogsOnlyExceptionClass() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard("""
+                    <!doctype html><html><body><main><h2>Fallback</h2><a href="#x">Link</a></main>
+                    <script>
+                    const originalQuery = document.querySelectorAll.bind(document);
+                    document.querySelectorAll = selector => {
+                      if (selector === 'h1' || selector === 'h2') throw new Error('private-heading https://example.test/?token=private');
+                      return originalQuery(selector);
+                    };
+                    </script></body></html>
+                    """, null);
+            assertThat(result.heading()).isNull();
+            assertThat(result.title()).isNotNull();
+            assertThat(appender.list).filteredOn(event -> event.getFormattedMessage().startsWith("Heading capture failed"))
+                    .singleElement().satisfies(event -> {
+                        assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                        assertThat(event.getFormattedMessage()).contains("com.microsoft.playwright.PlaywrightException")
+                                .doesNotContain("private-heading", "example.test", "token=private");
+                        assertThat(event.getThrowableProxy()).isNull();
+                    });
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
     private static ScreenAnalysisAdapter.ScreenAnalysisResult analyzeDashboard(String dashboardHtml, String nextHtml) throws Exception {
+        return analyzeDashboard(dashboardHtml, nextHtml, "<h1>Sign in page</h1>");
+    }
+
+    private static ScreenAnalysisAdapter.ScreenAnalysisResult analyzeDashboard(String dashboardHtml, String nextHtml, String loginHeading) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/login", exchange -> {
             if ("POST".equals(exchange.getRequestMethod())) {
@@ -366,7 +492,7 @@ class PlaywrightScreenAnalysisAdapterTest {
                 exchange.close();
                 return;
             }
-            respondHtml(exchange, "<!doctype html><html><head><title>Sign in</title></head><body><h1>Sign in page</h1><form method=\"post\">"
+            respondHtml(exchange, "<!doctype html><html><head><title>Sign in</title></head><body>" + loginHeading + "<form method=\"post\">"
                     + "<input name=\"username\" type=\"text\"><input name=\"password\" type=\"password\"><button type=\"submit\">Go</button></form></body></html>");
         });
         server.createContext("/dashboard", exchange -> respondHtml(exchange, dashboardHtml));
