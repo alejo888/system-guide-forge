@@ -436,6 +436,19 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void namesButtonLikeInputsFromTheirValueButNeverOtherInputs() throws Exception {
+        var elements = analyzeDashboard("""
+                <!doctype html><html><body><main><h1>Form</h1>
+                <form><input type="submit" value="Save draft"><input type="button" value="Preview"><input type="reset" value="Clear form">
+                <input type="submit" value="Ignored value" aria-label="Publish"><input type="text" value="typed-private-value"></form>
+                </main></body></html>
+                """, null).elements();
+        assertThat(elements).filteredOn(e -> "input".equals(e.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName)
+                .containsExactly("Save draft", "Preview", "Clear form", "Publish", null);
+    }
+
+    @Test
     void headingEvaluationFailureLeavesHeadingNullAndLogsOnlyExceptionClass() throws Exception {
         Logger logger = (Logger) LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
