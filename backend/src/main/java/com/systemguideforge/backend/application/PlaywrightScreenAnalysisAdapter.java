@@ -193,19 +193,26 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
 
     static final int MAX_HEADING_LENGTH = 255;
 
-    /** First visible h1, whitespace-collapsed and redacted like titles; null when absent, blank, or the lookup fails. */
+    /** Narrow heading policy: first rendered nonblank h1, then h2; no ARIA or deeper heading inference. */
     private static String heading(com.microsoft.playwright.Page page) {
         try {
-            Object raw = page.evaluate("() => { const h = [...document.querySelectorAll('h1')].find(el => {"
-                    + "const style = window.getComputedStyle(el);"
-                    + "return style.display !== 'none' && style.visibility !== 'hidden' && el.getClientRects().length > 0; });"
-                    + "return h ? h.textContent : null; }");
+            Object raw = page.evaluate("() => { for (const tag of ['h1', 'h2']) {"
+                    + "for (const el of document.querySelectorAll(tag)) {"
+                    + "if (!el.getClientRects().length) continue;"
+                    + "const style = getComputedStyle(el);"
+                    + "if (el.hidden || style.display === 'none' || style.visibility === 'hidden') continue;"
+                    + "const text = el.innerText.trim(); if (text) return text;"
+                    + "} } return null; }");
             if (!(raw instanceof String text)) return null;
             String normalized = text.trim().replaceAll("\\s+", " ");
             if (normalized.isEmpty()) return null;
             String redacted = safe(normalized);
-            return redacted.length() <= MAX_HEADING_LENGTH ? redacted : redacted.substring(0, MAX_HEADING_LENGTH).trim();
-        } catch (RuntimeException e) { return null; }
+            int end = redacted.offsetByCodePoints(0, Math.min(redacted.codePointCount(0, redacted.length()), MAX_HEADING_LENGTH));
+            return redacted.substring(0, end).trim();
+        } catch (RuntimeException e) {
+            LOG.warn("Heading capture failed: exception={}", e.getClass().getName());
+            return null;
+        }
     }
 
     private void waitForPageReady(com.microsoft.playwright.Page page) {
