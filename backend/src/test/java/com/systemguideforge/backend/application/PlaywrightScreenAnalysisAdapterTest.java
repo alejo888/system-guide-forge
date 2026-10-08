@@ -420,6 +420,22 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void humanLabelsExcludeHiddenDescendantText() throws Exception {
+        var elements = analyzeDashboard("""
+                <!doctype html><html><head><style>.gone{display:none}.ghost{visibility:hidden}</style></head><body><main><h1>Form</h1>
+                <label>Due <span class="gone">hidden-display</span><span aria-hidden="true">hidden-aria</span><span class="ghost">hidden-visibility</span><span hidden>hidden-attribute</span><script>var hiddenScript = 1;</script><style>.x{}</style>date <input name="due"></label>
+                <span id="hidden-ref" style="display:none">Assignee <span class="gone">hidden-ref-child</span></span>
+                <input aria-labelledby="hidden-ref">
+                <span id="ghost-ref" style="visibility:hidden">Reviewer</span>
+                <input aria-labelledby="ghost-ref">
+                </main></body></html>
+                """, null).elements();
+        assertThat(elements).filteredOn(e -> "input".equals(e.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName)
+                .containsExactly("Due date", "Assignee", "Reviewer");
+    }
+
+    @Test
     void headingEvaluationFailureLeavesHeadingNullAndLogsOnlyExceptionClass() throws Exception {
         Logger logger = (Logger) LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();

@@ -301,9 +301,20 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                 && Objects.equals(left.getScheme(), right.getScheme()) && Objects.equals(left.getHost(), right.getHost()) && left.getPort() == right.getPort();
     }
     private static String normalizedPath(URI uri) { String path = uri.getPath(); return path == null || path.isBlank() ? "/" : path.length() > 1 && path.endsWith("/") ? path.substring(0, path.length() - 1) : path; }
-    /** Narrow DOM label extraction: ignore descendant controls so their current/default values cannot become names. */
+    /**
+     * Narrow DOM label extraction: ignore descendant controls so their current/default values cannot become names,
+     * and hidden descendants so text the user cannot see never reaches the manual. A referenced label root may itself
+     * be hidden (aria-labelledby allows it), so only its descendants are filtered.
+     */
     private static final String HUMAN_LABEL_SCRIPT = "el => {"
-            + "const clean = root => { if (root.matches('input, textarea, select')) return ''; const copy = root.cloneNode(true); copy.querySelectorAll('input, textarea, select').forEach(control => control.remove()); return (copy.textContent || '').replace(/\\s+/g, ' ').trim(); };"
+            + "const clean = root => { if (root.matches('input, textarea, select')) return '';"
+            + "const rootHidden = getComputedStyle(root).visibility === 'hidden';"
+            + "const collect = node => { let out = ''; for (const child of node.childNodes) {"
+            + "if (child.nodeType === 3) { out += child.textContent || ''; continue; }"
+            + "if (child.nodeType !== 1 || child.matches('input, textarea, select, script, style, template') || child.hidden || child.getAttribute('aria-hidden') === 'true') continue;"
+            + "const style = getComputedStyle(child); if (style.display === 'none' || (!rootHidden && style.visibility === 'hidden')) continue;"
+            + "const gap = style.display === 'inline' || style.display === 'contents' ? '' : ' '; out += gap + collect(child) + gap; } return out; };"
+            + "return collect(root).replace(/\\s+/g, ' ').trim(); };"
             + "const refs = (el.getAttribute('aria-labelledby') || '').trim().split(/\\s+/).filter(Boolean);"
             + "const referenced = refs.map(id => document.getElementById(id)).filter(Boolean).map(clean).filter(Boolean).join(' ');"
             + "if (referenced) return referenced;"
