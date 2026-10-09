@@ -221,6 +221,8 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
 
     /** Overall readiness budget; exceeding it fails the analysis, as before route-data settling existed. */
     static final double PAGE_READY_TIMEOUT_MS = 10_000;
+    /** Share of the readiness budget for the strict check before falling back to the original rule. */
+    static final double STRICT_PAGE_READY_TIMEOUT_MS = 5_000;
     /** Upper bound for in-flight route data requests after readiness; reaching it continues the capture. */
     static final double NETWORK_IDLE_TIMEOUT_MS = 3_000;
     /** A DOM without mutations for this long is considered settled after route data rendered. */
@@ -235,25 +237,45 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         waitForDomQuiet(page);
     }
 
+    /**
+     * Readiness predicate. Strict mode ignores controls inside navigation landmarks (they render before route data)
+     * and treats a visible [aria-busy=true] element as loading; lenient mode is the original rule.
+     */
+    private static final String PAGE_READY_SCRIPT = "({ navigationLandmarks, strict }) => {"
+            + "if (document.readyState !== 'complete' || document.body === null) return false;"
+            + "const text = document.body.innerText.trim();"
+            + "if (!text) return false;"
+            + "const visible = element => {"
+            + "const style = window.getComputedStyle(element);"
+            + "return !element.hidden && style.display !== 'none' && style.visibility !== 'hidden';"
+            + "};"
+            + "if (strict && [...document.querySelectorAll('[aria-busy=true]')].some(visible)) return false;"
+            + "const controls = [...document.querySelectorAll('button, a, input, textarea, select, [role=button], [role=tab]')]"
+            + ".filter(element => visible(element) && (!strict || element.closest(navigationLandmarks) === null)).length;"
+            + "const hasLoadingState = /\\b(?:loading|please\\s+wait|initializing|fetching|updating)\\b/i.test(text);"
+            + "const hasContentContainer = [...document.querySelectorAll('main, [role=main], article, section')]"
+            + ".some(element => visible(element) && element.innerText.trim().length > 0);"
+            + "return controls > 0 || (hasContentContainer && !hasLoadingState);"
+            + "}";
+
+    /**
+     * Strict readiness first, bounded by STRICT_PAGE_READY_TIMEOUT_MS; if it never holds, the original rule gets the
+     * rest of PAGE_READY_TIMEOUT_MS. The analysis fails only when the original rule would also have failed.
+     */
     private void waitForPageReady(com.microsoft.playwright.Page page) {
-        // Controls inside navigation landmarks render before route data, so they never prove readiness on their own.
-        page.waitForFunction("navigationLandmarks => {"
-                        + "if (document.readyState !== 'complete' || document.body === null) return false;"
-                        + "const text = document.body.innerText.trim();"
-                        + "if (!text) return false;"
-                        + "const visible = element => {"
-                        + "const style = window.getComputedStyle(element);"
-                        + "return !element.hidden && style.display !== 'none' && style.visibility !== 'hidden';"
-                        + "};"
-                        + "if ([...document.querySelectorAll('[aria-busy=true]')].some(visible)) return false;"
-                        + "const controls = [...document.querySelectorAll('button, a, input, textarea, select, [role=button], [role=tab]')]"
-                        + ".filter(element => visible(element) && element.closest(navigationLandmarks) === null).length;"
-                        + "const hasLoadingState = /\\b(?:loading|please\\s+wait|initializing|fetching|updating)\\b/i.test(text);"
-                        + "const hasContentContainer = [...document.querySelectorAll('main, [role=main], article, section')]"
-                        + ".some(element => visible(element) && element.innerText.trim().length > 0);"
-                        + "return controls > 0 || (hasContentContainer && !hasLoadingState);"
-                        + "}",
-                NAVIGATION_LANDMARKS, new Page.WaitForFunctionOptions().setTimeout(PAGE_READY_TIMEOUT_MS));
+        long started = System.nanoTime();
+        try {
+            waitForReadiness(page, true, STRICT_PAGE_READY_TIMEOUT_MS);
+        } catch (TimeoutError e) {
+            double elapsedMs = (System.nanoTime() - started) / 1_000_000.0;
+            LOG.debug("Strict readiness not reached; falling back to the original readiness rule");
+            waitForReadiness(page, false, Math.max(1, PAGE_READY_TIMEOUT_MS - elapsedMs));
+        }
+    }
+
+    private static void waitForReadiness(com.microsoft.playwright.Page page, boolean strict, double timeoutMs) {
+        page.waitForFunction(PAGE_READY_SCRIPT, Map.of("navigationLandmarks", NAVIGATION_LANDMARKS, "strict", strict),
+                new Page.WaitForFunctionOptions().setTimeout(timeoutMs));
     }
 
     /** Language-independent: route data requests still in flight mean controls may not be rendered yet. */

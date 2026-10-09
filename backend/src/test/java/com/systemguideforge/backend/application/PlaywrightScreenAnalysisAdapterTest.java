@@ -529,6 +529,16 @@ class PlaywrightScreenAnalysisAdapterTest {
         assertThat(navigationOnly).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("Crear sprint");
     }
 
+    @Test
+    void fallsBackToThePreviousReadinessRuleWhenTheStrictCheckNeverHolds() throws Exception {
+        var navigationOnly = analyzeDashboard("<!doctype html><html><body><nav><a href=\"#home\">Inicio</a></nav>"
+                + "<div>Texto plano sin contenedor</div></body></html>", null);
+        var permanentlyBusy = analyzeDashboard("<!doctype html><html><body><main aria-busy=\"true\"><h1>Panel</h1>"
+                + "<button>Actualizar</button></main></body></html>", null);
+        assertThat(navigationOnly.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("Inicio");
+        assertThat(permanentlyBusy.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("Actualizar");
+    }
+
     private static ScreenAnalysisAdapter.ScreenAnalysisResult analyzeDashboard(String dashboardHtml, String nextHtml) throws Exception {
         return analyzeDashboard(dashboardHtml, nextHtml, "<h1>Sign in page</h1>");
     }
