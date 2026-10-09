@@ -29,6 +29,27 @@ class ActionClassifierTest {
     }
 
     @Test
+    void classifiesActivationTogglesAsMutatingInEnglishAndSpanish() {
+        assertThat(ActionClassifier.classifyControl("button", null, "Desactivar")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", null, "Activar")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Deshabilitar usuario")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Habilitarlo")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Deactivate user")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Activate")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Disable account")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Enable")).isEqualTo(ActionClassification.MUTATING);
+    }
+
+    @Test
+    void keepsStateLabelsSharingActivationStemsAsUnknown() {
+        assertThat(ActionClassifier.classifyControl("button", "button", "Active users")).isEqualTo(ActionClassification.UNKNOWN);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Enabled")).isEqualTo(ActionClassification.UNKNOWN);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Disabled")).isEqualTo(ActionClassification.UNKNOWN);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Actividad")).isEqualTo(ActionClassification.UNKNOWN);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Habilitado")).isEqualTo(ActionClassification.UNKNOWN);
+    }
+
+    @Test
     void keepsControlsWithoutAMutatingVerbAsUnknown() {
         assertThat(ActionClassifier.classifyControl("button", "button", "Abrir menú")).isEqualTo(ActionClassification.UNKNOWN);
         assertThat(ActionClassifier.classifyControl("button", "button", "Mostrar contraseña")).isEqualTo(ActionClassification.UNKNOWN);
