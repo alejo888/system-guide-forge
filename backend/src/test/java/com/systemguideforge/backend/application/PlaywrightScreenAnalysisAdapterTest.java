@@ -361,6 +361,23 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void capturesTheNormalizedInputTypeButNeverTheFieldValue() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Home</h1>"
+                        + "<label>Recordarme<input type=\"CheckBox\" checked></label><label>Plan anual<input type=\"radio\" name=\"plan\"></label>"
+                        + "<label>Nombre<input value=\"Ana\"></label><label>Correo<input type=\"email\" value=\"ana@example.test\"></label>"
+                        + "<label>Raro<input type=\"not a type!\"></label><label>Notas<textarea>Borrador</textarea></label><button>Guardar</button></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> List.of("Recordarme", "Plan anual", "Nombre", "Correo", "Raro", "Notas", "Guardar").contains(element.accessibleName()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::controlType)
+                .containsExactlyInAnyOrder(tuple("Recordarme", "checkbox"), tuple("Plan anual", "radio"), tuple("Nombre", "text"), tuple("Correo", "email"),
+                        tuple("Raro", "text"), tuple("Notas", null), tuple("Guardar", null));
+        assertThat(result.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName)
+                .doesNotContain("Ana", "ana@example.test", "Borrador");
+    }
+
+    @Test
     void flagsLinksInsideNavigationLandmarksOnly() throws Exception {
         ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
                 "<!doctype html><html><body><header><a href=\"/next\">Cabecera</a></header><nav><a href=\"/next\">Menu</a></nav><div role=\"navigation\"><a href=\"/next\">Rol</a></div>"
@@ -554,6 +571,36 @@ class PlaywrightScreenAnalysisAdapterTest {
         assertThat(result.elements()).containsExactly(home, refresh);
         assertThat(result.discoveredPages()).singleElement()
                 .satisfies(page -> assertThat(page.elements()).containsExactly(search, unnamedLink));
+    }
+
+    @Test
+    void flagsButtonsInsideNavigationLandmarksLikeLinks() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><header><button>Cerrar sesión</button></header><nav><button>Abrir menú</button></nav>"
+                        + "<main><h1>Home</h1><button>Guardar</button></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::inNavigation)
+                .containsExactlyInAnyOrder(tuple("Cerrar sesión", true), tuple("Abrir menú", true), tuple("Guardar", false));
+    }
+
+    @Test
+    void keepsAGlobalNavigationButtonOnlyOnTheStartPageWhilePageButtonsStayOnEveryPage() {
+        ScreenAnalysisAdapter.DetectedElement logout = new ScreenAnalysisAdapter.DetectedElement("button", "button:nth-of-type(1)", "Cerrar sesión", ActionClassification.MUTATING, null, true);
+        ScreenAnalysisAdapter.DetectedElement save = new ScreenAnalysisAdapter.DetectedElement("button", "button:nth-of-type(2)", "Guardar", ActionClassification.MUTATING, null, false);
+        ScreenAnalysisAdapter.DetectedElement contentLogout = new ScreenAnalysisAdapter.DetectedElement("button", "button:nth-of-type(3)", "Cerrar sesión", ActionClassification.MUTATING, null, false);
+        ScreenAnalysisAdapter.ScreenAnalysisResult first = new ScreenAnalysisAdapter.ScreenAnalysisResult(
+                "http://localhost/", "Home", List.of(logout, save), new byte[]{1});
+        ScreenAnalysisAdapter.DiscoveredPage profile = new ScreenAnalysisAdapter.DiscoveredPage(
+                "http://localhost/profile", "Perfil", List.of(logout, save, contentLogout), new byte[]{1}, 1, ActionClassification.SAFE);
+
+        ScreenAnalysisAdapter.ScreenAnalysisResult result =
+                PlaywrightScreenAnalysisAdapter.withSharedNavigationIncludedOnce(first, List.of(profile));
+
+        assertThat(result.elements()).containsExactly(logout, save);
+        assertThat(result.discoveredPages()).singleElement()
+                .satisfies(page -> assertThat(page.elements()).containsExactly(save, contentLogout));
     }
 
     @Test

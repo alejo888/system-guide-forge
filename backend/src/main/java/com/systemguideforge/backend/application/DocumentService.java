@@ -207,9 +207,9 @@ public class DocumentService {
                 : " This screen is the same for every item; the example shown is " + example + ".");
     }
     private InstructionGroup instructionGroupFor(UIElement element) {
-        return switch (normalizedKind(element.getKind())) {
+        return switch (manualKind(element)) {
             case "link" -> InstructionGroup.NAVIGATION;
-            case "input", "textarea", "select", "dropdown", "combobox" -> InstructionGroup.INFORMATION;
+            case "input", "textarea", "select", "dropdown", "combobox", "input-checkbox", "input-radio" -> InstructionGroup.INFORMATION;
             default -> InstructionGroup.ACTIONS;
         };
     }
@@ -222,7 +222,7 @@ public class DocumentService {
     }
     private String instructionFor(UIElement element, int step, boolean spanish) {
         String name = "\"" + boundedText(displayName(element, spanish), 3000) + "\"";
-        String instruction = switch (normalizedKind(element.getKind())) {
+        String instruction = switch (manualKind(element)) {
             case "link" -> spanish ? "Abrí el enlace " + name + "." : "Open the " + name + " link.";
             case "button", "submit" -> spanish ? "Presioná el botón " + name + "." : "Press the " + name + " button.";
             case "input" -> spanish ? "Ingresá la información en el campo " + name + "." : "Enter the information in the field " + name + ".";
@@ -230,11 +230,38 @@ public class DocumentService {
             case "select", "dropdown", "combobox" -> spanish ? "Elegí una opción en " + name + "." : "Choose an option in " + name + ".";
             case "checkbox" -> spanish ? "Marcá la opción " + name + "." : "Select the option " + name + ".";
             case "radio" -> spanish ? "Seleccioná la opción " + name + "." : "Select the option " + name + ".";
+            case "input-checkbox" -> spanish ? "Marcá o desmarcá la opción " + name + "." : "Select or clear the option " + name + ".";
+            case "input-radio" -> spanish ? "Elegí la opción " + name + "." : "Choose the option " + name + ".";
             default -> spanish ? "Usá " + name + "." : "Use " + name + ".";
         };
         return step + ". " + instruction;
     }
-    private boolean isIncludedInManual(UIElement element) { return classification(element) == ActionClassification.SAFE || (classification(element) == ActionClassification.UNKNOWN && element.isManualInclusionApproved()); }
+    /** SAFE and approved UNKNOWN controls, plus named form fields and named MUTATING actions: describing a control never executes it. */
+    private boolean isIncludedInManual(UIElement element) {
+        ActionClassification classification = classification(element);
+        if (classification == ActionClassification.SAFE || (classification == ActionClassification.UNKNOWN && element.isManualInclusionApproved())) return true;
+        boolean describedWithoutApproval = classification == ActionClassification.MUTATING || (classification == ActionClassification.UNKNOWN && isFormField(element));
+        return describedWithoutApproval && hasPrintableName(element);
+    }
+    /** Input types a person fills in or ticks; buttons, files, hidden inputs and pickers such as color or range are not described without approval. */
+    private static final Set<String> FIELD_INPUT_TYPES = Set.of("text", "password", "email", "number", "search", "tel", "url",
+            "date", "datetime-local", "month", "week", "time", "checkbox", "radio");
+    /** Textareas and field-like inputs; legacy inputs without a captured type keep being treated as fields. */
+    private boolean isFormField(UIElement element) {
+        String kind = normalizedKind(element.getKind());
+        if (kind.equals("textarea")) return true;
+        return kind.equals("input") && (element.getControlType() == null || FIELD_INPUT_TYPES.contains(element.getControlType()));
+    }
+    /** Automatically described controls need a real, unredacted name; "this control" or "[redacted]" would only add noise. */
+    private boolean hasPrintableName(UIElement element) { String name = element.getAccessibleName(); return name != null && !name.isBlank() && !name.contains("[redacted]"); }
+    /** MUTATING controls (including submit inputs) are always presented as actions to press; captured checkbox and radio
+     * inputs are options to choose. Other input types and legacy rows without a captured type keep the text-entry wording. */
+    private String manualKind(UIElement element) {
+        if (classification(element) == ActionClassification.MUTATING) return "button";
+        String kind = normalizedKind(element.getKind());
+        if (kind.equals("input") && ("checkbox".equals(element.getControlType()) || "radio".equals(element.getControlType()))) return "input-" + element.getControlType();
+        return kind;
+    }
     private enum InstructionGroup { NAVIGATION, INFORMATION, ACTIONS }
     private boolean isLegacyTechnicalUserManual(Document document) {
         if (document.getType() != Document.DocumentType.USER_MANUAL) return false;
