@@ -8,7 +8,9 @@ public final class ActionClassifier {
     // pronoun ("Quitarme", "Eliminarlo"); UNICODE_CHARACTER_CLASS keeps \b correct around accented letters.
     private static final Pattern MUTATING_VERBS = Pattern.compile(
             "\\b(submit|create|delete|send|save|update|remove|add|log ?out|sign ?out"
-                    + "|(crear|eliminar|borrar|enviar|guardar|actualizar|quitar|agregar|añadir)(me|te|se|lo|la|le|nos|los|las|les)?"
+                    + "|(de)?activate|disable|enable"
+                    + "|(crear|eliminar|borrar|enviar|guardar|actualizar|quitar|agregar|añadir"
+                    + "|(des)?activar|(des)?habilitar)(me|te|se|lo|la|le|nos|los|las|les)?"
                     + "|cerrar sesi[oó]n)\\b",
             Pattern.UNICODE_CHARACTER_CLASS);
 
