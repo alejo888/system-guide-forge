@@ -327,10 +327,10 @@ class DocumentServiceTest {
                 new UIElement("page-1", "button", "#save", "Guardar", ActionClassification.MUTATING));
 
         assertThat(groupedManualContent(Document.DocumentLanguage.ES, controls))
-                .contains("Acciones:\n1. Abrí el enlace \"Archivar\".\n2. Presioná el botón \"Guardar\".\n")
+                .contains("Acciones:\n1. Seleccioná el enlace \"Archivar\".\n2. Presioná el botón \"Guardar\".\n")
                 .doesNotContain("Navegación:", "botón \"Archivar\"");
         assertThat(groupedManualContent(Document.DocumentLanguage.EN, controls))
-                .contains("Actions:\n1. Open the \"Archivar\" link.\n2. Press the \"Guardar\" button.\n")
+                .contains("Actions:\n1. Select the \"Archivar\" link.\n2. Press the \"Guardar\" button.\n")
                 .doesNotContain("Navigation:");
     }
 

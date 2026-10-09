@@ -249,7 +249,9 @@ public class DocumentService {
     private String instructionFor(UIElement element, int step, boolean spanish) {
         String name = "\"" + boundedText(displayName(element, spanish), 3000) + "\"";
         String instruction = switch (manualKind(element)) {
-            case "link" -> spanish ? "Abrí el enlace " + name + "." : "Open the " + name + " link.";
+            case "link" -> classification(element) == ActionClassification.MUTATING
+                    ? (spanish ? "Seleccioná el enlace " + name + "." : "Select the " + name + " link.")
+                    : (spanish ? "Abrí el enlace " + name + "." : "Open the " + name + " link.");
             case "button", "submit" -> spanish ? "Presioná el botón " + name + "." : "Press the " + name + " button.";
             case "input" -> spanish ? "Ingresá la información en el campo " + name + "." : "Enter the information in the field " + name + ".";
             case "textarea" -> spanish ? "Escribí la información en el campo " + name + "." : "Write the information in the field " + name + ".";
