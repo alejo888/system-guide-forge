@@ -176,9 +176,13 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                 .map(Map.Entry::getKey).collect(Collectors.toUnmodifiableSet());
     }
 
+    /** Named links, and named buttons inside a navigation landmark (e.g. a header "Sign out"), are global navigation candidates. */
     static String navigationKey(DetectedElement element) {
-        if (element == null || !"a".equalsIgnoreCase(element.kind()) || element.accessibleName() == null || element.accessibleName().isBlank()) return null;
-        return "a\u0000" + element.accessibleName().trim().toLowerCase(Locale.ROOT);
+        if (element == null || element.accessibleName() == null || element.accessibleName().isBlank()) return null;
+        boolean link = "a".equalsIgnoreCase(element.kind());
+        boolean landmarkButton = "button".equalsIgnoreCase(element.kind()) && element.inNavigation();
+        if (!link && !landmarkButton) return null;
+        return (link ? "a" : "button") + "\u0000" + element.accessibleName().trim().toLowerCase(Locale.ROOT);
     }
 
     private ScreenAnalysisResult analyzeCurrentPage(com.microsoft.playwright.Page page, TargetApplication app, int depth) {
@@ -331,7 +335,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         for (int i = 0; i < count; i++) { Locator item = locator.nth(i); String selector = kind + ":nth-of-type(" + (i + 1) + ")";
             String aria=item.getAttribute("aria-label"), name=item.getAttribute("name"), id=item.getAttribute("id"), placeholder=item.getAttribute("placeholder"), type=item.getAttribute("type"), href=item.getAttribute("href");
             String visibleText=("input".equals(kind)||"textarea".equals(kind))?null:text(item); String buttonValue="input".equals(kind)&&type!=null&&type.trim().matches("(?i)submit|button|reset")?item.getAttribute("value"):null; String label=first(humanLabel(item),visibleText,buttonValue,placeholder); String pressLabel=first(aria,visibleText,item.getAttribute("value")); String attribute="a".equals(kind)?"href":"type"; String value="a".equals(kind)?href:type;
-            found.add(new DetectedElement(kind,selector,safe(label),classifyFixtureElement(item,kind,attribute,value,pressLabel,name,id,placeholder),"a".equals(kind)?targetPath(href,page.url(),app.getBaseUrl()):null,"a".equals(kind)&&inNavigation(item),"input".equals(kind)?controlType(type):null)); }
+            found.add(new DetectedElement(kind,selector,safe(label),classifyFixtureElement(item,kind,attribute,value,pressLabel,name,id,placeholder),"a".equals(kind)?targetPath(href,page.url(),app.getBaseUrl()):null,("a".equals(kind)||"button".equals(kind))&&inNavigation(item),"input".equals(kind)?controlType(type):null)); }
     }
     /** The input's type attribute as browsers interpret it: missing or unrecognizable values fall back to "text". Only the type is read, never the value. */
     static String controlType(String type) {

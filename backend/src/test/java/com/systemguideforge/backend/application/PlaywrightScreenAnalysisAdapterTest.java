@@ -574,6 +574,36 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void flagsButtonsInsideNavigationLandmarksLikeLinks() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><header><button>Cerrar sesión</button></header><nav><button>Abrir menú</button></nav>"
+                        + "<main><h1>Home</h1><button>Guardar</button></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::inNavigation)
+                .containsExactlyInAnyOrder(tuple("Cerrar sesión", true), tuple("Abrir menú", true), tuple("Guardar", false));
+    }
+
+    @Test
+    void keepsAGlobalNavigationButtonOnlyOnTheStartPageWhilePageButtonsStayOnEveryPage() {
+        ScreenAnalysisAdapter.DetectedElement logout = new ScreenAnalysisAdapter.DetectedElement("button", "button:nth-of-type(1)", "Cerrar sesión", ActionClassification.MUTATING, null, true);
+        ScreenAnalysisAdapter.DetectedElement save = new ScreenAnalysisAdapter.DetectedElement("button", "button:nth-of-type(2)", "Guardar", ActionClassification.MUTATING, null, false);
+        ScreenAnalysisAdapter.DetectedElement contentLogout = new ScreenAnalysisAdapter.DetectedElement("button", "button:nth-of-type(3)", "Cerrar sesión", ActionClassification.MUTATING, null, false);
+        ScreenAnalysisAdapter.ScreenAnalysisResult first = new ScreenAnalysisAdapter.ScreenAnalysisResult(
+                "http://localhost/", "Home", List.of(logout, save), new byte[]{1});
+        ScreenAnalysisAdapter.DiscoveredPage profile = new ScreenAnalysisAdapter.DiscoveredPage(
+                "http://localhost/profile", "Perfil", List.of(logout, save, contentLogout), new byte[]{1}, 1, ActionClassification.SAFE);
+
+        ScreenAnalysisAdapter.ScreenAnalysisResult result =
+                PlaywrightScreenAnalysisAdapter.withSharedNavigationIncludedOnce(first, List.of(profile));
+
+        assertThat(result.elements()).containsExactly(logout, save);
+        assertThat(result.discoveredPages()).singleElement()
+                .satisfies(page -> assertThat(page.elements()).containsExactly(save, contentLogout));
+    }
+
+    @Test
     void authenticatesOnlyAfterSameOriginRedirectAwayFromLogin() {
         TargetApplication app = new TargetApplication("p", "app", "http://localhost:8080", "http://localhost:8080/login", "u", "p");
         assertThat(PlaywrightScreenAnalysisAdapter.isAuthenticatedAfterRedirect("http://localhost:8080/dashboard", app)).isTrue();

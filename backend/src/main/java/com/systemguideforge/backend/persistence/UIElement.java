@@ -14,7 +14,7 @@ public class UIElement {
     /** Same-origin path (no query or fragment) an anchor points to; null for other elements and non-navigable anchors. */
     private String targetPath;
     @Enumerated(EnumType.STRING) private ActionClassification actionClassification;
-    /** True when an anchor sits inside a navigation landmark (nav, header, aside, role navigation or banner). */
+    /** True when an anchor or button sits inside a navigation landmark (nav, header, aside, role navigation or banner). */
     @Column(nullable = false) private boolean inNavigation = false;
     /** Normalized input type (text, checkbox, radio, email...) of a captured input, never its value; null for other elements and legacy rows. */
     @Column(length = 32) private String controlType;
