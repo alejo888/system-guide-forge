@@ -186,7 +186,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     }
 
     private ScreenAnalysisResult analyzeCurrentPage(com.microsoft.playwright.Page page, TargetApplication app, int depth) {
-        waitForPageReady(page);
+        waitForPageSettled(page);
         List<DetectedElement> found = new ArrayList<>();
         detect(page, "button", found, app); detect(page, "a", found, app); detect(page, "input", found, app); detect(page, "textarea", found, app);
         Locator sensitiveFields = page.locator(SENSITIVE_FIELD_SELECTOR); sensitiveFields.count();
@@ -219,23 +219,89 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         }
     }
 
+    /** Overall readiness budget; exceeding it fails the analysis, as before route-data settling existed. */
+    static final double PAGE_READY_TIMEOUT_MS = 10_000;
+    /** Share of the readiness budget for the strict check before falling back to the original rule. */
+    static final double STRICT_PAGE_READY_TIMEOUT_MS = 5_000;
+    /** Upper bound for in-flight route data requests after readiness; reaching it continues the capture. */
+    static final double NETWORK_IDLE_TIMEOUT_MS = 3_000;
+    /** A DOM without mutations for this long is considered settled after route data rendered. */
+    static final int DOM_QUIET_WINDOW_MS = 300;
+    /** Cap for the DOM-quiet wait so polling or animated pages never block the capture; reaching it continues. */
+    static final int DOM_QUIET_MAX_WAIT_MS = 2_000;
+
+    /** Waiting only: readiness, then bounded route-data settling. Never clicks, types, or submits. */
+    private void waitForPageSettled(com.microsoft.playwright.Page page) {
+        waitForPageReady(page);
+        waitForNetworkIdle(page);
+        waitForDomQuiet(page);
+    }
+
+    /**
+     * Readiness predicate. Strict mode ignores controls inside navigation landmarks (they render before route data)
+     * and treats a visible [aria-busy=true] element as loading; lenient mode is the original rule.
+     */
+    private static final String PAGE_READY_SCRIPT = "({ navigationLandmarks, strict }) => {"
+            + "if (document.readyState !== 'complete' || document.body === null) return false;"
+            + "const text = document.body.innerText.trim();"
+            + "if (!text) return false;"
+            + "const visible = element => {"
+            + "const style = window.getComputedStyle(element);"
+            + "return !element.hidden && style.display !== 'none' && style.visibility !== 'hidden';"
+            + "};"
+            + "if (strict && [...document.querySelectorAll('[aria-busy=true]')].some(visible)) return false;"
+            + "const controls = [...document.querySelectorAll('button, a, input, textarea, select, [role=button], [role=tab]')]"
+            + ".filter(element => visible(element) && (!strict || element.closest(navigationLandmarks) === null)).length;"
+            + "const hasLoadingState = /\\b(?:loading|please\\s+wait|initializing|fetching|updating)\\b/i.test(text);"
+            + "const hasContentContainer = [...document.querySelectorAll('main, [role=main], article, section')]"
+            + ".some(element => visible(element) && element.innerText.trim().length > 0);"
+            + "return controls > 0 || (hasContentContainer && !hasLoadingState);"
+            + "}";
+
+    /**
+     * Strict readiness first, bounded by STRICT_PAGE_READY_TIMEOUT_MS; if it never holds, the original rule gets the
+     * rest of PAGE_READY_TIMEOUT_MS. The analysis fails only when the original rule would also have failed.
+     */
     private void waitForPageReady(com.microsoft.playwright.Page page) {
-        page.waitForFunction("() => {"
-                        + "if (document.readyState !== 'complete' || document.body === null) return false;"
-                        + "const text = document.body.innerText.trim();"
-                        + "if (!text) return false;"
-                        + "const visible = element => {"
-                        + "const style = window.getComputedStyle(element);"
-                        + "return !element.hidden && style.display !== 'none' && style.visibility !== 'hidden';"
-                        + "};"
-                        + "const controls = [...document.querySelectorAll('button, a, input, textarea, select, [role=button], [role=tab]')]"
-                        + ".filter(visible).length;"
-                        + "const hasLoadingState = /\\b(?:loading|please\\s+wait|initializing|fetching|updating)\\b/i.test(text);"
-                        + "const hasContentContainer = [...document.querySelectorAll('main, [role=main], article, section')]"
-                        + ".some(element => visible(element) && element.innerText.trim().length > 0);"
-                        + "return controls > 0 || (hasContentContainer && !hasLoadingState);"
-                        + "}",
-                null, new Page.WaitForFunctionOptions().setTimeout(10_000));
+        long started = System.nanoTime();
+        try {
+            waitForReadiness(page, true, STRICT_PAGE_READY_TIMEOUT_MS);
+        } catch (TimeoutError e) {
+            double elapsedMs = (System.nanoTime() - started) / 1_000_000.0;
+            LOG.debug("Strict readiness not reached; falling back to the original readiness rule");
+            waitForReadiness(page, false, Math.max(1, PAGE_READY_TIMEOUT_MS - elapsedMs));
+        }
+    }
+
+    private static void waitForReadiness(com.microsoft.playwright.Page page, boolean strict, double timeoutMs) {
+        page.waitForFunction(PAGE_READY_SCRIPT, Map.of("navigationLandmarks", NAVIGATION_LANDMARKS, "strict", strict),
+                new Page.WaitForFunctionOptions().setTimeout(timeoutMs));
+    }
+
+    /** Language-independent: route data requests still in flight mean controls may not be rendered yet. */
+    private static void waitForNetworkIdle(com.microsoft.playwright.Page page) {
+        try {
+            page.waitForLoadState(com.microsoft.playwright.options.LoadState.NETWORKIDLE,
+                    new Page.WaitForLoadStateOptions().setTimeout(NETWORK_IDLE_TIMEOUT_MS));
+        } catch (TimeoutError e) {
+            LOG.debug("Network idle not reached within settle budget; continuing capture");
+        }
+    }
+
+    /** Resolves after a mutation-free window or at the cap, whichever comes first; never fails the capture. */
+    private static final String DOM_QUIET_SCRIPT = "([quietMs, maxWaitMs]) => new Promise(resolve => {"
+            + "let quietTimer; let capTimer;"
+            + "const done = () => { observer.disconnect(); clearTimeout(quietTimer); clearTimeout(capTimer); resolve(true); };"
+            + "const observer = new MutationObserver(() => { clearTimeout(quietTimer); quietTimer = setTimeout(done, quietMs); });"
+            + "observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });"
+            + "quietTimer = setTimeout(done, quietMs); capTimer = setTimeout(done, maxWaitMs); })";
+
+    private static void waitForDomQuiet(com.microsoft.playwright.Page page) {
+        try {
+            page.evaluate(DOM_QUIET_SCRIPT, List.of(DOM_QUIET_WINDOW_MS, DOM_QUIET_MAX_WAIT_MS));
+        } catch (RuntimeException e) {
+            LOG.debug("DOM quiet wait interrupted: exception={}; continuing capture", e.getClass().getName());
+        }
     }
 
     static boolean hasRenderableContent(String readyState, String bodyText, int interactiveElementCount, boolean hasContentContainer) {

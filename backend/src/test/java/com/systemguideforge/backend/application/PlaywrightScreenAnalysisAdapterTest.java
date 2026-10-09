@@ -496,12 +496,71 @@ class PlaywrightScreenAnalysisAdapterTest {
         }
     }
 
+    @Test
+    void waitsForRouteDataBeforeScanningControlsWhenOnlyHeaderControlsAreRenderedYet() throws Exception {
+        var elements = analyzeDashboard("""
+                <!doctype html><html><body><header><button>Menu</button></header><main><p>Cargando…</p></main>
+                <script>
+                fetch('/slow-data').then(response => response.json()).then(data => {
+                  document.querySelector('main').innerHTML = '<h1>' + data.name + '</h1><form><label>Nombre <input name="name"></label>'
+                    + '<button type="submit">Guardar cambios</button></form>';
+                });
+                </script></body></html>
+                """, null, "<h1>Sign in page</h1>", 800).elements();
+        assertThat(elements).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("Menu", "Nombre", "Guardar cambios");
+    }
+
+    @Test
+    void treatsVisibleAriaBusyAsLoadingAndNavigationOnlyControlsAsNotReady() throws Exception {
+        String renderLater = """
+                <script>
+                setTimeout(() => {
+                  const main = document.querySelector('main');
+                  main.removeAttribute('aria-busy');
+                  main.innerHTML = '<h1>Backlog</h1><button>Crear sprint</button>';
+                }, 1500);
+                </script></body></html>
+                """;
+        var busy = analyzeDashboard("<!doctype html><html><body><header><button>Menu</button></header>"
+                + "<main aria-busy=\"true\"><p>Cargando…</p></main>" + renderLater, null).elements();
+        var navigationOnly = analyzeDashboard("<!doctype html><html><body><nav><a href=\"#home\">Inicio</a></nav>"
+                + "<main></main>" + renderLater, null).elements();
+        assertThat(busy).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("Crear sprint");
+        assertThat(navigationOnly).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("Crear sprint");
+    }
+
+    @Test
+    void fallsBackToThePreviousReadinessRuleWhenTheStrictCheckNeverHolds() throws Exception {
+        var navigationOnly = analyzeDashboard("<!doctype html><html><body><nav><a href=\"#home\">Inicio</a></nav>"
+                + "<div>Texto plano sin contenedor</div></body></html>", null);
+        var permanentlyBusy = analyzeDashboard("<!doctype html><html><body><main aria-busy=\"true\"><h1>Panel</h1>"
+                + "<button>Actualizar</button></main></body></html>", null);
+        assertThat(navigationOnly.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("Inicio");
+        assertThat(permanentlyBusy.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("Actualizar");
+    }
+
     private static ScreenAnalysisAdapter.ScreenAnalysisResult analyzeDashboard(String dashboardHtml, String nextHtml) throws Exception {
         return analyzeDashboard(dashboardHtml, nextHtml, "<h1>Sign in page</h1>");
     }
 
     private static ScreenAnalysisAdapter.ScreenAnalysisResult analyzeDashboard(String dashboardHtml, String nextHtml, String loginHeading) throws Exception {
+        return analyzeDashboard(dashboardHtml, nextHtml, loginHeading, 0);
+    }
+
+    /** slowDataDelayMillis > 0 also serves a JSON /slow-data endpoint that answers after that delay. */
+    private static ScreenAnalysisAdapter.ScreenAnalysisResult analyzeDashboard(String dashboardHtml, String nextHtml, String loginHeading,
+                                                                               long slowDataDelayMillis) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newCachedThreadPool();
+        server.setExecutor(executor);
+        if (slowDataDelayMillis > 0) server.createContext("/slow-data", exchange -> {
+            try { Thread.sleep(slowDataDelayMillis); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            byte[] body = "{\"name\":\"Proyecto\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
         server.createContext("/login", exchange -> {
             if ("POST".equals(exchange.getRequestMethod())) {
                 exchange.getResponseHeaders().set("Location", "/dashboard");
@@ -521,6 +580,7 @@ class PlaywrightScreenAnalysisAdapterTest {
             return new PlaywrightScreenAnalysisAdapter().analyze(application, "browser-user", "browser-password");
         } finally {
             server.stop(0);
+            executor.shutdownNow();
         }
     }
 
