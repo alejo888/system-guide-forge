@@ -257,6 +257,21 @@ class DocumentServiceTest {
     }
 
     @Test
+    void autoIncludesOnlyFieldLikeInputTypesAndKeepsLegacyInputsWithoutACapturedType() {
+        List<String> fieldTypes = List.of("text", "password", "email", "number", "date", "search", "tel", "url", "checkbox", "radio");
+        List<String> nonFieldTypes = List.of("button", "reset", "submit", "image", "file", "hidden", "color", "range");
+        List<UIElement> controls = new java.util.ArrayList<>();
+        for (String type : fieldTypes) controls.add(new UIElement("page-1", "input", "#" + type, "Field " + type, ActionClassification.UNKNOWN, null, false, type));
+        for (String type : nonFieldTypes) controls.add(new UIElement("page-1", "input", "#" + type, "Control " + type, ActionClassification.UNKNOWN, null, false, type));
+        controls.add(new UIElement("page-1", "input", "#legacy", "Legacy field", ActionClassification.UNKNOWN));
+
+        String content = groupedManualContent(Document.DocumentLanguage.EN, controls);
+
+        assertThat(content).contains(fieldTypes.stream().map(type -> "\"Field " + type + "\"").toArray(String[]::new)).contains("\"Legacy field\"");
+        assertThat(content).doesNotContain(nonFieldTypes.stream().map(type -> "Control " + type).toArray(String[]::new));
+    }
+
+    @Test
     void describesNamedFormFieldsAndMutatingActionsWithoutApprovalInEnglish() {
         String content = groupedManualContent(Document.DocumentLanguage.EN, List.of(
                 new UIElement("page-1", "input", "#name", "Name", ActionClassification.UNKNOWN),
