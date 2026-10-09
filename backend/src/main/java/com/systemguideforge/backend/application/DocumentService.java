@@ -5,7 +5,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import java.text.Collator;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -21,6 +23,13 @@ public class DocumentService {
     private final TargetApplicationRepository applications;
     private final TransactionTemplate transactions;
     private final FunctionalModuleDeriver moduleDeriver = new FunctionalModuleDeriver();
+    /** Verbs that may permanently remove information (English, and Spanish infinitives with an optional attached pronoun
+     * such as "Quitarlo"). Deactivating or disabling is reversible, so those verbs are deliberately not listed. */
+    private static final Pattern DESTRUCTIVE_VERBS = Pattern.compile(
+            "\\b(delete|remove|erase|(eliminar|borrar|quitar)(me|te|se|lo|la|le|nos|los|las|les)?)\\b",
+            Pattern.UNICODE_CHARACTER_CLASS);
+    /** Option lists longer than this are sorted by name so options sharing a prefix (e.g. a role) read together. */
+    private static final int OPTION_SORT_THRESHOLD = 10;
 
     public DocumentService(AnalysisRepository analyses, PageRepository pages, UIElementRepository elements, ScreenshotRepository screenshots, DocumentRepository documents, DocumentSectionRepository sections, TargetApplicationRepository applications, PlatformTransactionManager transactionManager) {
         this.analyses = analyses; this.pages = pages; this.elements = elements; this.screenshots = screenshots; this.documents = documents; this.sections = sections; this.applications = applications;
@@ -141,7 +150,7 @@ public class DocumentService {
         int step = 1;
         // Repeated controls (a logo in header and sidebar, the same link on every card) would produce identical instructions.
         Set<String> listed = new HashSet<>();
-        List<UIElement> manualElements = pageElements.stream().filter(this::isIncludedInManual).filter(element -> listed.add(elementIdentity(element))).toList();
+        List<UIElement> manualElements = sortLongOptionLists(pageElements.stream().filter(this::isIncludedInManual).filter(element -> listed.add(elementIdentity(element))).toList(), spanish);
         for (InstructionGroup group : InstructionGroup.values()) {
             List<UIElement> groupElements = manualElements.stream()
                     .filter(element -> instructionGroupFor(element) == group)
@@ -206,7 +215,25 @@ public class DocumentService {
                 ? " Esta pantalla es la misma para cada elemento; el ejemplo corresponde a " + example + "."
                 : " This screen is the same for every item; the example shown is " + example + ".");
     }
+    /** More than {@link #OPTION_SORT_THRESHOLD} checkbox options are re-ordered by name (stable, locale-aware) inside the
+     * slots they already occupy, so other controls keep their place; shorter lists keep the captured order. Radio buttons
+     * are never re-ordered because their order and adjacency identify the question each choice answers. */
+    private List<UIElement> sortLongOptionLists(List<UIElement> manualElements, boolean spanish) {
+        List<UIElement> options = manualElements.stream().filter(this::isCheckboxOption).toList();
+        if (options.size() <= OPTION_SORT_THRESHOLD) return manualElements;
+        Collator collator = Collator.getInstance(spanish ? Locale.forLanguageTag("es") : Locale.ENGLISH);
+        Iterator<UIElement> sorted = options.stream().sorted(Comparator.comparing((UIElement option) -> displayName(option, spanish), collator)).iterator();
+        return manualElements.stream().map(element -> isCheckboxOption(element) ? sorted.next() : element).toList();
+    }
+    private boolean isCheckboxOption(UIElement element) {
+        return switch (manualKind(element)) {
+            case "checkbox", "input-checkbox" -> true;
+            default -> false;
+        };
+    }
     private InstructionGroup instructionGroupFor(UIElement element) {
+        // MUTATING links are worded as links but remain actions, not navigation.
+        if (classification(element) == ActionClassification.MUTATING) return InstructionGroup.ACTIONS;
         return switch (manualKind(element)) {
             case "link" -> InstructionGroup.NAVIGATION;
             case "input", "textarea", "select", "dropdown", "combobox", "input-checkbox", "input-radio" -> InstructionGroup.INFORMATION;
@@ -223,7 +250,9 @@ public class DocumentService {
     private String instructionFor(UIElement element, int step, boolean spanish) {
         String name = "\"" + boundedText(displayName(element, spanish), 3000) + "\"";
         String instruction = switch (manualKind(element)) {
-            case "link" -> spanish ? "Abrí el enlace " + name + "." : "Open the " + name + " link.";
+            case "link" -> classification(element) == ActionClassification.MUTATING
+                    ? (spanish ? "Seleccioná el enlace " + name + "." : "Select the " + name + " link.")
+                    : (spanish ? "Abrí el enlace " + name + "." : "Open the " + name + " link.");
             case "button", "submit" -> spanish ? "Presioná el botón " + name + "." : "Press the " + name + " button.";
             case "input" -> spanish ? "Ingresá la información en el campo " + name + "." : "Enter the information in the field " + name + ".";
             case "textarea" -> spanish ? "Escribí la información en el campo " + name + "." : "Write the information in the field " + name + ".";
@@ -234,7 +263,13 @@ public class DocumentService {
             case "input-radio" -> spanish ? "Elegí la opción " + name + "." : "Choose the option " + name + ".";
             default -> spanish ? "Usá " + name + "." : "Use " + name + ".";
         };
-        return step + ". " + instruction;
+        return step + ". " + instruction + destructiveCaution(element, spanish);
+    }
+    /** Extra caution for MUTATING actions whose name contains a destructive verb; describing the action never executes it. */
+    private String destructiveCaution(UIElement element, boolean spanish) {
+        if (classification(element) != ActionClassification.MUTATING || element.getAccessibleName() == null) return "";
+        if (!DESTRUCTIVE_VERBS.matcher(element.getAccessibleName().toLowerCase(Locale.ROOT)).find()) return "";
+        return spanish ? " Atención: esta acción puede eliminar información de forma permanente." : " Caution: this action may permanently remove information.";
     }
     /** SAFE and approved UNKNOWN controls, plus named form fields and named MUTATING actions: describing a control never executes it. */
     private boolean isIncludedInManual(UIElement element) {
@@ -254,11 +289,12 @@ public class DocumentService {
     }
     /** Automatically described controls need a real, unredacted name; "this control" or "[redacted]" would only add noise. */
     private boolean hasPrintableName(UIElement element) { String name = element.getAccessibleName(); return name != null && !name.isBlank() && !name.contains("[redacted]"); }
-    /** MUTATING controls (including submit inputs) are always presented as actions to press; captured checkbox and radio
-     * inputs are options to choose. Other input types and legacy rows without a captured type keep the text-entry wording. */
+    /** MUTATING controls (including submit inputs) are presented as actions to press, except links, which keep the link
+     * wording; captured checkbox and radio inputs are options to choose. Other input types and legacy rows without a
+     * captured type keep the text-entry wording. */
     private String manualKind(UIElement element) {
-        if (classification(element) == ActionClassification.MUTATING) return "button";
         String kind = normalizedKind(element.getKind());
+        if (classification(element) == ActionClassification.MUTATING) return kind.equals("link") ? "link" : "button";
         if (kind.equals("input") && ("checkbox".equals(element.getControlType()) || "radio".equals(element.getControlType()))) return "input-" + element.getControlType();
         return kind;
     }

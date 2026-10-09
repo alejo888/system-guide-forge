@@ -283,6 +283,110 @@ class DocumentServiceTest {
     }
 
     @Test
+    void warnsOnlyOnIncludedMutatingActionsWhoseNameHasADestructiveVerbInSpanish() {
+        String content = groupedManualContent(Document.DocumentLanguage.ES, List.of(
+                new UIElement("page-1", "button", "#delete", "Eliminar proyecto", ActionClassification.MUTATING),
+                new UIElement("page-1", "button", "#remove", "Quitarlo", ActionClassification.MUTATING),
+                new UIElement("page-1", "button", "#deactivate", "Desactivar", ActionClassification.MUTATING),
+                new UIElement("page-1", "button", "#save", "Guardar cambios", ActionClassification.MUTATING),
+                // A SAFE control whose name mentions a destructive verb is not a destructive action.
+                new UIElement("page-1", "button", "#filter", "Borrar filtros", ActionClassification.SAFE)));
+
+        String caution = " Atención: esta acción puede eliminar información de forma permanente.";
+        assertThat(content).contains(
+                "Presioná el botón \"Borrar filtros\".\n",
+                "Presioná el botón \"Desactivar\".\n",
+                "Presioná el botón \"Eliminar proyecto\"." + caution + "\n",
+                "Presioná el botón \"Guardar cambios\".\n",
+                "Presioná el botón \"Quitarlo\"." + caution + "\n");
+        assertThat(content.split("Atención:", -1)).hasSize(3);
+    }
+
+    @Test
+    void warnsOnDestructiveMutatingActionsInEnglishButNotOnDisableOrDeactivate() {
+        String content = groupedManualContent(Document.DocumentLanguage.EN, List.of(
+                new UIElement("page-1", "button", "#delete", "Delete project", ActionClassification.MUTATING),
+                new UIElement("page-1", "button", "#remove", "Remove member", ActionClassification.MUTATING),
+                new UIElement("page-1", "button", "#erase", "Erase history", ActionClassification.MUTATING),
+                new UIElement("page-1", "button", "#disable", "Disable user", ActionClassification.MUTATING),
+                new UIElement("page-1", "button", "#deactivate", "Deactivate", ActionClassification.MUTATING)));
+
+        String caution = " Caution: this action may permanently remove information.";
+        assertThat(content).contains(
+                "Press the \"Delete project\" button." + caution + "\n",
+                "Press the \"Remove member\" button." + caution + "\n",
+                "Press the \"Erase history\" button." + caution + "\n",
+                "Press the \"Disable user\" button.\n",
+                "Press the \"Deactivate\" button.\n");
+    }
+
+    @Test
+    void wordsMutatingLinksAsLinksInsideTheActionsGroup() {
+        List<UIElement> controls = List.of(
+                new UIElement("page-1", "a", "a.archive", "Archivar", ActionClassification.MUTATING),
+                new UIElement("page-1", "button", "#save", "Guardar", ActionClassification.MUTATING));
+
+        assertThat(groupedManualContent(Document.DocumentLanguage.ES, controls))
+                .contains("Acciones:\n1. Seleccioná el enlace \"Archivar\".\n2. Presioná el botón \"Guardar\".\n")
+                .doesNotContain("Navegación:", "botón \"Archivar\"");
+        assertThat(groupedManualContent(Document.DocumentLanguage.EN, controls))
+                .contains("Actions:\n1. Select the \"Archivar\" link.\n2. Press the \"Guardar\" button.\n")
+                .doesNotContain("Navigation:");
+    }
+
+    @Test
+    void sortsMoreThanTenOptionsByNameSoSharedPrefixesGroupTogether() {
+        List<String> names = List.of("Admin: ver", "Member: ver", "Admin: editar", "Member: editar", "Owner: ver",
+                "Admin: borrar", "Member: borrar", "Owner: editar", "Ágil: ver", "Owner: borrar", "Owner: crear");
+        List<UIElement> controls = new java.util.ArrayList<>();
+        controls.add(new UIElement("page-1", "input", "#name", "Nombre", ActionClassification.UNKNOWN, null, false, "text"));
+        for (int index = 0; index < names.size(); index++) {
+            controls.add(new UIElement("page-1", "input", "#option" + (char) ('a' + index), names.get(index), ActionClassification.UNKNOWN, null, false, "checkbox"));
+        }
+
+        String content = groupedManualContent(Document.DocumentLanguage.ES, controls);
+
+        // Locale-aware: "Ágil" sorts with "A" instead of after "Z".
+        assertThat(content).contains("Información:\n1. Ingresá la información en el campo \"Nombre\".\n"
+                + "2. Marcá o desmarcá la opción \"Admin: borrar\".\n3. Marcá o desmarcá la opción \"Admin: editar\".\n"
+                + "4. Marcá o desmarcá la opción \"Admin: ver\".\n5. Marcá o desmarcá la opción \"Ágil: ver\".\n"
+                + "6. Marcá o desmarcá la opción \"Member: borrar\".\n7. Marcá o desmarcá la opción \"Member: editar\".\n"
+                + "8. Marcá o desmarcá la opción \"Member: ver\".\n9. Marcá o desmarcá la opción \"Owner: borrar\".\n"
+                + "10. Marcá o desmarcá la opción \"Owner: crear\".\n11. Marcá o desmarcá la opción \"Owner: editar\".\n"
+                + "12. Marcá o desmarcá la opción \"Owner: ver\".\n");
+    }
+
+    @Test
+    void sortsOnlyLongCheckboxListsAndKeepsRadioGroupsInCapturedOrder() {
+        List<String> names = List.of("Owner: ver", "Member: ver", "Admin: ver", "Owner: editar", "Member: editar",
+                "Admin: editar", "Owner: borrar", "Member: borrar", "Admin: borrar", "Owner: crear", "Member: crear");
+        List<UIElement> controls = new java.util.ArrayList<>();
+        for (int index = 0; index < names.size(); index++) {
+            controls.add(new UIElement("page-1", "input", "#option" + (char) ('a' + index), names.get(index), ActionClassification.UNKNOWN, null, false, "checkbox"));
+        }
+        controls.add(new UIElement("page-1", "input", "#reply-1", "Sí", ActionClassification.UNKNOWN, null, false, "radio"));
+        controls.add(new UIElement("page-1", "input", "#reply-2", "No", ActionClassification.UNKNOWN, null, false, "radio"));
+
+        String content = groupedManualContent(Document.DocumentLanguage.ES, controls);
+
+        assertThat(content).contains("1. Marcá o desmarcá la opción \"Admin: borrar\".\n")
+                .contains("11. Marcá o desmarcá la opción \"Owner: ver\".\n12. Elegí la opción \"Sí\".\n13. Elegí la opción \"No\".\n");
+    }
+
+    @Test
+    void keepsTheCapturedOrderForTenOrFewerOptions() {
+        List<String> names = List.of("Zeta", "Alfa", "Member: ver", "Admin: ver", "Beta", "Omega", "Delta", "Gamma", "Kappa", "Lambda");
+        List<UIElement> controls = new java.util.ArrayList<>();
+        for (int index = 0; index < names.size(); index++) {
+            controls.add(new UIElement("page-1", "input", "#option" + (char) ('a' + index), names.get(index), ActionClassification.UNKNOWN, null, false, "checkbox"));
+        }
+
+        assertThat(groupedManualContent(Document.DocumentLanguage.EN, controls)).contains(
+                "1. Select or clear the option \"Zeta\".\n2. Select or clear the option \"Alfa\".\n3. Select or clear the option \"Member: ver\".\n",
+                "10. Select or clear the option \"Lambda\".\n");
+    }
+
+    @Test
     void presentsTheLoginPageFirstWithFixedSignInStepsFromTheCapturedControlNames() {
         Analysis analysis = new Analysis("application-1");
         analysis.complete();
