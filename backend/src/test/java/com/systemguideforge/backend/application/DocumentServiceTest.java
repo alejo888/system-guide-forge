@@ -241,6 +241,22 @@ class DocumentServiceTest {
     }
 
     @Test
+    void wordsCapturedCheckboxAndRadioInputsAsOptionsAndKeepsTextWordingForOtherOrLegacyInputs() {
+        List<UIElement> controls = List.of(
+                new UIElement("page-1", "input", "input:nth-of-type(1)", "Ver proyectos", ActionClassification.UNKNOWN, null, false, "checkbox"),
+                new UIElement("page-1", "input", "input:nth-of-type(2)", "Plan anual", ActionClassification.UNKNOWN, null, false, "radio"),
+                new UIElement("page-1", "input", "input:nth-of-type(3)", "Correo", ActionClassification.UNKNOWN, null, false, "email"),
+                new UIElement("page-1", "input", "input:nth-of-type(4)", "Nombre", ActionClassification.UNKNOWN));
+
+        assertThat(groupedManualContent(Document.DocumentLanguage.ES, controls)).contains("Información:\n"
+                + "1. Marcá o desmarcá la opción \"Ver proyectos\".\n2. Elegí la opción \"Plan anual\".\n"
+                + "3. Ingresá la información en el campo \"Correo\".\n4. Ingresá la información en el campo \"Nombre\".\n");
+        assertThat(groupedManualContent(Document.DocumentLanguage.EN, controls)).contains("Information:\n"
+                + "1. Select or clear the option \"Ver proyectos\".\n2. Choose the option \"Plan anual\".\n"
+                + "3. Enter the information in the field \"Correo\".\n4. Enter the information in the field \"Nombre\".\n");
+    }
+
+    @Test
     void describesNamedFormFieldsAndMutatingActionsWithoutApprovalInEnglish() {
         String content = groupedManualContent(Document.DocumentLanguage.EN, List.of(
                 new UIElement("page-1", "input", "#name", "Name", ActionClassification.UNKNOWN),
@@ -855,7 +871,7 @@ class DocumentServiceTest {
         when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.empty());
         when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(page));
         when(elements.findByPageId(page.getId())).thenReturn(manualElements.stream()
-                .map(element -> new UIElement(page.getId(), element.getKind(), element.getSelector(), element.getAccessibleName(), element.getActionClassification()))
+                .map(element -> new UIElement(page.getId(), element.getKind(), element.getSelector(), element.getAccessibleName(), element.getActionClassification(), element.getTargetPath(), element.isInNavigation(), element.getControlType()))
                 .toList());
         when(documents.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));

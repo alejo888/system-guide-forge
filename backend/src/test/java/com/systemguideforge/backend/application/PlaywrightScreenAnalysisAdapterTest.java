@@ -361,6 +361,23 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void capturesTheNormalizedInputTypeButNeverTheFieldValue() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Home</h1>"
+                        + "<label>Recordarme<input type=\"CheckBox\" checked></label><label>Plan anual<input type=\"radio\" name=\"plan\"></label>"
+                        + "<label>Nombre<input value=\"Ana\"></label><label>Correo<input type=\"email\" value=\"ana@example.test\"></label>"
+                        + "<label>Raro<input type=\"not a type!\"></label><label>Notas<textarea>Borrador</textarea></label><button>Guardar</button></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> List.of("Recordarme", "Plan anual", "Nombre", "Correo", "Raro", "Notas", "Guardar").contains(element.accessibleName()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::controlType)
+                .containsExactlyInAnyOrder(tuple("Recordarme", "checkbox"), tuple("Plan anual", "radio"), tuple("Nombre", "text"), tuple("Correo", "email"),
+                        tuple("Raro", "text"), tuple("Notas", null), tuple("Guardar", null));
+        assertThat(result.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName)
+                .doesNotContain("Ana", "ana@example.test", "Borrador");
+    }
+
+    @Test
     void flagsLinksInsideNavigationLandmarksOnly() throws Exception {
         ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
                 "<!doctype html><html><body><header><a href=\"/next\">Cabecera</a></header><nav><a href=\"/next\">Menu</a></nav><div role=\"navigation\"><a href=\"/next\">Rol</a></div>"

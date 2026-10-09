@@ -37,7 +37,7 @@ public class AnalysisService {
     private boolean persistPage(Analysis analysis, String url, String title, String heading, List<ScreenAnalysisAdapter.DetectedElement> detected, byte[] screenshot, Set<String> visited, PageKind kind) {
         if (!visited.add(url)) return false;
         Page page=pages.save(new Page(analysis.getId(),url,title,kind,null,null,null,heading));
-        for(var e:detected) elements.save(new UIElement(page.getId(),e.kind(),e.selector(),e.accessibleName(),e.classification(),e.targetPath(),e.inNavigation()));
+        for(var e:detected) elements.save(new UIElement(page.getId(),e.kind(),e.selector(),e.accessibleName(),e.classification(),e.targetPath(),e.inNavigation(),e.controlType()));
         if(screenshot!=null) screenshots.save(new Screenshot(page.getId(),screenshot));
         return true;
     }
@@ -45,7 +45,7 @@ public class AnalysisService {
     private boolean persistLoginPage(Analysis analysis, ScreenAnalysisAdapter.LoginPage loginPage) {
         Page page = pages.save(new Page(analysis.getId(), loginPage.url(), loginPage.title(), PageKind.LOGIN,
                 loginPage.usernameLabel(), loginPage.passwordLabel(), loginPage.submitLabel(), loginPage.heading()));
-        for (var e : loginPage.elements()) elements.save(new UIElement(page.getId(), e.kind(), e.selector(), e.accessibleName(), e.classification(), e.targetPath(), e.inNavigation()));
+        for (var e : loginPage.elements()) elements.save(new UIElement(page.getId(), e.kind(), e.selector(), e.accessibleName(), e.classification(), e.targetPath(), e.inNavigation(), e.controlType()));
         if (loginPage.sanitizedScreenshot() != null) screenshots.save(new Screenshot(page.getId(), loginPage.sanitizedScreenshot()));
         return true;
     }

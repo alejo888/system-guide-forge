@@ -331,7 +331,12 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         for (int i = 0; i < count; i++) { Locator item = locator.nth(i); String selector = kind + ":nth-of-type(" + (i + 1) + ")";
             String aria=item.getAttribute("aria-label"), name=item.getAttribute("name"), id=item.getAttribute("id"), placeholder=item.getAttribute("placeholder"), type=item.getAttribute("type"), href=item.getAttribute("href");
             String visibleText=("input".equals(kind)||"textarea".equals(kind))?null:text(item); String buttonValue="input".equals(kind)&&type!=null&&type.trim().matches("(?i)submit|button|reset")?item.getAttribute("value"):null; String label=first(humanLabel(item),visibleText,buttonValue,placeholder); String pressLabel=first(aria,visibleText,item.getAttribute("value")); String attribute="a".equals(kind)?"href":"type"; String value="a".equals(kind)?href:type;
-            found.add(new DetectedElement(kind,selector,safe(label),classifyFixtureElement(item,kind,attribute,value,pressLabel,name,id,placeholder),"a".equals(kind)?targetPath(href,page.url(),app.getBaseUrl()):null,"a".equals(kind)&&inNavigation(item))); }
+            found.add(new DetectedElement(kind,selector,safe(label),classifyFixtureElement(item,kind,attribute,value,pressLabel,name,id,placeholder),"a".equals(kind)?targetPath(href,page.url(),app.getBaseUrl()):null,"a".equals(kind)&&inNavigation(item),"input".equals(kind)?controlType(type):null)); }
+    }
+    /** The input's type attribute as browsers interpret it: missing or unrecognizable values fall back to "text". Only the type is read, never the value. */
+    static String controlType(String type) {
+        String normalized = type == null ? "" : type.trim().toLowerCase(Locale.ROOT);
+        return normalized.matches("[a-z-]{1,32}") ? normalized : "text";
     }
     private static final String NAVIGATION_LANDMARKS = "nav, header, aside, [role=navigation], [role=banner]";
     private static boolean inNavigation(Locator item){try{return Boolean.TRUE.equals(item.evaluate("(el, selector) => el.closest(selector) !== null", NAVIGATION_LANDMARKS));}catch(Exception e){return false;}}

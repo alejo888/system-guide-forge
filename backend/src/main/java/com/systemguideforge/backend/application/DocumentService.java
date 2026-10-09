@@ -209,7 +209,7 @@ public class DocumentService {
     private InstructionGroup instructionGroupFor(UIElement element) {
         return switch (manualKind(element)) {
             case "link" -> InstructionGroup.NAVIGATION;
-            case "input", "textarea", "select", "dropdown", "combobox" -> InstructionGroup.INFORMATION;
+            case "input", "textarea", "select", "dropdown", "combobox", "input-checkbox", "input-radio" -> InstructionGroup.INFORMATION;
             default -> InstructionGroup.ACTIONS;
         };
     }
@@ -230,6 +230,8 @@ public class DocumentService {
             case "select", "dropdown", "combobox" -> spanish ? "Elegí una opción en " + name + "." : "Choose an option in " + name + ".";
             case "checkbox" -> spanish ? "Marcá la opción " + name + "." : "Select the option " + name + ".";
             case "radio" -> spanish ? "Seleccioná la opción " + name + "." : "Select the option " + name + ".";
+            case "input-checkbox" -> spanish ? "Marcá o desmarcá la opción " + name + "." : "Select or clear the option " + name + ".";
+            case "input-radio" -> spanish ? "Elegí la opción " + name + "." : "Choose the option " + name + ".";
             default -> spanish ? "Usá " + name + "." : "Use " + name + ".";
         };
         return step + ". " + instruction;
@@ -244,8 +246,14 @@ public class DocumentService {
     private boolean isFormField(UIElement element) { String kind = normalizedKind(element.getKind()); return kind.equals("input") || kind.equals("textarea"); }
     /** Automatically described controls need a real, unredacted name; "this control" or "[redacted]" would only add noise. */
     private boolean hasPrintableName(UIElement element) { String name = element.getAccessibleName(); return name != null && !name.isBlank() && !name.contains("[redacted]"); }
-    /** MUTATING controls (including submit inputs) are always presented as actions to press. */
-    private String manualKind(UIElement element) { return classification(element) == ActionClassification.MUTATING ? "button" : normalizedKind(element.getKind()); }
+    /** MUTATING controls (including submit inputs) are always presented as actions to press; captured checkbox and radio
+     * inputs are options to choose. Other input types and legacy rows without a captured type keep the text-entry wording. */
+    private String manualKind(UIElement element) {
+        if (classification(element) == ActionClassification.MUTATING) return "button";
+        String kind = normalizedKind(element.getKind());
+        if (kind.equals("input") && ("checkbox".equals(element.getControlType()) || "radio".equals(element.getControlType()))) return "input-" + element.getControlType();
+        return kind;
+    }
     private enum InstructionGroup { NAVIGATION, INFORMATION, ACTIONS }
     private boolean isLegacyTechnicalUserManual(Document document) {
         if (document.getType() != Document.DocumentType.USER_MANUAL) return false;
