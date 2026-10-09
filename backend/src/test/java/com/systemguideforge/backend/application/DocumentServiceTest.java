@@ -357,6 +357,23 @@ class DocumentServiceTest {
     }
 
     @Test
+    void sortsOnlyLongCheckboxListsAndKeepsRadioGroupsInCapturedOrder() {
+        List<String> names = List.of("Owner: ver", "Member: ver", "Admin: ver", "Owner: editar", "Member: editar",
+                "Admin: editar", "Owner: borrar", "Member: borrar", "Admin: borrar", "Owner: crear", "Member: crear");
+        List<UIElement> controls = new java.util.ArrayList<>();
+        for (int index = 0; index < names.size(); index++) {
+            controls.add(new UIElement("page-1", "input", "#option" + (char) ('a' + index), names.get(index), ActionClassification.UNKNOWN, null, false, "checkbox"));
+        }
+        controls.add(new UIElement("page-1", "input", "#reply-1", "Sí", ActionClassification.UNKNOWN, null, false, "radio"));
+        controls.add(new UIElement("page-1", "input", "#reply-2", "No", ActionClassification.UNKNOWN, null, false, "radio"));
+
+        String content = groupedManualContent(Document.DocumentLanguage.ES, controls);
+
+        assertThat(content).contains("1. Marcá o desmarcá la opción \"Admin: borrar\".\n")
+                .contains("11. Marcá o desmarcá la opción \"Owner: ver\".\n12. Elegí la opción \"Sí\".\n13. Elegí la opción \"No\".\n");
+    }
+
+    @Test
     void keepsTheCapturedOrderForTenOrFewerOptions() {
         List<String> names = List.of("Zeta", "Alfa", "Member: ver", "Admin: ver", "Beta", "Omega", "Delta", "Gamma", "Kappa", "Lambda");
         List<UIElement> controls = new java.util.ArrayList<>();

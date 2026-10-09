@@ -215,18 +215,19 @@ public class DocumentService {
                 ? " Esta pantalla es la misma para cada elemento; el ejemplo corresponde a " + example + "."
                 : " This screen is the same for every item; the example shown is " + example + ".");
     }
-    /** More than {@link #OPTION_SORT_THRESHOLD} checkbox/radio options are re-ordered by name (stable, locale-aware) inside
-     * the slots they already occupy, so other controls keep their place; shorter lists keep the captured order. */
+    /** More than {@link #OPTION_SORT_THRESHOLD} checkbox options are re-ordered by name (stable, locale-aware) inside the
+     * slots they already occupy, so other controls keep their place; shorter lists keep the captured order. Radio buttons
+     * are never re-ordered because their order and adjacency identify the question each choice answers. */
     private List<UIElement> sortLongOptionLists(List<UIElement> manualElements, boolean spanish) {
-        List<UIElement> options = manualElements.stream().filter(this::isOption).toList();
+        List<UIElement> options = manualElements.stream().filter(this::isCheckboxOption).toList();
         if (options.size() <= OPTION_SORT_THRESHOLD) return manualElements;
         Collator collator = Collator.getInstance(spanish ? Locale.forLanguageTag("es") : Locale.ENGLISH);
         Iterator<UIElement> sorted = options.stream().sorted(Comparator.comparing((UIElement option) -> displayName(option, spanish), collator)).iterator();
-        return manualElements.stream().map(element -> isOption(element) ? sorted.next() : element).toList();
+        return manualElements.stream().map(element -> isCheckboxOption(element) ? sorted.next() : element).toList();
     }
-    private boolean isOption(UIElement element) {
+    private boolean isCheckboxOption(UIElement element) {
         return switch (manualKind(element)) {
-            case "checkbox", "radio", "input-checkbox", "input-radio" -> true;
+            case "checkbox", "input-checkbox" -> true;
             default -> false;
         };
     }
