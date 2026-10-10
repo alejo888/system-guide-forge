@@ -1,17 +1,25 @@
 package com.systemguideforge.backend.application;
 
+import java.text.Normalizer;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
 public final class ActionClassifier {
-    // English and Spanish verbs that change server or session state. Spanish infinitives may carry an attached
-    // pronoun ("Quitarme", "Eliminarlo"); UNICODE_CHARACTER_CLASS keeps \b correct around accented letters.
+    private static final String PRONOUN = "(me|te|se|lo|la|le|nos|los|las|les)?";
+    // English and Spanish verbs that change server or session state. Spanish stems take the infinitive, tú and vos
+    // imperatives (-ar, -a, -á), optionally with an attached pronoun ("Quitarme", "Elimínalo"); the bracketed vowel is
+    // the accent a pronoun adds. Usted imperatives (-e) use their own stems for spelling changes ("pague", not "page").
+    // Accepted ambiguity: "Activa" can be an adjective; "Quite" is also English. English-colliding "Active" (usted) is
+    // left out. UNICODE_CHARACTER_CLASS keeps \b correct around accented letters.
     private static final Pattern MUTATING_VERBS = Pattern.compile(
             "\\b(submit|create|delete|send|save|update|remove|add|log ?out|sign ?out"
-                    + "|(de)?activate|disable|enable"
-                    + "|(crear|eliminar|borrar|enviar|guardar|actualizar|quitar|agregar|añadir"
-                    + "|(des)?activar|(des)?habilitar)(me|te|se|lo|la|le|nos|los|las|les)?"
-                    + "|cerrar sesi[oó]n)\\b",
+                    + "|(de)?activate|disable|enable|confirm|publish|archive|approve|pay"
+                    + "|(gu[aá]rd|elim[ií]n|b[oó]rr|env[ií]|qu[ií]t|actual[ií]z|agr[eé]g|cr[eé]|(des)?act[ií]v"
+                    + "|(des)?habil[ií]t|conf[ií]rm|publ[ií]c|arch[ií]v|apr(o|u[eé])b|p[aá]g)(ar|a|á)" + PRONOUN
+                    + "|(gu[aá]rd|elim[ií]n|b[oó]rr|env[ií]|qu[ií]t|actual[ií]c|agr[eé]gu|cr[eé]|desact[ií]v"
+                    + "|(des)?habil[ií]t|conf[ií]rm|publ[ií]qu|arch[ií]v|apru[eé]b|p[aá]gu)e" + PRONOUN
+                    + "|añ[aá]d(ir|e|í|a)" + PRONOUN
+                    + "|(cerrar|cierra|cerrá|cierre) sesi[oó]n)\\b",
             Pattern.UNICODE_CHARACTER_CLASS);
 
     private ActionClassifier() {}
@@ -22,6 +30,9 @@ public final class ActionClassifier {
         String v = normalize(value);
         if (isSensitive(a, v) || ("input".equals(t) && "password".equals(v))) {
             return ActionClassification.UNKNOWN;
+        }
+        if ("input".equals(t) && "type".equals(a) && "image".equals(v)) {
+            return ActionClassification.MUTATING; // an image input submits its form like type="submit"
         }
         if ("a".equals(t) && "href".equals(a) && isInternalLink(v)) {
             return ActionClassification.SAFE;
@@ -89,6 +100,7 @@ public final class ActionClassifier {
     }
 
     private static String normalize(String value) {
-        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+        // NFC first so a decomposed accent ("e" + U+0301) matches the composed letters in MUTATING_VERBS.
+        return value == null ? "" : Normalizer.normalize(value.trim(), Normalizer.Form.NFC).toLowerCase(Locale.ROOT);
     }
 }

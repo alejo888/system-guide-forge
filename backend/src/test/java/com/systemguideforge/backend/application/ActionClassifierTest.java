@@ -2,6 +2,8 @@ package com.systemguideforge.backend.application;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ActionClassifierTest {
@@ -38,6 +40,61 @@ class ActionClassifierTest {
         assertThat(ActionClassifier.classifyControl("button", "button", "Activate")).isEqualTo(ActionClassification.MUTATING);
         assertThat(ActionClassifier.classifyControl("button", "button", "Disable account")).isEqualTo(ActionClassification.MUTATING);
         assertThat(ActionClassifier.classifyControl("button", "button", "Enable")).isEqualTo(ActionClassification.MUTATING);
+    }
+
+    @Test
+    void classifiesSpanishImperativesInTuVosAndUstedFormsAsMutating() {
+        List.of("Guarda cambios", "Elimina proyecto", "Borra", "Envía", "Envia", "Actualiza", "Quita", "Agrega miembro",
+                "Añade", "Crea tarea", "Activa", "Desactiva", "Habilita", "Deshabilita", "Cierra sesión")
+                .forEach(name -> assertMutating(name));
+        List.of("Guardá", "Eliminá", "Borrá", "Enviá", "Actualizá", "Quitá", "Agregá", "Añadí", "Creá", "Activá",
+                "Desactivá", "Habilitá", "Cerrá sesión")
+                .forEach(name -> assertMutating(name));
+        List.of("Guarde", "Elimine", "Borre", "Envíe", "Actualice", "Quite", "Agregue", "Añada", "Cree", "Desactive",
+                "Habilite", "Deshabilite", "Cierre sesión")
+                .forEach(name -> assertMutating(name));
+    }
+
+    @Test
+    void classifiesSpanishImperativesWithAttachedPronounsAsMutating() {
+        List.of("Elimínalo", "Guárdalo", "Bórrelo", "Envíalo", "Actualízalo", "Añádelo", "Quítame", "Créala",
+                "Guardalo", "Elimínelos")
+                .forEach(name -> assertMutating(name));
+    }
+
+    @Test
+    void classifiesConfirmPublishArchiveApproveAndPayAsMutating() {
+        List.of("Confirm", "Publish post", "Archive", "Approve request", "Pay now")
+                .forEach(name -> assertMutating(name));
+        List.of("Confirmar", "Confirma", "Confirmá", "Confirme", "Publicar", "Publica", "Publicá", "Publique",
+                "Publícalo", "Archivar", "Archiva", "Archivá", "Archívalo", "Aprobar", "Aprueba", "Aprobá", "Apruebe",
+                "Apruébalo", "Pagar factura", "Paga", "Pagá", "Pague", "Págalo")
+                .forEach(name -> assertMutating(name));
+    }
+
+    @Test
+    void matchesDecomposedAccentsAfterNfcNormalization() {
+        assertMutating("Cerrar sesión");
+        assertMutating("Añadir miembro");
+        assertMutating("Guárdalo");
+        assertMutating("Eliminá");
+    }
+
+    @Test
+    void classifiesImageInputsAsSubmitControls() {
+        assertThat(ActionClassifier.classify("input", "type", "image")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classify("input", "type", " IMAGE ")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("input", "image", "Buscar")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classify("img", "type", "image")).isEqualTo(ActionClassification.UNKNOWN);
+    }
+
+    @Test
+    void keepsNounsAndStatusesSharingVerbStemsAsUnknown() {
+        List.of("Creación de tareas", "Pagos", "Pago", "Página siguiente", "Next page", "Page 2", "Archivo", "Archivos",
+                "Activas", "Activos", "Publicaciones", "Vista pública", "Confirmación", "Confirmed", "Borrador",
+                "Envíos", "Guardados", "Aprobación", "Aprobado", "Payments", "Eliminados", "Actualizaciones")
+                .forEach(name -> assertThat(ActionClassifier.classifyControl("button", "button", name))
+                        .as(name).isEqualTo(ActionClassification.UNKNOWN));
     }
 
     @Test
@@ -93,5 +150,9 @@ class ActionClassifierTest {
         assertThat(ActionClassifier.classifyFixtureMetadata("UNKNOWN")).isEqualTo(ActionClassification.UNKNOWN);
         assertThat(ActionClassifier.classifyFixtureMetadata("not-a-classification")).isNull();
         assertThat(ActionClassifier.classify("button", "type", "button")).isEqualTo(ActionClassification.UNKNOWN);
+    }
+
+    private static void assertMutating(String name) {
+        assertThat(ActionClassifier.classifyControl("button", "button", name)).as(name).isEqualTo(ActionClassification.MUTATING);
     }
 }
