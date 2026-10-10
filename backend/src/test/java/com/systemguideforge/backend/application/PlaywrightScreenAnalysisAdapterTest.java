@@ -393,6 +393,69 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void capturesRepeatedDataItemButtonsAsItemsWithoutClassifyingTheirDataNames() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Tablero</h1><button type=\"button\">Crear tarea</button>"
+                        + "<section class=\"board-column\"><h3>Por hacer</h3><div class=\"board-column-list\">"
+                        + "<fp-card class=\"board-card cdk-drag\"><button type=\"button\" class=\"card-title\"><span>Crear notificaciones</span></button><p>Alta</p></fp-card>"
+                        + "<fp-card class=\"board-card cdk-drag cdk-drag-dragging\"><button type=\"button\" class=\"card-title\"><span>Revisar informe</span></button><p>Baja</p></fp-card>"
+                        + "</div></section>"
+                        + "<section class=\"board-column\"><h3>En progreso</h3><div class=\"board-column-list\">"
+                        + "<fp-card class=\"board-card cdk-drag\"><button type=\"button\" class=\"card-title\"><span>Eliminar duplicados</span></button><p>Media</p></fp-card>"
+                        + "</div></section>"
+                        + "<section class=\"board-column\"><h3>Hecho</h3><div class=\"board-column-list\">"
+                        + "<fp-card class=\"board-card cdk-drag\"><button type=\"button\" class=\"card-title\"><span>Migrar datos</span></button><p>Alta</p></fp-card>"
+                        + "<fp-card class=\"board-card cdk-drag\"><button type=\"button\" class=\"card-title\"><span>Documentar API</span></button><p>Baja</p></fp-card>"
+                        + "<fp-card class=\"board-card cdk-drag\"><button type=\"button\" class=\"card-title\"><span>Preparar demo</span></button><p>Baja</p></fp-card>"
+                        + "</div></section></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::controlType,
+                        ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactlyInAnyOrder(tuple("Crear tarea", null, ActionClassification.MUTATING),
+                        tuple("Crear notificaciones", "item", ActionClassification.UNKNOWN), tuple("Revisar informe", "item", ActionClassification.UNKNOWN),
+                        tuple("Eliminar duplicados", "item", ActionClassification.UNKNOWN), tuple("Migrar datos", "item", ActionClassification.UNKNOWN),
+                        tuple("Documentar API", "item", ActionClassification.UNKNOWN), tuple("Preparar demo", "item", ActionClassification.UNKNOWN));
+    }
+
+    @Test
+    void keepsPerRowActionsWithIdenticalNamesAndLoneCardsAsOrdinaryButtons() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult rows = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Usuarios</h1><table><tbody>"
+                        + "<tr><td>Ana</td><td><button type=\"button\">Desactivar</button></td></tr>"
+                        + "<tr><td>Luis</td><td><button type=\"button\">Desactivar</button></td></tr>"
+                        + "<tr><td>Eva</td><td><button type=\"button\">Desactivar</button></td></tr>"
+                        + "</tbody></table></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+        ScreenAnalysisAdapter.ScreenAnalysisResult loneCard = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Tablero</h1><section class=\"board-column\"><div class=\"board-column-list\">"
+                        + "<fp-card class=\"board-card\"><button type=\"button\" class=\"card-title\">Crear notificaciones</button></fp-card>"
+                        + "</div></section></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(rows.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::controlType, ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactly(tuple(null, ActionClassification.MUTATING), tuple(null, ActionClassification.MUTATING), tuple(null, ActionClassification.MUTATING));
+        assertThat(loneCard.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::controlType, ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactly(tuple(null, ActionClassification.MUTATING));
+    }
+
+    @Test
+    void neverTreatsNavigationTabOrSubmitButtonsAsDataItems() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><nav><ul><li><button type=\"button\">Inicio</button></li><li><button type=\"button\">Proyectos</button></li></ul></nav>"
+                        + "<main><h1>Panel</h1><div role=\"tablist\"><span><button role=\"tab\">Resumen</button></span><span><button role=\"tab\">Detalle</button></span></div>"
+                        + "<ul><li><form><button type=\"submit\">Aprobar Ana</button></form></li><li><form><button type=\"submit\">Aprobar Luis</button></form></li></ul>"
+                        + "</main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::controlType).doesNotContain("item");
+    }
+
+    @Test
     void flagsLinksInsideNavigationLandmarksOnly() throws Exception {
         ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
                 "<!doctype html><html><body><header><a href=\"/next\">Cabecera</a></header><nav><a href=\"/next\">Menu</a></nav><div role=\"navigation\"><a href=\"/next\">Rol</a></div>"
