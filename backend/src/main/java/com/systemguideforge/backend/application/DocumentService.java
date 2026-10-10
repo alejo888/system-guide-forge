@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import java.text.Collator;
+import java.text.Normalizer;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -23,10 +24,11 @@ public class DocumentService {
     private final TargetApplicationRepository applications;
     private final TransactionTemplate transactions;
     private final FunctionalModuleDeriver moduleDeriver = new FunctionalModuleDeriver();
-    /** Verbs that may permanently remove information (English, and Spanish infinitives with an optional attached pronoun
-     * such as "Quitarlo"). Deactivating or disabling is reversible, so those verbs are deliberately not listed. */
+    /** Verbs that may permanently remove information: English, and Spanish infinitives and tú/vos/usted imperatives with an
+     * optional attached pronoun ("Quitarlo", "Elimínalo", "Borre"). Deactivating or disabling is reversible, so those verbs
+     * are deliberately not listed. Names are NFC-normalized before matching so decomposed accents match. */
     private static final Pattern DESTRUCTIVE_VERBS = Pattern.compile(
-            "\\b(delete|remove|erase|(eliminar|borrar|quitar)(me|te|se|lo|la|le|nos|los|las|les)?)\\b",
+            "\\b((delete|remove|erase)s?|(elim[ií]n|b[oó]rr|qu[ií]t)(ar|a|á|e)(me|te|se|lo|la|le|nos|los|las|les)?)\\b",
             Pattern.UNICODE_CHARACTER_CLASS);
     /** Option lists longer than this are sorted by name so options sharing a prefix (e.g. a role) read together. */
     private static final int OPTION_SORT_THRESHOLD = 10;
@@ -269,7 +271,7 @@ public class DocumentService {
     /** Extra caution for MUTATING actions whose name contains a destructive verb; describing the action never executes it. */
     private String destructiveCaution(UIElement element, boolean spanish) {
         if (classification(element) != ActionClassification.MUTATING || element.getAccessibleName() == null) return "";
-        if (!DESTRUCTIVE_VERBS.matcher(element.getAccessibleName().toLowerCase(Locale.ROOT)).find()) return "";
+        if (!DESTRUCTIVE_VERBS.matcher(Normalizer.normalize(element.getAccessibleName(), Normalizer.Form.NFC).toLowerCase(Locale.ROOT)).find()) return "";
         return spanish ? " Atención: esta acción puede eliminar información de forma permanente." : " Caution: this action may permanently remove information.";
     }
     /** SAFE and approved UNKNOWN controls, plus named form fields and named MUTATING actions: describing a control never executes it. */
