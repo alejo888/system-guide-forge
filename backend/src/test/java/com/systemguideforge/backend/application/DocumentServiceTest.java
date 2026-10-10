@@ -272,6 +272,34 @@ class DocumentServiceTest {
     }
 
     @Test
+    void describesRepeatedDataItemsAsOneGenericNavigationStepWithoutTheirTitles() {
+        List<UIElement> controls = List.of(
+                new UIElement("page-1", "button", "button:nth-of-type(1)", "Crear tarea", ActionClassification.MUTATING),
+                new UIElement("page-1", "button", "button:nth-of-type(2)", "Crear notificaciones", ActionClassification.UNKNOWN, null, false, "item"),
+                new UIElement("page-1", "button", "button:nth-of-type(3)", "Eliminar duplicados", ActionClassification.UNKNOWN, null, false, "item"),
+                new UIElement("page-1", "button", "button:nth-of-type(4)", "Revisar informe", ActionClassification.UNKNOWN, null, false, "item"),
+                new UIElement("page-1", "button", "button:nth-of-type(5)", "Migrar datos", ActionClassification.SAFE, null, false, "item"));
+
+        String spanish = groupedManualContent(Document.DocumentLanguage.ES, controls);
+        String english = groupedManualContent(Document.DocumentLanguage.EN, controls);
+
+        assertThat(spanish).contains("Navegación:\n1. Seleccioná uno de los elementos de la lista para ver su detalle.\n"
+                        + "Acciones:\n2. Presioná el botón \"Crear tarea\".\n")
+                .doesNotContain("Crear notificaciones", "Eliminar duplicados", "Revisar informe", "Migrar datos", "Atención", "3.");
+        assertThat(english).contains("Navigation:\n1. Select an item in the list to see its details.\n"
+                        + "Actions:\n2. Press the \"Crear tarea\" button.\n")
+                .doesNotContain("Crear notificaciones", "Eliminar duplicados", "Revisar informe", "Migrar datos", "Caution", "3.");
+    }
+
+    @Test
+    void keepsSubmitDataItemsAsActionsAndPagesWithoutItemsUnchanged() {
+        assertThat(groupedManualContent(Document.DocumentLanguage.EN, List.of(
+                new UIElement("page-1", "button", "button:nth-of-type(1)", "Borrar registro", ActionClassification.MUTATING, null, false, "item"))))
+                .contains("Actions:\n1. Press the \"Borrar registro\" button.").doesNotContain("Select an item");
+        assertThat(groupedManualContent(Document.DocumentLanguage.EN)).doesNotContain("Select an item");
+    }
+
+    @Test
     void autoIncludesOnlyFieldLikeInputTypesAndKeepsLegacyInputsWithoutACapturedType() {
         List<String> fieldTypes = List.of("text", "password", "email", "number", "date", "search", "tel", "url", "checkbox", "radio");
         List<String> nonFieldTypes = List.of("button", "reset", "submit", "image", "file", "hidden", "color", "range");

@@ -118,6 +118,8 @@ public class DocumentService {
         return result;
     }
     private String elementIdentity(UIElement element) {
+        // Every repeated data item on a page is described by the same single generic step.
+        if (isDataItem(element)) return "button|item";
         boolean named = element.getAccessibleName() != null && !element.getAccessibleName().isBlank();
         return element.getKind() + "|" + (named ? "name:" + element.getAccessibleName() : "selector:" + element.getSelector());
     }
@@ -237,7 +239,7 @@ public class DocumentService {
         // MUTATING links are worded as links but remain actions, not navigation.
         if (classification(element) == ActionClassification.MUTATING) return InstructionGroup.ACTIONS;
         return switch (manualKind(element)) {
-            case "link", "tab" -> InstructionGroup.NAVIGATION;
+            case "link", "tab", "item" -> InstructionGroup.NAVIGATION;
             case "input", "textarea", "select", "dropdown", "combobox", "input-checkbox", "input-radio" -> InstructionGroup.INFORMATION;
             default -> InstructionGroup.ACTIONS;
         };
@@ -256,6 +258,7 @@ public class DocumentService {
                     ? (spanish ? "Seleccioná el enlace " + name + "." : "Select the " + name + " link.")
                     : (spanish ? "Abrí el enlace " + name + "." : "Open the " + name + " link.");
             case "tab" -> spanish ? "Seleccioná la pestaña " + name + "." : "Select the " + name + " tab.";
+            case "item" -> spanish ? "Seleccioná uno de los elementos de la lista para ver su detalle." : "Select an item in the list to see its details.";
             case "button", "submit" -> spanish ? "Presioná el botón " + name + "." : "Press the " + name + " button.";
             case "input" -> spanish ? "Ingresá la información en el campo " + name + "." : "Enter the information in the field " + name + ".";
             case "textarea" -> spanish ? "Escribí la información en el campo " + name + "." : "Write the information in the field " + name + ".";
@@ -278,6 +281,7 @@ public class DocumentService {
     private boolean isIncludedInManual(UIElement element) {
         ActionClassification classification = classification(element);
         if (classification == ActionClassification.SAFE || (classification == ActionClassification.UNKNOWN && element.isManualInclusionApproved())) return true;
+        if (isDataItem(element)) return true;
         boolean describedWithoutApproval = classification == ActionClassification.MUTATING || (classification == ActionClassification.UNKNOWN && isFormField(element));
         return describedWithoutApproval && hasPrintableName(element);
     }
@@ -293,14 +297,20 @@ public class DocumentService {
     /** Automatically described controls need a real, unredacted name; "this control" or "[redacted]" would only add noise. */
     private boolean hasPrintableName(UIElement element) { String name = element.getAccessibleName(); return name != null && !name.isBlank() && !name.contains("[redacted]"); }
     /** MUTATING controls (including submit inputs) are presented as actions to press, except links, which keep the link
-     * wording; captured checkbox and radio inputs are options to choose, and tab buttons are view switches. Other input types and legacy rows without a
+     * wording; captured checkbox and radio inputs are options to choose, tab buttons are view switches and data items are list entries. Other input types and legacy rows without a
      * captured type keep the text-entry wording. */
     private String manualKind(UIElement element) {
         String kind = normalizedKind(element.getKind());
         if (classification(element) == ActionClassification.MUTATING) return kind.equals("link") ? "link" : "button";
         if (kind.equals("button") && "tab".equals(element.getControlType())) return "tab";
+        if (isDataItem(element)) return "item";
         if (kind.equals("input") && ("checkbox".equals(element.getControlType()) || "radio".equals(element.getControlType()))) return "input-" + element.getControlType();
         return kind;
+    }
+    /** Repeated data-item buttons (board cards, list entries) whose names are record data: described by one generic step
+     * without their titles and without approval. A submitting (MUTATING) item keeps the ordinary button handling. */
+    private boolean isDataItem(UIElement element) {
+        return normalizedKind(element.getKind()).equals("button") && "item".equals(element.getControlType()) && classification(element) != ActionClassification.MUTATING;
     }
     private enum InstructionGroup { NAVIGATION, INFORMATION, ACTIONS }
     private boolean isLegacyTechnicalUserManual(Document document) {
