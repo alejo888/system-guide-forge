@@ -318,11 +318,32 @@ class DocumentServiceTest {
     }
 
     @Test
+    void warnsOnSpanishImperativeDestructiveActionsWithDecomposedAccents() {
+        String content = groupedManualContent(Document.DocumentLanguage.ES, List.of(
+                new UIElement("page-1", "button", "#delete", "Elimina proyecto", ActionClassification.MUTATING),
+                new UIElement("page-1", "button", "#erase", "Borre", ActionClassification.MUTATING),
+                new UIElement("page-1", "button", "#remove", "Quita\u0301", ActionClassification.MUTATING),
+                new UIElement("page-1", "button", "#drop", "Elimínalo", ActionClassification.MUTATING),
+                new UIElement("page-1", "button", "#save", "Guarda cambios", ActionClassification.MUTATING),
+                new UIElement("page-1", "button", "#draft", "Borrador", ActionClassification.MUTATING)));
+
+        String caution = " Atención: esta acción puede eliminar información de forma permanente.";
+        assertThat(content).contains(
+                "Presioná el botón \"Elimina proyecto\"." + caution + "\n",
+                "Presioná el botón \"Borre\"." + caution + "\n",
+                "Presioná el botón \"Elimínalo\"." + caution + "\n",
+                "Presioná el botón \"Guarda cambios\".\n",
+                "Presioná el botón \"Borrador\".\n");
+        assertThat(content.split("Atención:", -1)).hasSize(5);
+    }
+
+    @Test
     void warnsOnDestructiveMutatingActionsInEnglishButNotOnDisableOrDeactivate() {
         String content = groupedManualContent(Document.DocumentLanguage.EN, List.of(
                 new UIElement("page-1", "button", "#delete", "Delete project", ActionClassification.MUTATING),
                 new UIElement("page-1", "button", "#remove", "Remove member", ActionClassification.MUTATING),
                 new UIElement("page-1", "button", "#erase", "Erase history", ActionClassification.MUTATING),
+                new UIElement("page-1", "button", "#purge", "Deletes old drafts", ActionClassification.MUTATING),
                 new UIElement("page-1", "button", "#disable", "Disable user", ActionClassification.MUTATING),
                 new UIElement("page-1", "button", "#deactivate", "Deactivate", ActionClassification.MUTATING)));
 
@@ -331,6 +352,7 @@ class DocumentServiceTest {
                 "Press the \"Delete project\" button." + caution + "\n",
                 "Press the \"Remove member\" button." + caution + "\n",
                 "Press the \"Erase history\" button." + caution + "\n",
+                "Press the \"Deletes old drafts\" button." + caution + "\n",
                 "Press the \"Disable user\" button.\n",
                 "Press the \"Deactivate\" button.\n");
     }
