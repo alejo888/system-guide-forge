@@ -257,6 +257,21 @@ class DocumentServiceTest {
     }
 
     @Test
+    void wordsSafeTabsAsNavigationAndKeepsMutatingTabsAsActions() {
+        List<UIElement> controls = List.of(
+                new UIElement("page-1", "button", "button:nth-of-type(1)", "Por hacer", ActionClassification.SAFE, null, false, "tab"),
+                new UIElement("page-1", "button", "button:nth-of-type(2)", "En progreso", ActionClassification.SAFE, null, false, "tab"),
+                new UIElement("page-1", "button", "button:nth-of-type(3)", "Crear tablero", ActionClassification.MUTATING, null, false, "tab"));
+
+        assertThat(groupedManualContent(Document.DocumentLanguage.ES, controls)).contains("Navegación:\n"
+                + "1. Seleccioná la pestaña \"Por hacer\".\n2. Seleccioná la pestaña \"En progreso\".\n"
+                + "Acciones:\n3. Presioná el botón \"Crear tablero\".\n");
+        assertThat(groupedManualContent(Document.DocumentLanguage.EN, controls)).contains("Navigation:\n"
+                + "1. Select the \"Por hacer\" tab.\n2. Select the \"En progreso\" tab.\n"
+                + "Actions:\n3. Press the \"Crear tablero\" button.\n");
+    }
+
+    @Test
     void autoIncludesOnlyFieldLikeInputTypesAndKeepsLegacyInputsWithoutACapturedType() {
         List<String> fieldTypes = List.of("text", "password", "email", "number", "date", "search", "tel", "url", "checkbox", "radio");
         List<String> nonFieldTypes = List.of("button", "reset", "submit", "image", "file", "hidden", "color", "range");

@@ -44,7 +44,7 @@ public interface ScreenAnalysisAdapter {
     }
 
     /** inNavigation: the anchor or button sits inside a navigation landmark. targetPath is the sanitized same-origin path of an anchor (never a query, fragment or credentials); null otherwise.
-     * controlType: the normalized type of an input (text, checkbox, radio, email...), never its value; null for other elements. */
+     * controlType: the normalized type of an input (text, checkbox, radio, email...), never its value; "tab" for a button with ARIA role tab; null for other elements. */
     record DetectedElement(String kind, String selector, String accessibleName, ActionClassification classification, String targetPath, boolean inNavigation, String controlType) {
         public DetectedElement(String kind, String selector, String accessibleName, ActionClassification classification, String targetPath, boolean inNavigation) {
             this(kind, selector, accessibleName, classification, targetPath, inNavigation, null);

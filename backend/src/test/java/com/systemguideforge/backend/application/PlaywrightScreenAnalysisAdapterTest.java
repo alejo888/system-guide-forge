@@ -378,6 +378,21 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void capturesTabRoleButtonsAsSafeTabControlsAndKeepsMutatingTabsMutating() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Tablero</h1>"
+                        + "<div role=\"tablist\"><button role=\"tab\" aria-selected=\"true\">Por hacer</button><button role=\"tab\">En progreso</button>"
+                        + "<button role=\"tab\">Crear tablero</button></div><button>Filtros</button></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> List.of("Por hacer", "En progreso", "Crear tablero", "Filtros").contains(element.accessibleName()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::controlType,
+                        ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactlyInAnyOrder(tuple("Por hacer", "tab", ActionClassification.SAFE), tuple("En progreso", "tab", ActionClassification.SAFE),
+                        tuple("Crear tablero", "tab", ActionClassification.MUTATING), tuple("Filtros", null, ActionClassification.UNKNOWN));
+    }
+
+    @Test
     void flagsLinksInsideNavigationLandmarksOnly() throws Exception {
         ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
                 "<!doctype html><html><body><header><a href=\"/next\">Cabecera</a></header><nav><a href=\"/next\">Menu</a></nav><div role=\"navigation\"><a href=\"/next\">Rol</a></div>"

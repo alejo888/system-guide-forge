@@ -235,7 +235,7 @@ public class DocumentService {
         // MUTATING links are worded as links but remain actions, not navigation.
         if (classification(element) == ActionClassification.MUTATING) return InstructionGroup.ACTIONS;
         return switch (manualKind(element)) {
-            case "link" -> InstructionGroup.NAVIGATION;
+            case "link", "tab" -> InstructionGroup.NAVIGATION;
             case "input", "textarea", "select", "dropdown", "combobox", "input-checkbox", "input-radio" -> InstructionGroup.INFORMATION;
             default -> InstructionGroup.ACTIONS;
         };
@@ -253,6 +253,7 @@ public class DocumentService {
             case "link" -> classification(element) == ActionClassification.MUTATING
                     ? (spanish ? "Seleccioná el enlace " + name + "." : "Select the " + name + " link.")
                     : (spanish ? "Abrí el enlace " + name + "." : "Open the " + name + " link.");
+            case "tab" -> spanish ? "Seleccioná la pestaña " + name + "." : "Select the " + name + " tab.";
             case "button", "submit" -> spanish ? "Presioná el botón " + name + "." : "Press the " + name + " button.";
             case "input" -> spanish ? "Ingresá la información en el campo " + name + "." : "Enter the information in the field " + name + ".";
             case "textarea" -> spanish ? "Escribí la información en el campo " + name + "." : "Write the information in the field " + name + ".";
@@ -290,11 +291,12 @@ public class DocumentService {
     /** Automatically described controls need a real, unredacted name; "this control" or "[redacted]" would only add noise. */
     private boolean hasPrintableName(UIElement element) { String name = element.getAccessibleName(); return name != null && !name.isBlank() && !name.contains("[redacted]"); }
     /** MUTATING controls (including submit inputs) are presented as actions to press, except links, which keep the link
-     * wording; captured checkbox and radio inputs are options to choose. Other input types and legacy rows without a
+     * wording; captured checkbox and radio inputs are options to choose, and tab buttons are view switches. Other input types and legacy rows without a
      * captured type keep the text-entry wording. */
     private String manualKind(UIElement element) {
         String kind = normalizedKind(element.getKind());
         if (classification(element) == ActionClassification.MUTATING) return kind.equals("link") ? "link" : "button";
+        if (kind.equals("button") && "tab".equals(element.getControlType())) return "tab";
         if (kind.equals("input") && ("checkbox".equals(element.getControlType()) || "radio".equals(element.getControlType()))) return "input-" + element.getControlType();
         return kind;
     }

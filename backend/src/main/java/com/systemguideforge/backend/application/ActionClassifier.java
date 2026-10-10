@@ -45,6 +45,17 @@ public final class ActionClassifier {
         return classify(tag, "aria-label", accessibleName);
     }
 
+    /**
+     * Like {@link #classifyControl(String, String, String)}, but a control with ARIA role "tab" only switches the visible
+     * view on the client, so it is SAFE unless its type submits or its name carries a mutating verb (then MUTATING).
+     * Sensitive names stay UNKNOWN. Classification never executes the control.
+     */
+    public static ActionClassification classifyControl(String tag, String type, String accessibleName, String role) {
+        ActionClassification base = classifyControl(tag, type, accessibleName);
+        if (!"tab".equals(normalize(role)) || base == ActionClassification.MUTATING) return base;
+        return isSensitive("aria-label", normalize(accessibleName)) ? ActionClassification.UNKNOWN : ActionClassification.SAFE;
+    }
+
     private static boolean isPressable(String tag, String type) {
         String t = normalize(tag);
         String v = normalize(type);
