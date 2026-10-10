@@ -74,10 +74,10 @@ class ActionClassifierTest {
 
     @Test
     void matchesDecomposedAccentsAfterNfcNormalization() {
-        assertMutating("Cerrar sesión");
-        assertMutating("Añadir miembro");
-        assertMutating("Guárdalo");
-        assertMutating("Eliminá");
+        assertMutating("Cerrar sesio\u0301n");
+        assertMutating("An\u0303adir miembro");
+        assertMutating("Gua\u0301rdalo");
+        assertMutating("Elimina\u0301");
     }
 
     @Test
