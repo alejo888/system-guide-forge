@@ -76,6 +76,17 @@ class ActionClassifierTest {
     }
 
     @Test
+    void classifiesTabControlsAsSafeViewSwitchesUnlessTheirNameMutates() {
+        assertThat(ActionClassifier.classifyControl("button", "button", "Por hacer", "tab")).isEqualTo(ActionClassification.SAFE);
+        assertThat(ActionClassifier.classifyControl("button", null, "En progreso", " TAB ")).isEqualTo(ActionClassification.SAFE);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Crear tarea", "tab")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", "submit", "Resumen", "tab")).isEqualTo(ActionClassification.MUTATING);
+        assertThat(ActionClassifier.classifyControl("button", "button", "API tokens", "tab")).isEqualTo(ActionClassification.UNKNOWN);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Por hacer", null)).isEqualTo(ActionClassification.UNKNOWN);
+        assertThat(ActionClassifier.classifyControl("button", "button", "Por hacer", "button")).isEqualTo(ActionClassification.UNKNOWN);
+    }
+
+    @Test
     void acceptsExplicitFixtureMetadataWithoutChangingDefaultRules() {
         assertThat(ActionClassifier.classifyFixtureMetadata("SAFE")).isEqualTo(ActionClassification.SAFE);
         assertThat(ActionClassifier.classifyFixtureMetadata("MUTATING")).isEqualTo(ActionClassification.MUTATING);

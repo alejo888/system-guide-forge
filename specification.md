@@ -60,7 +60,7 @@ Editar título y secciones
 - **RF04.** Ejecutar un análisis síncrono de solo lectura.
 - **RF05.** Detectar páginas y elementos relevantes.
 - **RF06.** Tomar screenshots sin credenciales ni secretos y almacenarlos en PostgreSQL.
-- **RF07.** Clasificar acciones como `SAFE`, `MUTATING` o `UNKNOWN`.
+- **RF07.** Clasificar acciones como `SAFE`, `MUTATING` o `UNKNOWN`. Las pestañas (`role="tab"`) son `SAFE` salvo que su nombre contenga un verbo que muta, y el manual las describe en "Navegación" como pestañas para seleccionar.
 - **RF08.** Recorrer solo enlaces `SAFE` de mismo origen, respetando los límites configurados y sin ejecutar controles.
 - **RF09.** Consultar y revisar los resultados del análisis.
 - **RF10.** Generar un `user_manual` en `en` o `es`.

@@ -28,7 +28,7 @@
 6. Persistir elementos y screenshots sanitizados en PostgreSQL; `ScreenshotRepository` guarda los bytes como `BYTEA`.
 7. Finalizar como `COMPLETED` o `FAILED`.
 
-Por cada página, además del `<title>`, se captura el primer `h1` visible como `heading` (sanitizado con las mismas reglas de redacción que el título y limitado a 255 caracteres); es `null` si la página no tiene un `h1` visible. De cada `input` se guarda su tipo normalizado (`control_type`: `text`, `checkbox`, `radio`, `email`...; `text` si falta o no es válido), nunca su valor. Los enlaces y botones dentro de `nav`, `header`, `aside` o los roles `navigation`/`banner` se marcan como `inNavigation`; los enlaces con nombre y los botones con nombre marcados así que aparecen en todas las páginas recorridas se conservan solo en la página inicial.
+Por cada página, además del `<title>`, se captura el primer `h1` visible como `heading` (sanitizado con las mismas reglas de redacción que el título y limitado a 255 caracteres); es `null` si la página no tiene un `h1` visible. De cada `input` se guarda su tipo normalizado (`control_type`: `text`, `checkbox`, `radio`, `email`...; `text` si falta o no es válido), nunca su valor; los `button` con `role="tab"` se guardan con `control_type` `tab`. Los enlaces y botones dentro de `nav`, `header`, `aside` o los roles `navigation`/`banner` se marcan como `inNavigation`; los enlaces con nombre y los botones con nombre marcados así que aparecen en todas las páginas recorridas se conservan solo en la página inicial.
 
 La ejecución no ofrece recuperación automática: si falla después de persistir una o más páginas, esas evidencias pueden quedar asociadas a un análisis `FAILED`; el backend no promete rollback de toda la evidencia. La interfaz conserva ese registro y su evidencia para inspección, los marca como incompletos y permite iniciar un análisis nuevo mediante `POST /api/applications/{id}/analyses`. Ese reintento usa la configuración actual de la aplicación, navega al identificador nuevo devuelto y no altera ni elimina el análisis fallido. La generación de documentos continúa bloqueada para análisis `FAILED`. El análisis no ejecuta controles: enlaces no `SAFE`, botones, formularios y acciones `MUTATING` o `UNKNOWN` no se ejecutan. La profundidad válida es de 0 a 5 (2 por defecto si la API omite el valor), con un máximo de 100 páginas persistidas incluida la inicial y un presupuesto global de 500 enlaces evaluados. Por página, la detección inspecciona hasta 500 `button`, 500 `a`, 500 `input` y 500 `textarea`; se toma una captura PNG de página completa después de enmascarar los campos sensibles.
 
@@ -54,7 +54,7 @@ La generación es determinista y usa únicamente la evidencia observada:
 
 | Clasificación | Comportamiento |
 | --- | --- |
-| `SAFE` | Puede habilitar el crawling de un enlace de navegación de solo lectura. |
+| `SAFE` | Puede habilitar el crawling de un enlace de navegación de solo lectura. Las pestañas (`role="tab"`) son `SAFE` porque solo cambian la vista, salvo que su nombre contenga un verbo que muta (entonces `MUTATING`); nunca se presionan ni se recorren. |
 | `MUTATING` | Se bloquea; nunca se ejecuta. Si tiene nombre, el manual la documenta como acción. |
 | `UNKNOWN` | Se bloquea por defecto. Los campos de formulario con nombre se documentan automáticamente (solo la etiqueta); los demás controles pueden aprobarse solo para incluir instrucciones en el manual, sin ejecutarse. |
 
