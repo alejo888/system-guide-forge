@@ -22,6 +22,8 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                     "input[aria-label*='password' i], textarea[name*='password' i], " +
                     "textarea[name*='secret' i], textarea[name*='token' i], [data-sensitive]";
     private static final Logger LOG = LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
+    /** Elements captured per kind on one page; data-item detection scans the same prefix so indices stay aligned. */
+    private static final int MAX_ELEMENTS_PER_KIND = 500;
     private final BrowserFactory browserFactory;
     private final LoginCapture loginCapture;
     public PlaywrightScreenAnalysisAdapter() { this(Playwright::create); }
@@ -397,11 +399,77 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     }
 
     private void detect(com.microsoft.playwright.Page page, String kind, List<DetectedElement> found, TargetApplication app) {
-        Locator locator = page.locator(kind); int count = Math.min(locator.count(), 500);
+        Locator locator = page.locator(kind); int count = Math.min(locator.count(), MAX_ELEMENTS_PER_KIND);
+        List<Boolean> dataItems = "button".equals(kind) ? dataItems(locator) : List.of();
         for (int i = 0; i < count; i++) { Locator item = locator.nth(i); String selector = kind + ":nth-of-type(" + (i + 1) + ")";
             String aria=item.getAttribute("aria-label"), name=item.getAttribute("name"), id=item.getAttribute("id"), placeholder=item.getAttribute("placeholder"), type=item.getAttribute("type"), href=item.getAttribute("href");
             String visibleText=("input".equals(kind)||"textarea".equals(kind))?null:text(item); String buttonValue="input".equals(kind)&&type!=null&&type.trim().matches("(?i)submit|button|reset")?item.getAttribute("value"):null; String label=first(humanLabel(item),visibleText,buttonValue,placeholder); String pressLabel=first(aria,visibleText,item.getAttribute("value")); String attribute="a".equals(kind)?"href":"type"; String value="a".equals(kind)?href:type; String role="button".equals(kind)?ariaRole(item.getAttribute("role")):null;
-            found.add(new DetectedElement(kind,selector,safe(label),classifyFixtureElement(item,kind,attribute,value,pressLabel,name,id,placeholder,role),"a".equals(kind)?targetPath(href,page.url(),app.getBaseUrl()):null,("a".equals(kind)||"button".equals(kind))&&inNavigation(item),"input".equals(kind)?controlType(type):"tab".equals(role)?"tab":null)); }
+            boolean dataItem = i < dataItems.size() && Boolean.TRUE.equals(dataItems.get(i));
+            // A data item's name is record data (a task title), not an action label, so it never drives classification.
+            String classifiedLabel = dataItem ? null : pressLabel;
+            found.add(new DetectedElement(kind,selector,safe(label),classifyFixtureElement(item,kind,attribute,value,classifiedLabel,name,id,placeholder,role),"a".equals(kind)?targetPath(href,page.url(),app.getBaseUrl()):null,("a".equals(kind)||"button".equals(kind))&&inNavigation(item),"input".equals(kind)?controlType(type):"tab".equals(role)?"tab":dataItem?"item":null)); }
+    }
+    /**
+     * Read-only structural check, aligned with the locator's matches: a button is a repeated data item (a board card or
+     * list entry whose name is record data) when its nearest repeating ancestor (a sibling group sharing tag and a class)
+     * holds exactly one button at the same relative path, the same structural signature appears at least twice
+     * page-wide, and every name in that signature is distinct and non-empty. At least one unit of that signature must
+     * also carry text beyond its button (a title plus assignee or priority); title-only cards then join it, while a
+     * structure whose units all hold only a button is indistinguishable from a toolbar. Names that all share their first
+     * word ("Eliminar Juan", "Eliminar Ana") are one action per record, so that structure is not a data-item group. Per-row actions with identical names ("Desactivar" on each row), buttons inside navigation
+     * landmarks, toolbars or menus, tabs, and buttons that submit (explicit type=submit, or type-less inside a form)
+     * are never data items.
+     */
+    private static final String DATA_ITEMS_SCRIPT = """
+            (all, { landmarks, limit }) => {
+              // Same cap as detect(), so flag i still describes locator.nth(i).
+              const buttons = all.slice(0, limit);
+              const eligible = b => !b.closest(landmarks + ', [role=toolbar], [role=menu], [role=menubar]')
+                && (b.getAttribute('role') || '').trim().split(/\\s+/)[0].toLowerCase() !== 'tab'
+                && (b.getAttribute('type') || '').trim().toLowerCase() !== 'submit'
+                && !(b.form && (b.type || '').toLowerCase() === 'submit');
+              const textOf = n => (n.textContent || '').replace(/\\s+/g, ' ').trim();
+              const hasContent = (unit, b) => textOf(unit).length > textOf(b).length;
+              const nameOf = b => (b.getAttribute('aria-label') || b.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+              const alike = (a, b) => a.tagName === b.tagName
+                && ((a.classList.length === 0 && b.classList.length === 0) || [...a.classList].some(c => b.classList.contains(c)));
+              const signature = (unit, b) => { const steps = []; for (let n = b; n && n !== unit; n = n.parentElement) steps.unshift(n.tagName);
+                return unit.parentElement.tagName + '>' + unit.tagName + '>' + steps.join('>'); };
+              const buttonsIn = unit => unit.querySelectorAll('button');
+              const ancestors = b => { const out = []; for (let n = b.parentElement, d = 0; n && n.parentElement && n !== document.body && d < 8; n = n.parentElement, d++) out.push(n); return out; };
+              const repeating = new Map(); const withContent = new Set(); const assigned = buttons.map(() => null);
+              buttons.forEach((b, i) => { if (!eligible(b)) return;
+                for (const unit of ancestors(b)) {
+                  const members = [...unit.parentElement.children].filter(s => alike(s, unit) && buttonsIn(s).length > 0);
+                  if (members.length < 2) continue;
+                  const sig = signature(unit, b);
+                  if (members.every(s => buttonsIn(s).length === 1 && signature(s, buttonsIn(s)[0]) === sig)) { if (!repeating.has(sig)) repeating.set(sig, []); repeating.get(sig).push(unit); assigned[i] = sig;
+                    if (hasContent(unit, b)) withContent.add(sig); }
+                  return;
+                } });
+              // A lone card (one card left in a column) joins a signature that repeats elsewhere on the page, but only when it
+              // and its container look like one of those repeated cards; a same-tag-path button elsewhere stays ordinary.
+              const matchesPeer = (unit, peers) => peers.some(u => alike(u, unit) && alike(u.parentElement, unit.parentElement));
+              buttons.forEach((b, i) => { if (assigned[i] !== null || !eligible(b)) return;
+                for (const unit of ancestors(b)) { if (buttonsIn(unit).length !== 1) return; const sig = signature(unit, b);
+                  if (repeating.has(sig)) { if (matchesPeer(unit, repeating.get(sig))) { assigned[i] = sig; if (hasContent(unit, b)) withContent.add(sig); } return; } } });
+              const names = new Map();
+              assigned.forEach((sig, i) => { if (sig !== null) { if (!names.has(sig)) names.set(sig, []); names.get(sig).push(nameOf(buttons[i])); } });
+              // Content is judged per structure: optional fields (assignee, badges) may be absent on some cards.
+              // Names that all open with the same word ("Eliminar Juan", "Eliminar Ana") are one action per record, not data.
+              const sameVerb = list => new Set(list.map(n => n.split(' ')[0])).size === 1;
+              const valid = new Set([...names].filter(([sig, list]) => withContent.has(sig) && !sameVerb(list) && list.length >= 2 && list.every(n => n) && new Set(list).size === list.length).map(([sig]) => sig));
+              return assigned.map(sig => sig !== null && valid.has(sig));
+            }""";
+    /** Package-private so the failure fallback can be exercised without a browser fault. */
+    static List<Boolean> dataItems(Locator buttons) {
+        try { Object result = buttons.evaluateAll(DATA_ITEMS_SCRIPT, Map.of("landmarks", NAVIGATION_LANDMARKS, "limit", MAX_ELEMENTS_PER_KIND));
+            return result instanceof List<?> flags ? flags.stream().map(Boolean.TRUE::equals).toList() : List.of(); }
+        catch (RuntimeException e) {
+            // Detection falls back to ordinary buttons; only the exception type is logged, never page content.
+            LOG.warn("Data-item detection failed; treating buttons as ordinary: exception={}", e.getClass().getName());
+            return List.of();
+        }
     }
     /** The first token of an ARIA role attribute (browsers use the first recognized one), normalized; only the attribute is read. */
     static String ariaRole(String role) {

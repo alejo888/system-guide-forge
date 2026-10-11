@@ -4,7 +4,9 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Playwright;
+import com.microsoft.playwright.PlaywrightException;
 import com.sun.net.httpserver.HttpServer;
 import com.systemguideforge.backend.persistence.TargetApplication;
 import org.junit.jupiter.api.Test;
@@ -14,6 +16,7 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -390,6 +393,176 @@ class PlaywrightScreenAnalysisAdapterTest {
                         ScreenAnalysisAdapter.DetectedElement::classification)
                 .containsExactlyInAnyOrder(tuple("Por hacer", "tab", ActionClassification.SAFE), tuple("En progreso", "tab", ActionClassification.SAFE),
                         tuple("Crear tablero", "tab", ActionClassification.MUTATING), tuple("Filtros", null, ActionClassification.UNKNOWN));
+    }
+
+    @Test
+    void capturesRepeatedDataItemButtonsAsItemsWithoutClassifyingTheirDataNames() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Tablero</h1><button type=\"button\">Crear tarea</button>"
+                        + "<section class=\"board-column\"><h3>Por hacer</h3><div class=\"board-column-list\">"
+                        + "<fp-card class=\"board-card cdk-drag\"><button type=\"button\" class=\"card-title\"><span>Crear notificaciones</span></button><p>Alta</p></fp-card>"
+                        + "<fp-card class=\"board-card cdk-drag cdk-drag-dragging\"><button type=\"button\" class=\"card-title\"><span>Revisar informe</span></button><p>Baja</p></fp-card>"
+                        + "</div></section>"
+                        + "<section class=\"board-column\"><h3>En progreso</h3><div class=\"board-column-list\">"
+                        + "<fp-card class=\"board-card cdk-drag\"><button type=\"button\" class=\"card-title\"><span>Eliminar duplicados</span></button><p>Media</p></fp-card>"
+                        + "</div></section>"
+                        + "<section class=\"board-column\"><h3>Hecho</h3><div class=\"board-column-list\">"
+                        + "<fp-card class=\"board-card cdk-drag\"><button type=\"button\" class=\"card-title\"><span>Migrar datos</span></button><p>Alta</p></fp-card>"
+                        + "<fp-card class=\"board-card cdk-drag\"><button type=\"button\" class=\"card-title\"><span>Documentar API</span></button><p>Baja</p></fp-card>"
+                        + "<fp-card class=\"board-card cdk-drag\"><button type=\"button\" class=\"card-title\"><span>Preparar demo</span></button><p>Baja</p></fp-card>"
+                        + "</div></section></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::controlType,
+                        ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactlyInAnyOrder(tuple("Crear tarea", null, ActionClassification.MUTATING),
+                        tuple("Crear notificaciones", "item", ActionClassification.UNKNOWN), tuple("Revisar informe", "item", ActionClassification.UNKNOWN),
+                        tuple("Eliminar duplicados", "item", ActionClassification.UNKNOWN), tuple("Migrar datos", "item", ActionClassification.UNKNOWN),
+                        tuple("Documentar API", "item", ActionClassification.UNKNOWN), tuple("Preparar demo", "item", ActionClassification.UNKNOWN));
+    }
+
+    @Test
+    void keepsPerRowActionsWithIdenticalNamesAndLoneCardsAsOrdinaryButtons() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult rows = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Usuarios</h1><table><tbody>"
+                        + "<tr><td>Ana</td><td><button type=\"button\">Desactivar</button></td></tr>"
+                        + "<tr><td>Luis</td><td><button type=\"button\">Desactivar</button></td></tr>"
+                        + "<tr><td>Eva</td><td><button type=\"button\">Desactivar</button></td></tr>"
+                        + "</tbody></table></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+        ScreenAnalysisAdapter.ScreenAnalysisResult loneCard = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Tablero</h1><section class=\"board-column\"><div class=\"board-column-list\">"
+                        + "<fp-card class=\"board-card\"><button type=\"button\" class=\"card-title\">Crear notificaciones</button></fp-card>"
+                        + "</div></section></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(rows.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::controlType, ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactly(tuple(null, ActionClassification.MUTATING), tuple(null, ActionClassification.MUTATING), tuple(null, ActionClassification.MUTATING));
+        assertThat(loneCard.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::controlType, ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactly(tuple(null, ActionClassification.MUTATING));
+    }
+
+    @Test
+    void neverTreatsNavigationTabOrSubmitButtonsAsDataItems() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><nav><ul><li><button type=\"button\">Inicio</button></li><li><button type=\"button\">Proyectos</button></li></ul></nav>"
+                        + "<main><h1>Panel</h1><div role=\"tablist\"><span><button role=\"tab\">Resumen</button></span><span><button role=\"tab\">Detalle</button></span></div>"
+                        + "<ul><li><form><button type=\"submit\">Aprobar Ana</button></form></li><li><form><button type=\"submit\">Aprobar Luis</button></form></li></ul>"
+                        + "</main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::controlType).doesNotContain("item");
+    }
+
+    @Test
+    void capturesTitleOnlyCardsAsItemsWhenTheirStructureCarriesContentElsewhere() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Tablero</h1>"
+                        + "<section class=\"board-column\"><h3>Por hacer</h3><div class=\"board-column-list\">"
+                        + "<fp-card class=\"board-card\"><button type=\"button\" class=\"card-title\"><span>Disenar pantalla de onboarding</span></button></fp-card>"
+                        + "<fp-card class=\"board-card\"><button type=\"button\" class=\"card-title\"><span>Crear backup</span></button><span class=\"assignee\">Ana</span></fp-card>"
+                        + "</div></section>"
+                        + "<section class=\"board-column\"><h3>Hecho</h3><div class=\"board-column-list\">"
+                        + "<fp-card class=\"board-card\"><button type=\"button\" class=\"card-title\"><span>Investigar soporte offline-first</span></button></fp-card>"
+                        + "</div></section></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::controlType)
+                .containsExactlyInAnyOrder(tuple("Disenar pantalla de onboarding", "item"), tuple("Crear backup", "item"),
+                        tuple("Investigar soporte offline-first", "item"));
+    }
+
+    @Test
+    void keepsAnUnrelatedLoneButtonWithTheSameTagPathAsAnOrdinaryButton() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Proyecto</h1><section class=\"board\"><div class=\"board-column-list\">"
+                        + "<div class=\"card\"><button type=\"button\">Revisar informe</button><p>Ana</p></div>"
+                        + "<div class=\"card\"><button type=\"button\">Migrar datos</button><p>Luis</p></div>"
+                        + "</div></section>"
+                        + "<div class=\"settings\"><div class=\"danger-zone\"><button type=\"button\">Eliminar proyecto</button><p>No se puede deshacer</p></div></div>"
+                        + "</main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::controlType,
+                        ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactlyInAnyOrder(tuple("Revisar informe", "item", ActionClassification.UNKNOWN),
+                        tuple("Migrar datos", "item", ActionClassification.UNKNOWN),
+                        tuple("Eliminar proyecto", null, ActionClassification.MUTATING));
+    }
+
+    @Test
+    void keepsPerRowActionsNamedAfterTheirRecordAsOrdinaryButtons() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Usuarios</h1><table><tbody>"
+                        + "<tr><td>Juan</td><td><button type=\"button\">Eliminar Juan</button></td></tr>"
+                        + "<tr><td>Ana</td><td><button type=\"button\">Eliminar Ana</button></td></tr>"
+                        + "<tr><td>Pedro</td><td><button type=\"button\">Eliminar Pedro</button></td></tr>"
+                        + "</tbody></table></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::controlType, ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactly(tuple(null, ActionClassification.MUTATING), tuple(null, ActionClassification.MUTATING),
+                        tuple(null, ActionClassification.MUTATING));
+    }
+
+    @Test
+    void fallsBackToNoDataItemsAndLogsOnlyTheExceptionTypeWhenDetectionFails() {
+        Locator failing = (Locator) Proxy.newProxyInstance(Locator.class.getClassLoader(), new Class<?>[]{Locator.class},
+                (proxy, method, args) -> { throw new PlaywrightException("page secret content"); });
+        Logger logger = (Logger) LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>(); appender.start(); logger.addAppender(appender);
+        try {
+            assertThat(PlaywrightScreenAnalysisAdapter.dataItems(failing)).isEmpty();
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage()).contains(PlaywrightException.class.getName()).doesNotContain("secret");
+            });
+        } finally { logger.detachAppender(appender); }
+    }
+
+    @Test
+    void keepsWrappedToolbarButtonsAsActionsInsteadOfDataItems() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Documento</h1>"
+                        + "<div class=\"actions\"><span class=\"btn-wrap\"><button type=\"button\">Guardar</button></span>"
+                        + "<span class=\"btn-wrap\"><button type=\"button\">Eliminar</button></span>"
+                        + "<span class=\"btn-wrap\"><button type=\"button\">Publicar</button></span></div>"
+                        + "<div class=\"actions\"><span class=\"btn-wrap\"><button type=\"button\">Duplicar</button></span>"
+                        + "<span class=\"btn-wrap\"><button type=\"button\">Archivar</button></span></div>"
+                        + "<div role=\"toolbar\"><span class=\"tool\"><button type=\"button\">Crear copia</button><small>Ctrl+D</small></span>"
+                        + "<span class=\"tool\"><button type=\"button\">Borrar todo</button><small>Ctrl+X</small></span></div>"
+                        + "</main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::controlType).doesNotContain("item");
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .filteredOn(element -> List.of("Guardar", "Eliminar", "Crear copia").contains(element.accessibleName()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsOnly(ActionClassification.MUTATING).hasSize(3);
+    }
+
+    @Test
+    void keepsImplicitSubmitButtonsOfAFormOutOfDataItems() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Solicitud</h1><form>"
+                        + "<div class=\"step\"><p>Conserva los cambios</p><button>Guardar borrador</button></div>"
+                        + "<div class=\"step\"><p>Envia la solicitud</p><button>Enviar</button></div>"
+                        + "<div class=\"step\"><p>Elimina el borrador</p><button>Eliminar borrador</button></div>"
+                        + "</form></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::controlType, ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactly(tuple(null, ActionClassification.MUTATING), tuple(null, ActionClassification.MUTATING),
+                        tuple(null, ActionClassification.MUTATING));
     }
 
     @Test
