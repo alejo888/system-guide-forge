@@ -218,11 +218,28 @@ class DocumentServiceTest {
         String content = groupedManualContent(Document.DocumentLanguage.ES, List.of(
                 new UIElement("page-1", "button", "#menu", "Abrir menú", ActionClassification.UNKNOWN),
                 new UIElement("page-1", "link", "a.more", "Ver más", ActionClassification.UNKNOWN),
-                new UIElement("page-1", "select", "#country", "País", ActionClassification.UNKNOWN)));
+                new UIElement("page-1", "combobox", "#country", "País", ActionClassification.UNKNOWN)));
 
         assertThat(content)
                 .contains("No se identificaron acciones")
                 .doesNotContain("Abrir menú", "Ver más", "País");
+    }
+
+    @Test
+    void describesNamedSelectsAsOptionsToChooseWithoutApprovalAndSkipsUnnamedOnes() {
+        List<UIElement> controls = List.of(
+                new UIElement("page-1", "select", "select:nth-of-type(1)", "Usuario", ActionClassification.UNKNOWN),
+                new UIElement("page-1", "select", "select:nth-of-type(2)", "Rol", ActionClassification.UNKNOWN),
+                new UIElement("page-1", "select", "select:nth-of-type(3)", null, ActionClassification.UNKNOWN),
+                new UIElement("page-1", "select", "select:nth-of-type(4)", "  ", ActionClassification.UNKNOWN),
+                new UIElement("page-1", "button", "#save", "Guardar", ActionClassification.MUTATING));
+
+        assertThat(groupedManualContent(Document.DocumentLanguage.ES, controls))
+                .contains("Información:\n1. Elegí una opción en \"Usuario\".\n2. Elegí una opción en \"Rol\".\nAcciones:\n3. Presioná el botón \"Guardar\".")
+                .doesNotContain("este control", "4.", "select:nth-of-type");
+        assertThat(groupedManualContent(Document.DocumentLanguage.EN, controls))
+                .contains("Information:\n1. Choose an option in \"Usuario\".\n2. Choose an option in \"Rol\".\nActions:\n3. Press the \"Guardar\" button.")
+                .doesNotContain("this control", "4.");
     }
 
     @Test

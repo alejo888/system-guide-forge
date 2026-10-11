@@ -190,7 +190,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     private ScreenAnalysisResult analyzeCurrentPage(com.microsoft.playwright.Page page, TargetApplication app, int depth) {
         waitForPageSettled(page);
         List<DetectedElement> found = new ArrayList<>();
-        detect(page, "button", found, app); detect(page, "a", found, app); detect(page, "input", found, app); detect(page, "textarea", found, app);
+        detect(page, "button", found, app); detect(page, "a", found, app); detect(page, "input", found, app); detect(page, "textarea", found, app); detect(page, "select", found, app);
         Locator sensitiveFields = page.locator(SENSITIVE_FIELD_SELECTOR); sensitiveFields.count();
         byte[] screenshot = page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setFullPage(true).setMask(List.of(sensitiveFields)));
         if (screenshot.length == 0) throw new IllegalStateException("Sanitized screenshot unavailable");
@@ -403,7 +403,8 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         List<Boolean> dataItems = "button".equals(kind) ? dataItems(locator) : List.of();
         for (int i = 0; i < count; i++) { Locator item = locator.nth(i); String selector = kind + ":nth-of-type(" + (i + 1) + ")";
             String aria=item.getAttribute("aria-label"), name=item.getAttribute("name"), id=item.getAttribute("id"), placeholder=item.getAttribute("placeholder"), type=item.getAttribute("type"), href=item.getAttribute("href");
-            String visibleText=("input".equals(kind)||"textarea".equals(kind))?null:text(item); String buttonValue="input".equals(kind)&&type!=null&&type.trim().matches("(?i)submit|button|reset")?item.getAttribute("value"):null; String label=first(humanLabel(item),visibleText,buttonValue,placeholder); String pressLabel=first(aria,visibleText,item.getAttribute("value")); String attribute="a".equals(kind)?"href":"type"; String value="a".equals(kind)?href:type; String role="button".equals(kind)?ariaRole(item.getAttribute("role")):null;
+            // A select's visible text is its options (record data such as user names), so it is never read as its name.
+            String visibleText=("input".equals(kind)||"textarea".equals(kind)||"select".equals(kind))?null:text(item); String buttonValue="input".equals(kind)&&type!=null&&type.trim().matches("(?i)submit|button|reset")?item.getAttribute("value"):null; String label=first(humanLabel(item),visibleText,buttonValue,placeholder); String pressLabel=first(aria,visibleText,item.getAttribute("value")); String attribute="a".equals(kind)?"href":"type"; String value="a".equals(kind)?href:type; String role="button".equals(kind)?ariaRole(item.getAttribute("role")):null;
             boolean dataItem = i < dataItems.size() && Boolean.TRUE.equals(dataItems.get(i));
             // A data item's name is record data (a task title), not an action label, so it never drives classification.
             String classifiedLabel = dataItem ? null : pressLabel;
