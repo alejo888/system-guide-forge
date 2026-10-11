@@ -8,6 +8,7 @@ import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.PlaywrightException;
 import com.sun.net.httpserver.HttpServer;
+import com.systemguideforge.backend.persistence.ApprovedOpenerRule;
 import com.systemguideforge.backend.persistence.TargetApplication;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
@@ -20,6 +21,10 @@ import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -760,7 +765,20 @@ class PlaywrightScreenAnalysisAdapterTest {
     /** slowDataDelayMillis > 0 also serves a JSON /slow-data endpoint that answers after that delay. */
     private static ScreenAnalysisAdapter.ScreenAnalysisResult analyzeDashboard(String dashboardHtml, String nextHtml, String loginHeading,
                                                                                long slowDataDelayMillis) throws Exception {
+        return analyzeDashboard(dashboardHtml, nextHtml, loginHeading, slowDataDelayMillis, List.of(), server -> { });
+    }
+
+    /** Approved openers for the fixture application; extraContexts registers further fixture endpoints (e.g. request counters). */
+    private static ScreenAnalysisAdapter.ScreenAnalysisResult analyzeDashboard(String dashboardHtml, String nextHtml, List<ApprovedOpenerRule> openers,
+                                                                               Consumer<HttpServer> extraContexts) throws Exception {
+        return analyzeDashboard(dashboardHtml, nextHtml, "<h1>Sign in page</h1>", 0, openers, extraContexts);
+    }
+
+    private static ScreenAnalysisAdapter.ScreenAnalysisResult analyzeDashboard(String dashboardHtml, String nextHtml, String loginHeading,
+                                                                               long slowDataDelayMillis, List<ApprovedOpenerRule> openers,
+                                                                               Consumer<HttpServer> extraContexts) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        extraContexts.accept(server);
         java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newCachedThreadPool();
         server.setExecutor(executor);
         if (slowDataDelayMillis > 0) server.createContext("/slow-data", exchange -> {
@@ -786,12 +804,172 @@ class PlaywrightScreenAnalysisAdapterTest {
         server.start();
         try {
             String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
-            TargetApplication application = new TargetApplication("project", "app", baseUrl, baseUrl + "/login", "stored-user", "stored-password");
+            TargetApplication application = new TargetApplication("project", "app", baseUrl, baseUrl + "/login", "stored-user", "stored-password",
+                    2, List.of(), openers);
             return new PlaywrightScreenAnalysisAdapter().analyze(application, "browser-user", "browser-password");
         } finally {
             server.stop(0);
             executor.shutdownNow();
         }
+    }
+
+    /** Counts requests per "METHOD path" so tests can prove what did, and did not, reach the target server. */
+    private static Consumer<HttpServer> countingRequests(Map<String, AtomicInteger> requests, String... paths) {
+        return server -> {
+            for (String path : paths) server.createContext(path, exchange -> {
+                requests.computeIfAbsent(exchange.getRequestMethod() + " " + path, key -> new AtomicInteger()).incrementAndGet();
+                byte[] body = "{}".getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+                exchange.close();
+            });
+        };
+    }
+
+    private static int count(Map<String, AtomicInteger> requests, String key) {
+        AtomicInteger value = requests.get(key);
+        return value == null ? 0 : value.get();
+    }
+
+    /** A dashboard whose "Crear tarea" button opens a modal form; beforeOpen runs first in the click handler. */
+    private static String dashboardWithTaskDialog(String beforeOpen, boolean escapeCloses) {
+        return """
+                <!doctype html><html><head><title>Tareas</title></head><body><main><h1>Tareas</h1>
+                <button id="open" type="button">Crear tarea</button><button type="button" id="other">Eliminar todo</button>
+                </main><script>
+                const close = path => { document.getElementById('task-dialog')?.remove(); fetch(path); };
+                document.getElementById('other').addEventListener('click', () => fetch('/unapproved-clicked'));
+                document.getElementById('open').addEventListener('click', () => {
+                  BEFORE_OPEN
+                  const dialog = document.createElement('div');
+                  dialog.id = 'task-dialog'; dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+                  dialog.innerHTML = '<h2>Nueva tarea</h2><label>Titulo <input name="title"></label>'
+                    + '<label for="priority">Prioridad</label><select id="priority"><option>Alta secreta</option></select>'
+                    + '<a href="/from-dialog">Ayuda</a><button type="button" id="cancel">Cancelar</button><button type="submit">Guardar</button>';
+                  document.body.appendChild(dialog);
+                  document.getElementById('cancel').addEventListener('click', () => close('/closed-by-cancel'));
+                });
+                document.addEventListener('keydown', event => {
+                  if (ESCAPE_CLOSES && event.key === 'Escape' && document.getElementById('task-dialog')) close('/closed-by-escape');
+                });
+                </script></body></html>
+                """.replace("BEFORE_OPEN", beforeOpen).replace("ESCAPE_CLOSES", Boolean.toString(escapeCloses));
+    }
+
+    private static final String[] OPENER_ENDPOINTS = {"/closed-by-escape", "/closed-by-cancel", "/unapproved-clicked", "/api/tasks", "/from-dialog"};
+
+    @Test
+    void opensAnApprovedFormOpenerCapturesItsDialogFieldsAndClosesItWithEscape() throws Exception {
+        Map<String, AtomicInteger> requests = new ConcurrentHashMap<>();
+        var result = analyzeDashboard(dashboardWithTaskDialog("", true), null,
+                List.of(new ApprovedOpenerRule("/dashboard", "Crear tarea")), countingRequests(requests, OPENER_ENDPOINTS));
+
+        assertThat(result.url()).endsWith("/dashboard");
+        assertThat(result.openedForms()).hasSize(1);
+        var form = result.openedForms().get(0);
+        assertThat(form.openerName()).isEqualTo("Crear tarea");
+        assertThat(form.openerSelector()).isEqualTo("button:nth-of-type(1)");
+        assertThat(form.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::kind, ScreenAnalysisAdapter.DetectedElement::accessibleName)
+                .contains(tuple("input", "Titulo"), tuple("select", "Prioridad"), tuple("button", "Cancelar"), tuple("button", "Guardar"), tuple("a", "Ayuda"));
+        assertThat(result.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).doesNotContain("Titulo", "Prioridad");
+        assertThat(count(requests, "GET /closed-by-escape")).isEqualTo(1);
+        assertThat(count(requests, "GET /closed-by-cancel")).isZero();
+        // Openers never enqueue links: the dialog's link is documented, not crawled.
+        assertThat(count(requests, "GET /from-dialog")).isZero();
+        assertThat(result.discoveredPages()).isEmpty();
+    }
+
+    @Test
+    void neverPressesButtonsThatAreNotApprovedForThePageRoute() throws Exception {
+        Map<String, AtomicInteger> requests = new ConcurrentHashMap<>();
+        var result = analyzeDashboard(dashboardWithTaskDialog("", true), null,
+                List.of(new ApprovedOpenerRule("/dashboard", "Crear tarea"), new ApprovedOpenerRule("/reports", "Eliminar todo")),
+                countingRequests(requests, OPENER_ENDPOINTS));
+
+        assertThat(result.openedForms()).extracting(ScreenAnalysisAdapter.OpenedForm::openerName).containsExactly("Crear tarea");
+        assertThat(count(requests, "GET /unapproved-clicked")).isZero();
+    }
+
+    @Test
+    void pressesNothingWhenTheApplicationHasNoApprovedOpeners() throws Exception {
+        Map<String, AtomicInteger> requests = new ConcurrentHashMap<>();
+        var result = analyzeDashboard(dashboardWithTaskDialog("", true), null, List.of(), countingRequests(requests, OPENER_ENDPOINTS));
+
+        assertThat(result.openedForms()).isEmpty();
+        assertThat(result.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("Crear tarea", "Eliminar todo");
+        assertThat(requests).isEmpty();
+    }
+
+    @Test
+    void blocksWritesFiredByAnOpenerAndDiscardsItsCaptureWithoutFailingTheAnalysis() throws Exception {
+        Map<String, AtomicInteger> requests = new ConcurrentHashMap<>();
+        var result = analyzeDashboard(dashboardWithTaskDialog("fetch('/api/tasks', { method: 'POST', body: '{}' });", true), null,
+                List.of(new ApprovedOpenerRule("/dashboard", "Crear tarea")), countingRequests(requests, OPENER_ENDPOINTS));
+
+        assertThat(count(requests, "POST /api/tasks")).isZero();
+        assertThat(result.openedForms()).isEmpty();
+        assertThat(result.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).contains("Crear tarea");
+    }
+
+    @Test
+    void closesAnOpenedFormWithItsCancelButtonWhenEscapeDoesNotCloseIt() throws Exception {
+        Map<String, AtomicInteger> requests = new ConcurrentHashMap<>();
+        var result = analyzeDashboard(dashboardWithTaskDialog("", false), null,
+                List.of(new ApprovedOpenerRule("/dashboard", "Crear tarea")), countingRequests(requests, OPENER_ENDPOINTS));
+
+        assertThat(result.openedForms()).extracting(ScreenAnalysisAdapter.OpenedForm::openerName).containsExactly("Crear tarea");
+        assertThat(count(requests, "GET /closed-by-cancel")).isEqualTo(1);
+        assertThat(count(requests, "GET /closed-by-escape")).isZero();
+    }
+
+    @Test
+    void discardsAnOpenerThatChangesTheUrlRestoresThePageAndContinuesWithTheNextOpener() throws Exception {
+        String dashboard = """
+                <!doctype html><html><body><main><h1>Proyectos</h1>
+                <button type="button" id="routed">Crear tarea</button><button type="button" id="modal">Crear proyecto</button>
+                </main><script>
+                document.getElementById('routed').addEventListener('click', () => {
+                  history.pushState({}, '', '/dashboard/new');
+                  document.body.insertAdjacentHTML('beforeend', '<div role="dialog"><label>Titulo <input name="title"></label></div>');
+                });
+                document.getElementById('modal').addEventListener('click', () => {
+                  document.body.insertAdjacentHTML('beforeend', '<dialog open id="project"><label>Nombre <input name="name"></label></dialog>');
+                });
+                document.addEventListener('keydown', event => {
+                  if (event.key === 'Escape') document.querySelectorAll('[role=dialog], dialog').forEach(d => d.remove());
+                });
+                </script></body></html>
+                """;
+        var result = analyzeDashboard(dashboard, null,
+                List.of(new ApprovedOpenerRule("/dashboard", "Crear tarea"), new ApprovedOpenerRule("/dashboard", "Crear proyecto")), server -> { });
+
+        assertThat(result.url()).endsWith("/dashboard");
+        assertThat(result.openedForms()).extracting(ScreenAnalysisAdapter.OpenedForm::openerName).containsExactly("Crear proyecto");
+        assertThat(result.openedForms().get(0).elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).containsExactly("Nombre");
+    }
+
+    @Test
+    void opensApprovedOpenersOnCrawledPagesAndCapturesNewControlsWithoutADialog() throws Exception {
+        String next = """
+                <!doctype html><html><body><main><h1>Miembros</h1><button type="button" id="invite">Invitar miembro</button>
+                <div id="slot"></div></main><script>
+                document.getElementById('invite').addEventListener('click', () => {
+                  document.getElementById('slot').innerHTML = '<label for="role">Rol</label><select id="role"><option>Admin</option></select>'
+                    + '<button type="button" id="close">Cerrar</button>';
+                  document.getElementById('close').addEventListener('click', () => { document.getElementById('slot').innerHTML = ''; });
+                });
+                </script></body></html>
+                """;
+        var result = analyzeDashboard("<!doctype html><html><body><main><h1>Panel</h1><a href=\"/next\">Miembros</a></main></body></html>",
+                next, List.of(new ApprovedOpenerRule("/next", "Invitar miembro")), server -> { });
+
+        assertThat(result.openedForms()).isEmpty();
+        assertThat(result.discoveredPages()).hasSize(1);
+        var forms = result.discoveredPages().get(0).openedForms();
+        assertThat(forms).extracting(ScreenAnalysisAdapter.OpenedForm::openerName).containsExactly("Invitar miembro");
+        assertThat(forms.get(0).elements()).extracting(ScreenAnalysisAdapter.DetectedElement::kind, ScreenAnalysisAdapter.DetectedElement::accessibleName)
+                .containsExactlyInAnyOrder(tuple("select", "Rol"), tuple("button", "Cerrar"));
     }
 
     private static void respondHtml(com.sun.net.httpserver.HttpExchange exchange, String html) throws IOException {

@@ -1,12 +1,16 @@
 package com.systemguideforge.backend.application;
 
 import com.microsoft.playwright.*;
+import com.microsoft.playwright.options.ServiceWorkerPolicy;
+import com.systemguideforge.backend.persistence.ApprovedOpenerRule;
 import com.systemguideforge.backend.persistence.TargetApplication;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import java.net.URI;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -42,7 +46,8 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     public ScreenAnalysisResult analyze(TargetApplication application, String username, String password) {
         try (Playwright playwright = browserFactory.create();
              Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
-             BrowserContext context = browser.newContext()) {
+             // Service workers could answer or forward requests outside the opener request guard, so none are allowed.
+             BrowserContext context = browser.newContext(new Browser.NewContextOptions().setServiceWorkers(ServiceWorkerPolicy.BLOCK))) {
             com.microsoft.playwright.Page page = context.newPage();
             page.navigate(application.getLoginUrl());
             Locator user = page.locator("input[name='username'], input[name='email'], input[type='email'], input[type='text']").first();
@@ -55,6 +60,8 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             if (!isAuthenticatedAfterRedirect(page.url(), application)) throw new IllegalStateException("Authentication failed");
             if (!isSafeNavigationResult(page.url(), application)) throw new IllegalStateException("Unsafe authenticated redirect rejected");
 
+            List<ApprovedOpenerRule> approvedOpeners = application.getApprovedOpeners();
+            ApprovedOpenerMatcher openers = approvedOpeners.isEmpty() ? null : new ApprovedOpenerMatcher(approvedOpeners);
             String startUrl = safeUrl(page.url());
             CrawlBudget budget = new CrawlBudget(AnalysisService.MAX_CRAWL_PAGES, AnalysisService.MAX_CRAWL_LINKS);
             if (!budget.takePage()) throw new IllegalStateException("Crawl page budget unavailable");
@@ -62,6 +69,9 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             List<DiscoveredPage> discovered = new ArrayList<>();
             Set<String> visited = new HashSet<>(Set.of(startUrl));
             ArrayDeque<Link> queue = new ArrayDeque<>(links(page, application, 1, budget));
+            // Links are collected before any opener is pressed, so an opened form never adds pages to the crawl (RF08).
+            first = new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), first.discoveredPages(),
+                    first.loginPage(), first.heading(), openApprovedForms(page, application, openers, first.elements()));
             while (!queue.isEmpty()) {
                 Link link = queue.removeFirst();
                 if (link.depth > application.getMaxCrawlDepth() || application.isExcludedPath(link.url) || !visited.add(link.url) || !budget.takePage()) continue;
@@ -71,11 +81,13 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                     throw new IllegalStateException("Unsafe navigation redirect rejected");
                 }
                 ScreenAnalysisResult current = analyzeCurrentPage(page, application, link.depth);
-                discovered.add(new DiscoveredPage(current.url(), current.title(), current.elements(), current.sanitizedScreenshot(), link.depth, ActionClassification.SAFE, current.heading()));
-                if (link.depth < application.getMaxCrawlDepth()) queue.addAll(links(page, application, link.depth + 1, budget));
+                List<Link> next = link.depth < application.getMaxCrawlDepth() ? links(page, application, link.depth + 1, budget) : List.of();
+                List<OpenedForm> openedForms = openApprovedForms(page, application, openers, current.elements());
+                discovered.add(new DiscoveredPage(current.url(), current.title(), current.elements(), current.sanitizedScreenshot(), link.depth, ActionClassification.SAFE, current.heading(), openedForms));
+                queue.addAll(next);
             }
             ScreenAnalysisResult combined = withSharedNavigationIncludedOnce(first, discovered);
-            return new ScreenAnalysisResult(combined.url(), combined.title(), combined.elements(), combined.sanitizedScreenshot(), combined.discoveredPages(), loginPage, combined.heading());
+            return new ScreenAnalysisResult(combined.url(), combined.title(), combined.elements(), combined.sanitizedScreenshot(), combined.discoveredPages(), loginPage, combined.heading(), combined.openedForms());
         } catch (Exception e) {
             String category = failureCategory(e);
             LOG.warn("Screen analysis failed: category={}, exception={}, origin={}", category, e.getClass().getName(), failureOrigin(e));
@@ -152,13 +164,13 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     static ScreenAnalysisResult withSharedNavigationIncludedOnce(ScreenAnalysisResult first, List<DiscoveredPage> discovered) {
         Set<String> sharedNavigation = sharedNavigationKeys(Stream.concat(
                 Stream.of(first.elements()), discovered.stream().map(DiscoveredPage::elements)).toList());
-        if (sharedNavigation.isEmpty()) return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), discovered, null, first.heading());
+        if (sharedNavigation.isEmpty()) return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), discovered, null, first.heading(), first.openedForms());
         List<DiscoveredPage> withoutRepeatedNavigation = discovered.stream()
                 .map(page -> new DiscoveredPage(page.url(), page.title(),
                         page.elements().stream().filter(element -> !isSharedNavigation(element, sharedNavigation)).toList(),
-                        page.sanitizedScreenshot(), page.depth(), ActionClassification.SAFE, page.heading()))
+                        page.sanitizedScreenshot(), page.depth(), ActionClassification.SAFE, page.heading(), page.openedForms()))
                 .toList();
-        return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), withoutRepeatedNavigation, null, first.heading());
+        return new ScreenAnalysisResult(first.url(), first.title(), first.elements(), first.sanitizedScreenshot(), withoutRepeatedNavigation, null, first.heading(), first.openedForms());
     }
 
     /** Immutable sets reject contains(null), so elements without a navigation key are never shared navigation. */
@@ -190,11 +202,212 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     private ScreenAnalysisResult analyzeCurrentPage(com.microsoft.playwright.Page page, TargetApplication app, int depth) {
         waitForPageSettled(page);
         List<DetectedElement> found = new ArrayList<>();
-        detect(page, "button", found, app); detect(page, "a", found, app); detect(page, "input", found, app); detect(page, "textarea", found, app); detect(page, "select", found, app);
+        for (String kind : CAPTURED_KINDS) detect(page, page.locator(kind), kind, found, app, null);
         Locator sensitiveFields = page.locator(SENSITIVE_FIELD_SELECTOR); sensitiveFields.count();
         byte[] screenshot = page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setFullPage(true).setMask(List.of(sensitiveFields)));
         if (screenshot.length == 0) throw new IllegalStateException("Sanitized screenshot unavailable");
         return new ScreenAnalysisResult(safeUrl(page.url()), safe(page.title()), found, screenshot, List.of(), null, heading(page));
+    }
+
+    /** Bound for each opener press, Escape, or close-button press; the opener is discarded when it is reached. */
+    static final double OPENER_ACTION_TIMEOUT_MS = 3_000;
+    private static final String OPENER_CONTAINERS = "[role=dialog], [aria-modal=true], dialog[open]";
+    private static final String INTERACTIVE_KINDS = "button, a, input, textarea, select";
+    private static final List<String> CAPTURED_KINDS = List.of("button", "a", "input", "textarea", "select");
+    private static final java.util.regex.Pattern CLOSE_BUTTON_NAME = java.util.regex.Pattern.compile("(?i)cancelar|cancel|cerrar|close");
+    /** Page-side key of the pre-press snapshot; it lives only in the page's memory and disappears on reload. */
+    private static final String OPENER_SNAPSHOT_KEY = "__systemGuideForgeOpenerSnapshot";
+    private static final String VISIBLE_JS = "const visible = el => { if (!el.getClientRects().length) return false;"
+            + "const style = getComputedStyle(el); return !el.hidden && style.display !== 'none' && style.visibility !== 'hidden'; };";
+    /** Remembers which containers and controls were already visible before the press; reads the DOM only. */
+    private static final String OPENER_SNAPSHOT_SCRIPT = "({ key, selector }) => {" + VISIBLE_JS
+            + "window[key] = new WeakSet([...document.querySelectorAll(selector)].filter(visible)); return true; }";
+    /** snapshot=false means the document was replaced (navigation or reload), so nothing can be compared. */
+    private static final String OPENER_STATE_SCRIPT = "({ key, containers, interactive }) => {" + VISIBLE_JS
+            + "const before = window[key]; const shown = [...document.querySelectorAll(containers)].filter(visible);"
+            + "if (!before) return { snapshot: false, containers: 0, controls: 0, visibleContainers: shown.length };"
+            + "return { snapshot: true, containers: shown.filter(el => !before.has(el)).length,"
+            + "controls: [...document.querySelectorAll(interactive)].filter(el => visible(el) && !before.has(el)).length,"
+            + "visibleContainers: shown.length }; }";
+    /** Index of the outermost newly visible container among the matched elements, or -1. */
+    private static final String NEW_CONTAINER_SCRIPT = "(all, key) => {" + VISIBLE_JS
+            + "const before = window[key] || new WeakSet(); const fresh = all.filter(el => visible(el) && !before.has(el));"
+            + "const outer = fresh.find(el => !fresh.some(other => other !== el && other.contains(el)));"
+            + "return outer ? all.indexOf(outer) : -1; }";
+    private static final String NEWLY_VISIBLE_SCRIPT = "(all, key) => {" + VISIBLE_JS
+            + "const before = window[key] || new WeakSet(); return all.map(el => visible(el) && !before.has(el)); }";
+
+    /**
+     * Presses each human-approved opener button (RF24) on the current page, captures the form it reveals, and closes it
+     * again. While an opener is active every non-GET/HEAD request is aborted before it leaves the browser; a blocked
+     * request, WebSocket, popup, URL change, or failed close discards that opener's capture and restores the page.
+     * Never fails the analysis, never enqueues links, and never counts as a crawled page.
+     */
+    private List<OpenedForm> openApprovedForms(com.microsoft.playwright.Page page, TargetApplication app, ApprovedOpenerMatcher matcher,
+                                               List<DetectedElement> pageElements) {
+        if (matcher == null) return List.of();
+        String pageUrl = page.url();
+        List<OpenedForm> opened = new ArrayList<>();
+        Set<String> pressedNames = new HashSet<>();
+        int buttonIndex = -1;
+        for (DetectedElement element : pageElements) {
+            if (!"button".equals(element.kind())) continue;
+            buttonIndex++;
+            String name = element.accessibleName();
+            if (!matcher.matches(pageUrl, name) || pressedNames.contains(ApprovedOpenerMatcher.nameKey(name))) continue;
+            try {
+                // Re-located by index and re-checked by name, so a DOM that changed since detection never gets the press.
+                Locator button = page.locator("button").nth(buttonIndex);
+                if (!button.isVisible() || !button.isEnabled() || !ApprovedOpenerMatcher.nameKey(name).equals(ApprovedOpenerMatcher.nameKey(buttonName(button)))) continue;
+                pressedNames.add(ApprovedOpenerMatcher.nameKey(name));
+                OpenedForm form = openOne(page, app, button, name, element.selector());
+                if (form != null) opened.add(form);
+            } catch (RuntimeException e) {
+                // Locating the opener or restoring the page failed, so the page state is unknown: stop pressing openers
+                // here; the crawl itself continues.
+                LOG.warn("Approved opener pass stopped: category=opener-pass-failed, exception={}", e.getClass().getName());
+                break;
+            }
+        }
+        return opened;
+    }
+
+    /** Null when nothing new appeared or the capture was discarded. Throws only when the page could not be restored. */
+    private OpenedForm openOne(com.microsoft.playwright.Page page, TargetApplication app, Locator button, String name, String selector) {
+        BrowserContext context = page.context();
+        String originalUrl = page.url();
+        AtomicReference<String> violation = new AtomicReference<>();
+        Consumer<Route> guard = route -> {
+            String method = route.request().method();
+            if ("GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method)) { route.resume(); return; }
+            violation.compareAndSet(null, "write-request-blocked");
+            route.abort();
+        };
+        Consumer<WebSocket> sockets = socket -> violation.compareAndSet(null, "websocket-opened");
+        Consumer<com.microsoft.playwright.Page> popups = popup -> violation.compareAndSet(null, "popup-opened");
+        context.route("**/*", guard);
+        page.onWebSocket(sockets);
+        context.onPage(popups);
+        String discarded = null;
+        OpenedForm form = null;
+        try {
+            int containersBefore = openerState(page).visibleContainers();
+            page.evaluate(OPENER_SNAPSHOT_SCRIPT, Map.of("key", OPENER_SNAPSHOT_KEY, "selector", OPENER_CONTAINERS + ", " + INTERACTIVE_KINDS));
+            button.click(new Locator.ClickOptions().setTimeout(OPENER_ACTION_TIMEOUT_MS));
+            settleAfterOpenerAction(page);
+            OpenerState state = openerState(page);
+            if (violation.get() != null) discarded = violation.get();
+            else if (!page.url().equals(originalUrl) || !state.snapshot()) discarded = "url-changed";
+            else if (state.containers() == 0 && state.controls() == 0) return null;
+            else {
+                Locator container = newContainer(page);
+                List<DetectedElement> elements = captureOpened(page, app, container);
+                if (!closeOpened(page, app, container, containersBefore)) discarded = "close-failed";
+                else if (violation.get() != null) discarded = violation.get();
+                else if (!page.url().equals(originalUrl)) discarded = "url-changed";
+                else if (!elements.isEmpty()) form = new OpenedForm(name, selector, elements);
+            }
+        } catch (RuntimeException e) {
+            discarded = "opener-failed";
+        } finally {
+            try {
+                if (discarded != null) {
+                    LOG.info("Approved opener capture discarded: category={}", discarded);
+                    for (com.microsoft.playwright.Page other : context.pages()) if (other != page) other.close();
+                    page.navigate(originalUrl);
+                    try { waitForPageSettled(page); } catch (RuntimeException e) { LOG.debug("Restored page did not settle: exception={}", e.getClass().getName()); }
+                }
+            } finally {
+                page.offWebSocket(sockets);
+                context.offPage(popups);
+                context.unroute("**/*", guard);
+            }
+        }
+        return discarded == null ? form : null;
+    }
+
+    private record OpenerState(boolean snapshot, int containers, int controls, int visibleContainers) {}
+
+    private static OpenerState openerState(com.microsoft.playwright.Page page) {
+        Object raw = page.evaluate(OPENER_STATE_SCRIPT, Map.of("key", OPENER_SNAPSHOT_KEY, "containers", OPENER_CONTAINERS, "interactive", INTERACTIVE_KINDS));
+        if (!(raw instanceof Map<?, ?> state)) throw new IllegalStateException("Opener state unavailable");
+        return new OpenerState(Boolean.TRUE.equals(state.get("snapshot")), number(state.get("containers")),
+                number(state.get("controls")), number(state.get("visibleContainers")));
+    }
+
+    private static int number(Object value) { return value instanceof Number n ? n.intValue() : 0; }
+
+    /** The outermost newly visible dialog, or null when the opener only revealed controls in place (DOM diff mode). */
+    private static Locator newContainer(com.microsoft.playwright.Page page) {
+        Locator containers = page.locator(OPENER_CONTAINERS);
+        int index = number(containers.evaluateAll(NEW_CONTAINER_SCRIPT, OPENER_SNAPSHOT_KEY));
+        return index < 0 ? null : containers.nth(index);
+    }
+
+    /** Same detection, redaction, and classification as page elements; only reads attributes and text. */
+    private List<DetectedElement> captureOpened(com.microsoft.playwright.Page page, TargetApplication app, Locator container) {
+        List<DetectedElement> found = new ArrayList<>();
+        for (String kind : CAPTURED_KINDS) {
+            Locator locator = container != null ? container.locator(kind) : page.locator(kind);
+            detect(page, locator, kind, found, app, container != null ? null : newlyVisible(locator));
+        }
+        return found;
+    }
+
+    private static List<Boolean> newlyVisible(Locator locator) {
+        Object flags = locator.evaluateAll(NEWLY_VISIBLE_SCRIPT, OPENER_SNAPSHOT_KEY);
+        return flags instanceof List<?> list ? list.stream().map(Boolean.TRUE::equals).toList() : List.of();
+    }
+
+    /** Escape, then a visible non-mutating close button inside the opened container, then a reload. */
+    private boolean closeOpened(com.microsoft.playwright.Page page, TargetApplication app, Locator container, int containersBefore) {
+        page.keyboard().press("Escape");
+        settleAfterOpenerAction(page);
+        if (isClosed(page, container != null, containersBefore)) return true;
+        Locator closeButton = closeButton(page, container);
+        if (closeButton != null) {
+            closeButton.click(new Locator.ClickOptions().setTimeout(OPENER_ACTION_TIMEOUT_MS));
+            settleAfterOpenerAction(page);
+            if (isClosed(page, container != null, containersBefore)) return true;
+        }
+        page.reload(new com.microsoft.playwright.Page.ReloadOptions().setTimeout(PAGE_READY_TIMEOUT_MS));
+        waitForPageSettled(page);
+        return isClosed(page, container != null, containersBefore);
+    }
+
+    /** After a reload the snapshot is gone, so a closed state then means no more visible containers than before the press. */
+    private static boolean isClosed(com.microsoft.playwright.Page page, boolean dialog, int containersBefore) {
+        OpenerState state = openerState(page);
+        if (!state.snapshot()) return state.visibleContainers() <= containersBefore;
+        return dialog ? state.containers() == 0 : state.controls() == 0;
+    }
+
+    private static Locator closeButton(com.microsoft.playwright.Page page, Locator container) {
+        Locator candidates = container != null ? container.locator("button[type=button i]") : page.locator("button[type=button i]");
+        List<Boolean> include = container != null ? null : newlyVisible(candidates);
+        int count = Math.min(candidates.count(), MAX_ELEMENTS_PER_KIND);
+        for (int i = 0; i < count; i++) {
+            if (include != null && (i >= include.size() || !include.get(i))) continue;
+            Locator candidate = candidates.nth(i);
+            String label = buttonName(candidate);
+            if (!candidate.isVisible() || label == null || !CLOSE_BUTTON_NAME.matcher(label).matches()) continue;
+            String pressLabel = first(candidate.getAttribute("aria-label"), text(candidate));
+            ActionClassification classification = classifyFixtureElement(candidate, "button", "type", candidate.getAttribute("type"), pressLabel,
+                    candidate.getAttribute("name"), candidate.getAttribute("id"), candidate.getAttribute("placeholder"), ariaRole(candidate.getAttribute("role")));
+            if (classification != ActionClassification.MUTATING) return candidate;
+        }
+        return null;
+    }
+
+    /** A button's name as detect() computes it: label association first, then visible text, then placeholder. */
+    private static String buttonName(Locator button) {
+        return safe(first(humanLabel(button), text(button), button.getAttribute("placeholder")));
+    }
+
+    /** Waiting only and bounded; never fails the opener on its own. */
+    private static void settleAfterOpenerAction(com.microsoft.playwright.Page page) {
+        waitForNetworkIdle(page);
+        waitForDomQuiet(page);
     }
 
     static final int MAX_HEADING_LENGTH = 255;
@@ -398,10 +611,12 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         catch (RuntimeException e) { return null; }
     }
 
-    private void detect(com.microsoft.playwright.Page page, String kind, List<DetectedElement> found, TargetApplication app) {
-        Locator locator = page.locator(kind); int count = Math.min(locator.count(), MAX_ELEMENTS_PER_KIND);
+    /** locator holds the elements of one kind (page-wide or inside an opened container); include, when given, keeps only flagged indices. */
+    private void detect(com.microsoft.playwright.Page page, Locator locator, String kind, List<DetectedElement> found, TargetApplication app, List<Boolean> include) {
+        int count = Math.min(locator.count(), MAX_ELEMENTS_PER_KIND);
         List<Boolean> dataItems = "button".equals(kind) ? dataItems(locator) : List.of();
-        for (int i = 0; i < count; i++) { Locator item = locator.nth(i); String selector = kind + ":nth-of-type(" + (i + 1) + ")";
+        for (int i = 0; i < count; i++) { if (include != null && (i >= include.size() || !include.get(i))) continue;
+            Locator item = locator.nth(i); String selector = kind + ":nth-of-type(" + (i + 1) + ")";
             String aria=item.getAttribute("aria-label"), name=item.getAttribute("name"), id=item.getAttribute("id"), placeholder=item.getAttribute("placeholder"), type=item.getAttribute("type"), href=item.getAttribute("href");
             // A select's visible text is its options (record data such as user names), so it is never read as its name.
             String visibleText=("input".equals(kind)||"textarea".equals(kind)||"select".equals(kind))?null:text(item); String buttonValue="input".equals(kind)&&type!=null&&type.trim().matches("(?i)submit|button|reset")?item.getAttribute("value"):null; String label=first(humanLabel(item),visibleText,buttonValue,placeholder); String pressLabel=first(aria,visibleText,item.getAttribute("value")); String attribute="a".equals(kind)?"href":"type"; String value="a".equals(kind)?href:type; String role="button".equals(kind)?ariaRole(item.getAttribute("role")):null;
