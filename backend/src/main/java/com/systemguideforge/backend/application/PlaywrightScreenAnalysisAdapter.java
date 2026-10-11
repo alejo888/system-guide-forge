@@ -303,6 +303,9 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
      * are refused before their handshake; both are counted so the opener's capture is discarded. Playwright's
      * routeWebSocket is not used: in Playwright Java 1.55 its close event handler fails on every navigation away from a
      * page with a routed socket (WebSocketRouteImpl reads a close code the driver omits), which would fail the analysis.
+     * Known limit: it patches window realms only. Sockets owned by dedicated or shared workers, and sockets in frames
+     * attached after the opener was armed, are neither blocked nor counted by it; a new socket in such a frame is only
+     * flagged after the fact by page.onWebSocket.
      */
     static final String WEBSOCKET_GUARD_SCRIPT = """
             (() => {
@@ -438,9 +441,18 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         } finally {
             try {
                 // A kept page is disarmed (a reloaded one already has a fresh, disarmed guard); a discarded one is restored by
-                // navigation, which starts with a fresh, disarmed guard.
-                if (discarded == null && guarded[0]) {
-                    try { guard.disarm(page); } catch (RuntimeException e) { discarded = "opener-failed"; }
+                // navigation, which starts with a fresh, disarmed guard. The guard stays installed after the grace-period
+                // check, so it is removed first (writes after this point are ordinary page behavior), then the page-side guard
+                // is disarmed, and only then are violations read once more: anything blocked since the last check discards
+                // the capture too.
+                if (discarded == null) {
+                    boolean armed = guarded[0];
+                    removeGuard.run();
+                    try {
+                        if (armed) guard.disarm(page);
+                        String late = guard.check(page);
+                        if (late != null) discarded = late;
+                    } catch (RuntimeException e) { discarded = "opener-failed"; }
                 }
                 if (discarded != null) {
                     LOG.info("Approved opener capture discarded: category={}", discarded);

@@ -1212,6 +1212,39 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void discardsACaptureWhenTheOpenedFormWritesAfterTheGracePeriodCheckWhileTheGuardIsStillInstalled() throws Exception {
+        try (WebSocketFixtureServer sockets = new WebSocketFixtureServer()) {
+            // Deterministic timing without a production seam: the page observes the adapter's counter reads (the first after
+            // the press, the second after the grace period) and sends a frame right after the second one, i.e. after the last
+            // in-flow check but while the guard is still armed. The frame is dropped; the capture must not be kept.
+            String dashboard = """
+                    <!doctype html><html><body><main><h1>Tareas</h1><button type="button" id="task">Crear tarea</button>
+                    <a href="/next">Siguiente</a></main><script>
+                    const socket = new WebSocket('WS_URL');
+                    const guard = window['__systemGuideForgeWebSocketGuard'];
+                    let blocked = 0, reads = 0;
+                    Object.defineProperty(guard, 'blockedMessages', {
+                      get() { reads++; if (reads === 2) queueMicrotask(() => { try { socket.send('late'); } catch (e) { } }); return blocked; },
+                      set(value) { blocked = value; }
+                    });
+                    document.getElementById('task').addEventListener('click', () => document.body.insertAdjacentHTML('beforeend',
+                      '<div role="dialog"><label>Titulo <input name="title"></label></div>'));
+                    document.addEventListener('keydown', event => {
+                      if (event.key === 'Escape') document.querySelectorAll('[role=dialog]').forEach(d => d.remove());
+                    });
+                    </script></body></html>
+                    """.replace("WS_URL", sockets.url("/live"));
+            var logged = withAdapterLogs(() -> analyzeDashboard(dashboard, NEXT_PAGE, List.of(new ApprovedOpenerRule("/dashboard", "Crear tarea")),
+                    server -> { }));
+
+            assertThat(sockets.received()).doesNotContain("late");
+            assertThat(logged.messages()).anyMatch(message -> message.contains("category=websocket-message-blocked"));
+            assertThat(logged.result().openedForms()).isEmpty();
+            assertThat(logged.result().discoveredPages()).extracting(ScreenAnalysisAdapter.DiscoveredPage::heading).containsExactly("Siguiente");
+        }
+    }
+
+    @Test
     void keepsASharedNavigationOpenerOnEveryPageWhoseOpenedFormReferencesIt() {
         ScreenAnalysisAdapter.DetectedElement create = new ScreenAnalysisAdapter.DetectedElement("button", "button:nth-of-type(1)", "Crear proyecto", ActionClassification.MUTATING, null, true);
         ScreenAnalysisAdapter.DetectedElement logout = new ScreenAnalysisAdapter.DetectedElement("button", "button:nth-of-type(2)", "Cerrar sesión", ActionClassification.MUTATING, null, true);
