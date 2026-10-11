@@ -86,6 +86,13 @@ Flyway aplica esta historia, en orden:
 | V8 | Indicador `hidden` para secciones del documento |
 | V9 | Clasificación `kind` de página (identifica la página de login) |
 | V10 | Etiquetas de rol de login (usuario, contraseña, botón de envío) capturadas en la página de login |
+| V11 | `heading` (primer `h1` visible) de la página |
+| V12 | Ruta de destino de los elementos |
+| V13 | Indicador de elemento dentro de una zona de navegación |
+| V14 | Tipo normalizado de control (`control_type`) |
+| V15 | Aperturas aprobadas por aplicación (`approved_openers`: patrón de ruta y nombre visible, únicos por aplicación) |
+
+Las aperturas aprobadas (RF24) son configuración de la aplicación, como las rutas excluidas: `TargetApplication` las posee y las reemplaza completas al actualizarse, `ProjectApplicationService` las valida y normaliza con la plantilla de ruta de `FunctionalModuleDeriver`, y `ApprovedOpenerMatcher` decide, sin presionar nada, si un control de una página coincide con una apertura aprobada. El crawler todavía no las usa: el análisis sigue sin presionar controles hasta que se incorpore la apertura de formularios.
 
 Hibernate valida el esquema existente con `ddl-auto=validate`; no lo genera ni lo actualiza.
 
@@ -101,6 +108,7 @@ erDiagram
     PAGE ||--o{ UI_ELEMENT : contains
     PAGE ||--o{ SCREENSHOT : has
     TARGET_APPLICATION ||--o{ DOCUMENT : has
+    TARGET_APPLICATION ||--o{ APPROVED_OPENER : approves
     DOCUMENT ||--o{ DOCUMENT_SECTION : contains
 ```
 

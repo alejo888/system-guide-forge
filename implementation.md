@@ -9,7 +9,8 @@
 2. Validar la URL local, el protocolo, el host y las redirecciones permitidas.
 3. Guardar URL base, URL de login, configuración del crawler y credenciales cifradas.
 4. Excluir credenciales de respuestas, logs, screenshots y evidencia.
-5. Listar los sistemas registrados con `GET /api/applications`, ordenados por nombre y luego por identificador. El Resumen muestra cada sistema con su historial de análisis combinado, y la edición carga el sistema por identificador (`/edit/{id}` → `GET /api/applications/{id}`); un identificador inexistente muestra un error en lugar de un formulario vacío.
+5. Guardar las aperturas aprobadas (RF24) como `approvedOpeners`: lista de `{routePattern, accessibleName}` validada y normalizada por `ProjectApplicationService` (plantilla de ruta con `{id}` como en RF23, nombre sin espacios sobrantes, sin nombres sensibles, sin duplicados y hasta 50). Como `excludedRoutes`, al actualizar la lista enviada reemplaza a la anterior y si falta se vacía. `ApprovedOpenerMatcher` compara la ruta de una página y el nombre visible de un control con esas aperturas. **Planificado, todavía no activo:** el análisis aún no presiona aperturas; el paso que abre el formulario con las solicitudes que no son `GET`/`HEAD` bloqueadas, lo captura sin completarlo y lo cierra verificando la URL llegará en una entrega posterior.
+6. Listar los sistemas registrados con `GET /api/applications`, ordenados por nombre y luego por identificador. El Resumen muestra cada sistema con su historial de análisis combinado, y la edición carga el sistema por identificador (`/edit/{id}` → `GET /api/applications/{id}`); un identificador inexistente muestra un error en lugar de un formulario vacío.
 
 ### Probar acceso
 
