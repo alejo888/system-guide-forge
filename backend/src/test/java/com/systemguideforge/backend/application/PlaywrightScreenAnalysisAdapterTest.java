@@ -381,6 +381,28 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void capturesSelectsAsUnknownFormFieldsNamedOnlyByTheirLabelNeverByTheirOptions() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Miembros</h1>"
+                        + "<label for=\"user\">Usuario</label><select id=\"user\"><option>Ana Pérez</option><option>Beto Ruiz</option></select>"
+                        + "<select aria-label=\"Rol\"><option>Admin</option><option selected>Miembro</option></select>"
+                        + "<label>Estado<select name=\"status\"><option selected>Clave 1234</option></select></label>"
+                        + "<select aria-label=\"Eliminar usuario\"><option>Sí</option></select>"
+                        + "<select><option selected>Token privado</option><option>Eliminar</option></select></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "select".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::controlType,
+                        ScreenAnalysisAdapter.DetectedElement::classification, ScreenAnalysisAdapter.DetectedElement::inNavigation)
+                .containsExactly(tuple("Usuario", null, ActionClassification.UNKNOWN, false), tuple("Rol", null, ActionClassification.UNKNOWN, false),
+                        tuple("Estado", null, ActionClassification.UNKNOWN, false), tuple("Eliminar usuario", null, ActionClassification.UNKNOWN, false),
+                        tuple(null, null, ActionClassification.UNKNOWN, false));
+        assertThat(result.elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName).filteredOn(java.util.Objects::nonNull)
+                .noneMatch(name -> name.contains("Ana") || name.contains("Beto") || name.contains("Admin") || name.contains("Miembro")
+                        || name.contains("Clave") || name.contains("privado") || name.contains("[redacted]"));
+    }
+
+    @Test
     void capturesTabRoleButtonsAsSafeTabControlsAndKeepsMutatingTabsMutating() throws Exception {
         ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
                 "<!doctype html><html><body><main><h1>Tablero</h1>"

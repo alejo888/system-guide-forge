@@ -288,10 +288,10 @@ public class DocumentService {
     /** Input types a person fills in or ticks; buttons, files, hidden inputs and pickers such as color or range are not described without approval. */
     private static final Set<String> FIELD_INPUT_TYPES = Set.of("text", "password", "email", "number", "search", "tel", "url",
             "date", "datetime-local", "month", "week", "time", "checkbox", "radio");
-    /** Textareas and field-like inputs; legacy inputs without a captured type keep being treated as fields. */
+    /** Textareas, selects and field-like inputs; legacy inputs without a captured type keep being treated as fields. */
     private boolean isFormField(UIElement element) {
         String kind = normalizedKind(element.getKind());
-        if (kind.equals("textarea")) return true;
+        if (kind.equals("textarea") || kind.equals("select")) return true;
         return kind.equals("input") && (element.getControlType() == null || FIELD_INPUT_TYPES.contains(element.getControlType()));
     }
     /** Automatically described controls need a real, unredacted name; "this control" or "[redacted]" would only add noise. */

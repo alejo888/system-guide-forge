@@ -121,6 +121,9 @@ class ActionClassifierTest {
         assertThat(ActionClassifier.classifyControl("input", null, "save-draft")).isEqualTo(ActionClassification.UNKNOWN);
         assertThat(ActionClassifier.classifyControl("input", "search", "Agregar filtro")).isEqualTo(ActionClassification.UNKNOWN);
         assertThat(ActionClassifier.classifyControl("textarea", null, "Agregar comentario")).isEqualTo(ActionClassification.UNKNOWN);
+        // A select is a field: a verb in its label never makes it an action, even if its markup carries a submit type.
+        assertThat(ActionClassifier.classifyControl("select", null, "Eliminar usuario", null)).isEqualTo(ActionClassification.UNKNOWN);
+        assertThat(ActionClassifier.classifyControl("select", "submit", "Guardar rol", null)).isEqualTo(ActionClassification.UNKNOWN);
         assertThat(ActionClassifier.classifyControl("input", "button", "Eliminar")).isEqualTo(ActionClassification.MUTATING);
         assertThat(ActionClassifier.classifyControl("input", "reset", "Borrar formulario")).isEqualTo(ActionClassification.MUTATING);
     }
