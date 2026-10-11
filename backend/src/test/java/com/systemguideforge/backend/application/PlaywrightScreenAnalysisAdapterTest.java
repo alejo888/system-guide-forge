@@ -4,7 +4,9 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Playwright;
+import com.microsoft.playwright.PlaywrightException;
 import com.sun.net.httpserver.HttpServer;
 import com.systemguideforge.backend.persistence.TargetApplication;
 import org.junit.jupiter.api.Test;
@@ -14,6 +16,7 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -472,6 +475,37 @@ class PlaywrightScreenAnalysisAdapterTest {
                 .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::controlType)
                 .containsExactlyInAnyOrder(tuple("Disenar pantalla de onboarding", "item"), tuple("Crear backup", "item"),
                         tuple("Investigar soporte offline-first", "item"));
+    }
+
+    @Test
+    void keepsPerRowActionsNamedAfterTheirRecordAsOrdinaryButtons() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Usuarios</h1><table><tbody>"
+                        + "<tr><td>Juan</td><td><button type=\"button\">Eliminar Juan</button></td></tr>"
+                        + "<tr><td>Ana</td><td><button type=\"button\">Eliminar Ana</button></td></tr>"
+                        + "<tr><td>Pedro</td><td><button type=\"button\">Eliminar Pedro</button></td></tr>"
+                        + "</tbody></table></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::controlType, ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactly(tuple(null, ActionClassification.MUTATING), tuple(null, ActionClassification.MUTATING),
+                        tuple(null, ActionClassification.MUTATING));
+    }
+
+    @Test
+    void fallsBackToNoDataItemsAndLogsOnlyTheExceptionTypeWhenDetectionFails() {
+        Locator failing = (Locator) Proxy.newProxyInstance(Locator.class.getClassLoader(), new Class<?>[]{Locator.class},
+                (proxy, method, args) -> { throw new PlaywrightException("page secret content"); });
+        Logger logger = (Logger) LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>(); appender.start(); logger.addAppender(appender);
+        try {
+            assertThat(PlaywrightScreenAnalysisAdapter.dataItems(failing)).isEmpty();
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage()).contains(PlaywrightException.class.getName()).doesNotContain("secret");
+            });
+        } finally { logger.detachAppender(appender); }
     }
 
     @Test

@@ -22,6 +22,8 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                     "input[aria-label*='password' i], textarea[name*='password' i], " +
                     "textarea[name*='secret' i], textarea[name*='token' i], [data-sensitive]";
     private static final Logger LOG = LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
+    /** Elements captured per kind on one page; data-item detection scans the same prefix so indices stay aligned. */
+    private static final int MAX_ELEMENTS_PER_KIND = 500;
     private final BrowserFactory browserFactory;
     private final LoginCapture loginCapture;
     public PlaywrightScreenAnalysisAdapter() { this(Playwright::create); }
@@ -397,7 +399,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     }
 
     private void detect(com.microsoft.playwright.Page page, String kind, List<DetectedElement> found, TargetApplication app) {
-        Locator locator = page.locator(kind); int count = Math.min(locator.count(), 500);
+        Locator locator = page.locator(kind); int count = Math.min(locator.count(), MAX_ELEMENTS_PER_KIND);
         List<Boolean> dataItems = "button".equals(kind) ? dataItems(locator) : List.of();
         for (int i = 0; i < count; i++) { Locator item = locator.nth(i); String selector = kind + ":nth-of-type(" + (i + 1) + ")";
             String aria=item.getAttribute("aria-label"), name=item.getAttribute("name"), id=item.getAttribute("id"), placeholder=item.getAttribute("placeholder"), type=item.getAttribute("type"), href=item.getAttribute("href");
@@ -413,12 +415,15 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
      * holds exactly one button at the same relative path, the same structural signature appears at least twice
      * page-wide, and every name in that signature is distinct and non-empty. At least one unit of that signature must
      * also carry text beyond its button (a title plus assignee or priority); title-only cards then join it, while a
-     * structure whose units all hold only a button is indistinguishable from a toolbar. Per-row actions with identical names ("Desactivar" on each row), buttons inside navigation
+     * structure whose units all hold only a button is indistinguishable from a toolbar. Names that all share their first
+     * word ("Eliminar Juan", "Eliminar Ana") are one action per record, so that structure is not a data-item group. Per-row actions with identical names ("Desactivar" on each row), buttons inside navigation
      * landmarks, toolbars or menus, tabs, and buttons that submit (explicit type=submit, or type-less inside a form)
      * are never data items.
      */
     private static final String DATA_ITEMS_SCRIPT = """
-            (buttons, landmarks) => {
+            (all, { landmarks, limit }) => {
+              // Same cap as detect(), so flag i still describes locator.nth(i).
+              const buttons = all.slice(0, limit);
               const eligible = b => !b.closest(landmarks + ', [role=toolbar], [role=menu], [role=menubar]')
                 && (b.getAttribute('role') || '').trim().split(/\\s+/)[0].toLowerCase() !== 'tab'
                 && (b.getAttribute('type') || '').trim().toLowerCase() !== 'submit'
@@ -449,11 +454,14 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
               const names = new Map();
               assigned.forEach((sig, i) => { if (sig !== null) { if (!names.has(sig)) names.set(sig, []); names.get(sig).push(nameOf(buttons[i])); } });
               // Content is judged per structure: optional fields (assignee, badges) may be absent on some cards.
-              const valid = new Set([...names].filter(([sig, list]) => withContent.has(sig) && list.length >= 2 && list.every(n => n) && new Set(list).size === list.length).map(([sig]) => sig));
+              // Names that all open with the same word ("Eliminar Juan", "Eliminar Ana") are one action per record, not data.
+              const sameVerb = list => new Set(list.map(n => n.split(' ')[0])).size === 1;
+              const valid = new Set([...names].filter(([sig, list]) => withContent.has(sig) && !sameVerb(list) && list.length >= 2 && list.every(n => n) && new Set(list).size === list.length).map(([sig]) => sig));
               return assigned.map(sig => sig !== null && valid.has(sig));
             }""";
-    private static List<Boolean> dataItems(Locator buttons) {
-        try { Object result = buttons.evaluateAll(DATA_ITEMS_SCRIPT, NAVIGATION_LANDMARKS);
+    /** Package-private so the failure fallback can be exercised without a browser fault. */
+    static List<Boolean> dataItems(Locator buttons) {
+        try { Object result = buttons.evaluateAll(DATA_ITEMS_SCRIPT, Map.of("landmarks", NAVIGATION_LANDMARKS, "limit", MAX_ELEMENTS_PER_KIND));
             return result instanceof List<?> flags ? flags.stream().map(Boolean.TRUE::equals).toList() : List.of(); }
         catch (RuntimeException e) {
             // Detection falls back to ordinary buttons; only the exception type is logged, never page content.
