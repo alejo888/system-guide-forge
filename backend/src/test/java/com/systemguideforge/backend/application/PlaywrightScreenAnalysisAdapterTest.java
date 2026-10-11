@@ -1041,8 +1041,11 @@ class PlaywrightScreenAnalysisAdapterTest {
     @Test
     void blocksWebSocketFramesOnASocketOpenedBeforeTheOpenerAndDiscardsItsCapture() throws Exception {
         try (WebSocketFixtureServer sockets = new WebSocketFixtureServer()) {
-            String onLoad = "const socket = new WebSocket('" + sockets.url("/live") + "');"
-                    + "socket.addEventListener('open', () => socket.send('hello'));";
+            // The page reports itself busy until its load-time "hello" is sent, so readiness (initial load and the restore
+            // after the discarded opener) waits for it: the hello can never land in the next opener's armed window.
+            String onLoad = "const main = document.querySelector('main'); main.setAttribute('aria-busy', 'true');"
+                    + "const socket = new WebSocket('" + sockets.url("/live") + "');"
+                    + "socket.addEventListener('open', () => { socket.send('hello'); main.removeAttribute('aria-busy'); });";
             var logged = withAdapterLogs(() -> analyzeDashboard(dashboardWithTwoOpeners(onLoad, "socket.send('created');"), NEXT_PAGE,
                     BOTH_OPENERS, server -> { }));
 
@@ -1109,6 +1112,125 @@ class PlaywrightScreenAnalysisAdapterTest {
         assertThat(logged.messages()).anyMatch(message -> message.contains("category=close-failed"));
         assertThat(logged.result().openedForms()).isEmpty();
         assertThat(logged.result().discoveredPages()).extracting(ScreenAnalysisAdapter.DiscoveredPage::heading).containsExactly("Siguiente");
+    }
+
+    /** Serves NEXT_PAGE at /next only after the WebSocket fixture received every frame (bounded), keeping the previous page alive. */
+    private static Consumer<HttpServer> nextPageAfterFrames(WebSocketFixtureServer sockets, String... frames) {
+        return server -> server.createContext("/next", exchange -> {
+            try { for (String frame : frames) sockets.awaitMessage(frame, 5_000); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            respondHtml(exchange, NEXT_PAGE);
+        });
+    }
+
+    @Test
+    void closesAFormByReloadingWithoutDiscardingItWhenThePageWritesAndOpensASocketAtLoad() throws Exception {
+        try (WebSocketFixtureServer sockets = new WebSocketFixtureServer()) {
+            // Load-time traffic (a POST beacon and a socket) is ordinary page behavior; the opener itself writes nothing, and
+            // the dialog ignores Escape and has no close button, so only the reload fallback closes it.
+            String dashboard = """
+                    <!doctype html><html><body><main><h1>Tareas</h1><button type="button" id="task">Crear tarea</button>
+                    <a href="/next">Siguiente</a></main><script>
+                    fetch('/api/visits', { method: 'POST', body: '{}' });
+                    new WebSocket('WS_URL');
+                    document.getElementById('task').addEventListener('click', () => document.body.insertAdjacentHTML('beforeend',
+                      '<div role="dialog"><label>Titulo <input name="title"></label><button type="button">Guardar borrador</button></div>'));
+                    </script></body></html>
+                    """.replace("WS_URL", sockets.url("/live"));
+            Map<String, AtomicInteger> requests = new ConcurrentHashMap<>();
+            var logged = withAdapterLogs(() -> analyzeDashboard(dashboard, NEXT_PAGE, List.of(new ApprovedOpenerRule("/dashboard", "Crear tarea")),
+                    countingRequests(requests, "/api/visits")));
+
+            assertThat(logged.messages()).noneMatch(message -> message.contains("Approved opener capture discarded"));
+            assertThat(logged.result().openedForms()).extracting(ScreenAnalysisAdapter.OpenedForm::openerName).containsExactly("Crear tarea");
+            // One POST per document load (initial and reload); the press itself sent none.
+            assertThat(count(requests, "POST /api/visits")).isEqualTo(2);
+            assertThat(logged.result().discoveredPages()).extracting(ScreenAnalysisAdapter.DiscoveredPage::heading).containsExactly("Siguiente");
+        }
+    }
+
+    @Test
+    void blocksAWriteTheOpenedFormSchedulesRightAfterClosingAndDiscardsItsCapture() throws Exception {
+        // Closing schedules a delayed "draft" POST; /next answers slowly so the page is still alive when the timer fires.
+        String dashboard = """
+                <!doctype html><html><body><main><h1>Tareas</h1><button type="button" id="task">Crear tarea</button>
+                <a href="/next">Siguiente</a></main><script>
+                document.getElementById('task').addEventListener('click', () => document.body.insertAdjacentHTML('beforeend',
+                  '<div role="dialog"><label>Titulo <input name="title"></label></div>'));
+                document.addEventListener('keydown', event => {
+                  if (event.key !== 'Escape' || !document.querySelector('[role=dialog]')) return;
+                  document.querySelectorAll('[role=dialog]').forEach(d => d.remove());
+                  setTimeout(() => fetch('/api/drafts', { method: 'POST', body: '{}' }), 500);
+                });
+                </script></body></html>
+                """;
+        Map<String, AtomicInteger> requests = new ConcurrentHashMap<>();
+        Consumer<HttpServer> contexts = countingRequests(requests, "/api/drafts").andThen(server -> server.createContext("/next", exchange -> {
+            try { Thread.sleep(1_500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            respondHtml(exchange, NEXT_PAGE);
+        }));
+        var logged = withAdapterLogs(() -> analyzeDashboard(dashboard, null, List.of(new ApprovedOpenerRule("/dashboard", "Crear tarea")), contexts));
+
+        assertThat(count(requests, "POST /api/drafts")).isZero();
+        assertThat(logged.messages()).anyMatch(message -> message.contains("category=write-request-blocked"));
+        assertThat(logged.result().openedForms()).isEmpty();
+        assertThat(logged.result().discoveredPages()).hasSize(1);
+    }
+
+    @Test
+    void letsThePageSendFramesAndOpenSocketsAgainAfterAKeptOpener() throws Exception {
+        try (WebSocketFixtureServer sockets = new WebSocketFixtureServer()) {
+            // After closing, the page waits until the guard is disarmed, then writes on its load-time socket and opens a new one.
+            String dashboard = """
+                    <!doctype html><html><body><main><h1>Tareas</h1><button type="button" id="task">Crear tarea</button>
+                    <a href="/next">Siguiente</a></main><script>
+                    const socket = new WebSocket('WS_URL');
+                    document.getElementById('task').addEventListener('click', () => document.body.insertAdjacentHTML('beforeend',
+                      '<div role="dialog"><label>Titulo <input name="title"></label></div>'));
+                    document.addEventListener('keydown', event => {
+                      if (event.key !== 'Escape' || !document.querySelector('[role=dialog]')) return;
+                      document.querySelectorAll('[role=dialog]').forEach(d => d.remove());
+                      const guard = window['__systemGuideForgeWebSocketGuard'];
+                      const wait = setInterval(() => {
+                        if (!guard || guard.active) return;
+                        clearInterval(wait);
+                        socket.send('after-opener');
+                        const fresh = new WebSocket('WS_URL');
+                        fresh.addEventListener('open', () => fresh.send('new-socket'));
+                      }, 20);
+                    });
+                    </script></body></html>
+                    """.replace("WS_URL", sockets.url("/live"));
+            var logged = withAdapterLogs(() -> analyzeDashboard(dashboard, null, List.of(new ApprovedOpenerRule("/dashboard", "Crear tarea")),
+                    nextPageAfterFrames(sockets, "after-opener", "new-socket")));
+
+            assertThat(logged.result().openedForms()).extracting(ScreenAnalysisAdapter.OpenedForm::openerName).containsExactly("Crear tarea");
+            assertThat(sockets.received()).contains("after-opener", "new-socket");
+            assertThat(sockets.connections()).isEqualTo(2);
+            assertThat(logged.result().discoveredPages()).hasSize(1);
+        }
+    }
+
+    @Test
+    void keepsASharedNavigationOpenerOnEveryPageWhoseOpenedFormReferencesIt() {
+        ScreenAnalysisAdapter.DetectedElement create = new ScreenAnalysisAdapter.DetectedElement("button", "button:nth-of-type(1)", "Crear proyecto", ActionClassification.MUTATING, null, true);
+        ScreenAnalysisAdapter.DetectedElement logout = new ScreenAnalysisAdapter.DetectedElement("button", "button:nth-of-type(2)", "Cerrar sesión", ActionClassification.MUTATING, null, true);
+        ScreenAnalysisAdapter.DetectedElement name = new ScreenAnalysisAdapter.DetectedElement("input", "input:nth-of-type(1)", "Nombre", ActionClassification.UNKNOWN);
+        ScreenAnalysisAdapter.OpenedForm form = new ScreenAnalysisAdapter.OpenedForm("Crear proyecto", "button:nth-of-type(1)", List.of(name));
+        ScreenAnalysisAdapter.ScreenAnalysisResult first = new ScreenAnalysisAdapter.ScreenAnalysisResult(
+                "http://localhost/", "Home", List.of(create, logout), new byte[]{1});
+        ScreenAnalysisAdapter.DiscoveredPage withForm = new ScreenAnalysisAdapter.DiscoveredPage(
+                "http://localhost/projects", "Projects", List.of(create, logout), new byte[]{1}, 1, ActionClassification.SAFE, null, List.of(form));
+        ScreenAnalysisAdapter.DiscoveredPage withoutForm = new ScreenAnalysisAdapter.DiscoveredPage(
+                "http://localhost/reports", "Reports", List.of(create, logout), new byte[]{1}, 1, ActionClassification.SAFE, null, List.of());
+
+        ScreenAnalysisAdapter.ScreenAnalysisResult result =
+                PlaywrightScreenAnalysisAdapter.withSharedNavigationIncludedOnce(first, List.of(withForm, withoutForm));
+
+        // The opener stays where its opened form needs it; other shared navigation is still included only once.
+        assertThat(result.discoveredPages().get(0).elements()).containsExactly(create);
+        assertThat(result.discoveredPages().get(0).openedForms()).containsExactly(form);
+        assertThat(result.discoveredPages().get(1).elements()).isEmpty();
     }
 
     @Test
