@@ -251,6 +251,29 @@ class PersistenceTest {
         }
 
     @Test
+    void persistsApprovedOpenersAndReplacesThemOnUpdate() {
+        Project project = projects.save(new Project("Opener project"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 2, List.of(),
+                List.of(new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea"), new ApprovedOpenerRule("/projects", "Crear proyecto"))));
+        applications.flush();
+        entityManager.clear();
+
+        TargetApplication loaded = applications.findById(application.getId()).orElseThrow();
+        assertThat(loaded.getApprovedOpeners()).containsExactly(
+                new ApprovedOpenerRule("/projects", "Crear proyecto"), new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea"));
+
+        loaded.updateConfiguration("App", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 2, List.of(),
+                List.of(new ApprovedOpenerRule("/projects", "Crear proyecto")));
+        applications.flush();
+        entityManager.clear();
+
+        assertThat(applications.findById(application.getId()).orElseThrow().getApprovedOpeners())
+                .containsExactly(new ApprovedOpenerRule("/projects", "Crear proyecto"));
+        assertThat(entityManager.createNativeQuery("select count(*) from approved_openers where application_id = :id")
+                .setParameter("id", application.getId()).getSingleResult()).isEqualTo(1L);
+    }
+
+    @Test
     void listsApplicationsOrderedByNameThenIdWithExcludedRoutesLoaded() {
         Project project = projects.save(new Project("List project"));
         TargetApplication beta = applications.save(new TargetApplication(project.getId(), "Beta", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 2, List.of("/admin", "/settings")));
