@@ -1,6 +1,8 @@
 package com.systemguideforge.backend.application;
 
 import com.systemguideforge.backend.persistence.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -8,6 +10,7 @@ import java.util.*;
 
 @Service
 public class AnalysisService {
+    private static final Logger LOG = LoggerFactory.getLogger(AnalysisService.class);
     public static final int MAX_ACTIVE_ANALYSES = 1;
     public static final int MAX_CRAWL_DEPTH = 5;
     public static final int MAX_CRAWL_PAGES = 100;
@@ -24,22 +27,37 @@ public class AnalysisService {
             int persistedPages = 0;
             if (result.loginPage() != null && persistLoginPage(analysis, result.loginPage())) persistedPages++;
             Set<String> visited = new HashSet<>();
-            if (persistPage(analysis, result.url(), result.title(), result.heading(), result.elements(), result.sanitizedScreenshot(), visited, null)) persistedPages++;
+            if (persistPage(analysis, result.url(), result.title(), result.heading(), result.elements(), result.openedForms(), result.sanitizedScreenshot(), visited, null)) persistedPages++;
             int maxCrawlDepth = Math.min(app.getMaxCrawlDepth(), MAX_CRAWL_DEPTH);
             for (var discovered : result.discoveredPages()) {
                 if (persistedPages >= MAX_CRAWL_PAGES) break;
                 if (discovered.classification() == ActionClassification.SAFE && discovered.depth() <= maxCrawlDepth
-                        && persistPage(analysis, discovered.url(), discovered.title(), discovered.heading(), discovered.elements(), discovered.sanitizedScreenshot(), visited, null)) persistedPages++;
+                        && persistPage(analysis, discovered.url(), discovered.title(), discovered.heading(), discovered.elements(), discovered.openedForms(), discovered.sanitizedScreenshot(), visited, null)) persistedPages++;
             }
             analysis.complete(); return analyses.save(analysis);
         } catch(Exception ex){analysis.fail(ex.getMessage()); return analyses.save(analysis);}
     }
-    private boolean persistPage(Analysis analysis, String url, String title, String heading, List<ScreenAnalysisAdapter.DetectedElement> detected, byte[] screenshot, Set<String> visited, PageKind kind) {
+    private boolean persistPage(Analysis analysis, String url, String title, String heading, List<ScreenAnalysisAdapter.DetectedElement> detected, List<ScreenAnalysisAdapter.OpenedForm> openedForms, byte[] screenshot, Set<String> visited, PageKind kind) {
         if (!visited.add(url)) return false;
         Page page=pages.save(new Page(analysis.getId(),url,title,kind,null,null,null,heading));
-        for(var e:detected) elements.save(new UIElement(page.getId(),e.kind(),e.selector(),e.accessibleName(),e.classification(),e.targetPath(),e.inNavigation(),e.controlType()));
+        List<UIElement> pageElements = new ArrayList<>();
+        for(var e:detected) pageElements.add(saveElement(page, e, null));
+        for (var form : openedForms) {
+            // The opener must be a button persisted on this same page; otherwise the form has nothing to link to.
+            Optional<UIElement> opener = pageElements.stream()
+                    .filter(element -> "button".equals(element.getKind()) && Objects.equals(element.getSelector(), form.openerSelector()))
+                    .findFirst();
+            if (opener.isEmpty()) { LOG.warn("Opened form skipped: category=opener-not-persisted"); continue; }
+            for (var e : form.elements()) saveElement(page, e, opener.get().getId());
+        }
         if(screenshot!=null) screenshots.save(new Screenshot(page.getId(),screenshot));
         return true;
+    }
+    /** Saves one captured element; the entity owns its id, so callers can link to it even when the repository returns another instance. */
+    private UIElement saveElement(Page page, ScreenAnalysisAdapter.DetectedElement e, String openerElementId) {
+        UIElement element = new UIElement(page.getId(), e.kind(), e.selector(), e.accessibleName(), e.classification(), e.targetPath(), e.inNavigation(), e.controlType(), openerElementId);
+        elements.save(element);
+        return element;
     }
     /** The login page always persists once (its own dedup set), and carries its captured role labels. */
     private boolean persistLoginPage(Analysis analysis, ScreenAnalysisAdapter.LoginPage loginPage) {
@@ -66,8 +84,10 @@ public class AnalysisService {
     }
     public Optional<Analysis> get(String id){return analyses.findById(id);}
     public List<Page> pages(String id){analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); return pages.findByAnalysisId(id).stream().sorted(Comparator.comparingInt(page -> page.getKind() == PageKind.LOGIN ? 0 : 1)).toList();}
-    public List<FunctionalModuleDeriver.Module> modules(String id){ analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); List<Page> analysisPages=pages.findByAnalysisId(id); return new FunctionalModuleDeriver().derive(analysisPages, analysisPages.stream().flatMap(page->elements.findByPageId(page.getId()).stream()).toList()); }
-    public List<UIElement> elements(String id){pages.findById(id).orElseThrow(java.util.NoSuchElementException::new); return elements.findByPageId(id);}
+    public List<FunctionalModuleDeriver.Module> modules(String id){ analyses.findById(id).orElseThrow(java.util.NoSuchElementException::new); List<Page> analysisPages=pages.findByAnalysisId(id); return new FunctionalModuleDeriver().derive(analysisPages, analysisPages.stream().flatMap(page->pageElements(page.getId()).stream()).toList()); }
+    public List<UIElement> elements(String id){pages.findById(id).orElseThrow(java.util.NoSuchElementException::new); return pageElements(id);}
+    /** Elements visible on the page itself; elements of opened forms stay out of existing listings until they get their own presentation. */
+    private List<UIElement> pageElements(String pageId) { return elements.findByPageId(pageId).stream().filter(element -> element.getOpenerElementId() == null).toList(); }
     public Optional<Screenshot> screenshot(String pageId){return screenshots.findByPageId(pageId);}
     public List<AnalysisSummary> history(String applicationId) {
         if (!applications.existsById(applicationId)) throw new NoSuchElementException();

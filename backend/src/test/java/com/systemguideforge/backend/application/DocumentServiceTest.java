@@ -805,6 +805,27 @@ class DocumentServiceTest {
     }
 
     @Test
+    void leavesOpenedFormElementsOutOfTheManualUntilTheyHaveTheirOwnWording() {
+        Page dashboard = new Page("a", "http://localhost/dashboard", "Dashboard");
+        Page board1 = new Page("a", "http://localhost/projects/1/board", "FlowPilot");
+        Page board2 = new Page("a", "http://localhost/projects/2/board", "FlowPilot");
+        UIElement opener = new UIElement(board1.getId(), "button", "button:nth-of-type(1)", "Create task", ActionClassification.MUTATING);
+        UIElement openedField = new UIElement(board1.getId(), "input", "input:nth-of-type(1)", "Task title", ActionClassification.UNKNOWN, null, false, "text", opener.getId());
+        UIElement openedNavigation = new UIElement(dashboard.getId(), "a", "a:nth-of-type(1)", "Dialog projects", ActionClassification.SAFE, "/projects", true, null, opener.getId());
+        UIElement otherOpener = new UIElement(board2.getId(), "button", "button:nth-of-type(1)", "Create task", ActionClassification.MUTATING);
+        UIElement openedApproved = new UIElement(board2.getId(), "button", "button:nth-of-type(1)", "Dialog archive", ActionClassification.UNKNOWN, null, false, null, otherOpener.getId());
+        openedApproved.setManualInclusionApproved(true);
+        Document document = generateForPages(Document.DocumentLanguage.EN, List.of(dashboard, board1, board2), page -> page == dashboard
+                ? List.of(openedNavigation)
+                : page == board1 ? List.of(opener, openedField) : List.of(otherOpener, openedApproved));
+
+        assertThat(document.getSections()).extracting(DocumentSection::getTitle).noneMatch(title -> title.contains("Dialog projects"));
+        assertThat(document.getSections()).extracting(DocumentSection::getContent)
+                .anyMatch(content -> content.contains("\"Create task\""))
+                .noneMatch(content -> content.contains("Task title") || content.contains("Dialog archive") || content.contains("Dialog projects"));
+    }
+
+    @Test
     void titlesASpanishSectionWithTheAppOwnNavigationLabelAndTranslatesFixedNames() {
         Page dashboard = new Page("a", "http://localhost/dashboard", "Dashboard");
         Page board = new Page("a", "http://localhost/projects/1/board", "FlowPilot");

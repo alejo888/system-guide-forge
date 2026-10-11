@@ -91,8 +91,9 @@ Flyway aplica esta historia, en orden:
 | V13 | Indicador de elemento dentro de una zona de navegación |
 | V14 | Tipo normalizado de control (`control_type`) |
 | V15 | Aperturas aprobadas por aplicación (`approved_openers`: patrón de ruta y nombre visible, únicos por aplicación) |
+| V16 | Vínculo de un elemento con su apertura (`opener_element_id`, referencia a `ui_elements` con borrado en cascada) |
 
-Las aperturas aprobadas (RF24) son configuración de la aplicación, como las rutas excluidas: `TargetApplication` las posee y las reemplaza completas al actualizarse, `ProjectApplicationService` las valida y normaliza con la plantilla de ruta de `FunctionalModuleDeriver`, y `ApprovedOpenerMatcher` decide, sin presionar nada, si un control de una página coincide con una apertura aprobada. El crawler todavía no las usa: el análisis sigue sin presionar controles hasta que se incorpore la apertura de formularios.
+Las aperturas aprobadas (RF24) son configuración de la aplicación, como las rutas excluidas: `TargetApplication` las posee y las reemplaza completas al actualizarse, `ProjectApplicationService` las valida y normaliza con la plantilla de ruta de `FunctionalModuleDeriver`, y `ApprovedOpenerMatcher` decide, sin presionar nada, si un control de una página coincide con una apertura aprobada. El adaptador de análisis presiona solo los botones que coinciden con una apertura aprobada, con las solicitudes que no son `GET`/`HEAD` bloqueadas, y cierra el formulario sin completarlo; `AnalysisService` guarda sus campos en la misma página con `opener_element_id` apuntando al botón de apertura. El manual, la derivación de módulos y el listado de elementos de una página omiten por ahora esos elementos, hasta que el manual tenga una redacción propia para formularios abiertos.
 
 Hibernate valida el esquema existente con `ddl-auto=validate`; no lo genera ni lo actualiza.
 

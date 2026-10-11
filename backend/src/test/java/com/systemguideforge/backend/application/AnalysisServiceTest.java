@@ -328,4 +328,82 @@ class AnalysisServiceTest {
         assertThat(result.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
         verify(pages, times(AnalysisService.MAX_CRAWL_PAGES)).save(any(Page.class));
     }
+
+    @Test
+    void persistsOpenedFormElementsOnTheSamePageLinkedToTheirApprovedOpener() {
+        AnalysisRepository analyses=mock(AnalysisRepository.class); PageRepository pages=mock(PageRepository.class); UIElementRepository elements=mock(UIElementRepository.class); ScreenshotRepository screenshots=mock(ScreenshotRepository.class); TargetApplicationRepository apps=mock(TargetApplicationRepository.class); CredentialProtector protector=mock(CredentialProtector.class); ScreenAnalysisAdapter adapter=mock(ScreenAnalysisAdapter.class);
+        TargetApplication app=TestFixtures.application("app-id");
+        when(apps.findById(app.getId())).thenReturn(java.util.Optional.of(app)); when(analyses.existsByStatusIn(any())).thenReturn(false); when(analyses.save(any())).thenAnswer(i->i.getArgument(0)); when(analyses.saveAndFlush(any())).thenAnswer(i->i.getArgument(0)); when(protector.decrypt(any())).thenReturn("secret"); when(pages.save(any())).thenAnswer(i->i.getArgument(0));
+        var help = new ScreenAnalysisAdapter.DetectedElement("a", "a:nth-of-type(1)", "Help", ActionClassification.SAFE, "/help");
+        var createTask = new ScreenAnalysisAdapter.DetectedElement("button", "button:nth-of-type(2)", "Crear tarea", ActionClassification.MUTATING);
+        var title = new ScreenAnalysisAdapter.DetectedElement("input", "input:nth-of-type(1)", "Title", ActionClassification.UNKNOWN, null, false, "text");
+        var column = new ScreenAnalysisAdapter.DetectedElement("select", "select:nth-of-type(1)", "Column", ActionClassification.UNKNOWN);
+        var createProject = new ScreenAnalysisAdapter.DetectedElement("button", "button:nth-of-type(1)", "Crear proyecto", ActionClassification.MUTATING);
+        var projectName = new ScreenAnalysisAdapter.DetectedElement("input", "input:nth-of-type(1)", "Name", ActionClassification.UNKNOWN, null, false, "text");
+        var projects = new ScreenAnalysisAdapter.DiscoveredPage("http://localhost/projects", "Projects", List.of(createProject), null, 1, ActionClassification.SAFE, "Projects",
+                List.of(new ScreenAnalysisAdapter.OpenedForm("Crear proyecto", "button:nth-of-type(1)", List.of(projectName))));
+        when(adapter.analyze(any(), any(), any())).thenReturn(new ScreenAnalysisAdapter.ScreenAnalysisResult("http://localhost/board", "Board", List.of(help, createTask), null, List.of(projects), null, "Board",
+                List.of(new ScreenAnalysisAdapter.OpenedForm("Crear tarea", "button:nth-of-type(2)", List.of(title, column)))));
+
+        Analysis result=new AnalysisService(analyses,pages,elements,screenshots,apps,protector,adapter).start(app.getId());
+
+        assertThat(result.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
+        org.mockito.ArgumentCaptor<UIElement> captor = org.mockito.ArgumentCaptor.forClass(UIElement.class);
+        verify(elements, times(6)).save(captor.capture());
+        List<UIElement> saved = captor.getAllValues();
+        assertThat(saved).extracting(UIElement::getAccessibleName).containsExactly("Help", "Crear tarea", "Title", "Column", "Crear proyecto", "Name");
+        UIElement boardOpener = saved.get(1), projectOpener = saved.get(4);
+        assertThat(List.of(saved.get(0), boardOpener, projectOpener)).extracting(UIElement::getOpenerElementId).containsOnlyNulls();
+        assertThat(List.of(saved.get(2), saved.get(3))).allSatisfy(element -> {
+            assertThat(element.getOpenerElementId()).isEqualTo(boardOpener.getId());
+            assertThat(element.getPageId()).isEqualTo(boardOpener.getPageId());
+        });
+        assertThat(saved.get(2).getControlType()).isEqualTo("text");
+        assertThat(saved.get(3).getKind()).isEqualTo("select");
+        assertThat(saved.get(5).getOpenerElementId()).isEqualTo(projectOpener.getId());
+        assertThat(saved.get(5).getPageId()).isEqualTo(projectOpener.getPageId()).isNotEqualTo(boardOpener.getPageId());
+    }
+
+    @Test
+    void skipsAnOpenedFormWhoseOpenerIsNotAPersistedButtonOfThePage() {
+        AnalysisRepository analyses=mock(AnalysisRepository.class); PageRepository pages=mock(PageRepository.class); UIElementRepository elements=mock(UIElementRepository.class); ScreenshotRepository screenshots=mock(ScreenshotRepository.class); TargetApplicationRepository apps=mock(TargetApplicationRepository.class); CredentialProtector protector=mock(CredentialProtector.class); ScreenAnalysisAdapter adapter=mock(ScreenAnalysisAdapter.class);
+        TargetApplication app=TestFixtures.application("app-id");
+        when(apps.findById(app.getId())).thenReturn(java.util.Optional.of(app)); when(analyses.existsByStatusIn(any())).thenReturn(false); when(analyses.save(any())).thenAnswer(i->i.getArgument(0)); when(analyses.saveAndFlush(any())).thenAnswer(i->i.getArgument(0)); when(protector.decrypt(any())).thenReturn("secret"); when(pages.save(any())).thenAnswer(i->i.getArgument(0));
+        var createTask = new ScreenAnalysisAdapter.DetectedElement("button", "button:nth-of-type(1)", "Crear tarea", ActionClassification.MUTATING);
+        // Same selector text as the second form's opener, but not a button: never a valid opener link.
+        var link = new ScreenAnalysisAdapter.DetectedElement("a", "button:nth-of-type(3)", "Help", ActionClassification.SAFE, "/help");
+        var orphan = new ScreenAnalysisAdapter.DetectedElement("input", "input:nth-of-type(1)", "Title", ActionClassification.UNKNOWN, null, false, "text");
+        var behindALink = new ScreenAnalysisAdapter.DetectedElement("input", "input:nth-of-type(2)", "Description", ActionClassification.UNKNOWN, null, false, "text");
+        when(adapter.analyze(any(), any(), any())).thenReturn(new ScreenAnalysisAdapter.ScreenAnalysisResult("http://localhost/board", "Board", List.of(createTask, link), null, List.of(), null, "Board",
+                List.of(new ScreenAnalysisAdapter.OpenedForm("Crear tarea", "button:nth-of-type(2)", List.of(orphan)),
+                        new ScreenAnalysisAdapter.OpenedForm("Help", "button:nth-of-type(3)", List.of(behindALink)))));
+
+        Analysis result=new AnalysisService(analyses,pages,elements,screenshots,apps,protector,adapter).start(app.getId());
+
+        assertThat(result.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
+        org.mockito.ArgumentCaptor<UIElement> captor = org.mockito.ArgumentCaptor.forClass(UIElement.class);
+        verify(elements, times(2)).save(captor.capture());
+        assertThat(captor.getAllValues()).extracting(UIElement::getAccessibleName).containsExactly("Crear tarea", "Help");
+        assertThat(captor.getAllValues()).extracting(UIElement::getOpenerElementId).containsOnlyNulls();
+    }
+
+    @Test
+    void listsAndDerivesModulesOnlyFromPageElementsAndNotFromOpenedFormElements() {
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        UIElementRepository elements = mock(UIElementRepository.class);
+        Analysis analysis = new Analysis("app-id");
+        Page page = new Page(analysis.getId(), "http://localhost/dashboard", "Home");
+        UIElement opener = new UIElement(page.getId(), "button", "button:nth-of-type(1)", "Crear tarea", ActionClassification.MUTATING);
+        // An opened element that looks like a navigation link must neither be listed nor name a module yet.
+        UIElement opened = new UIElement(page.getId(), "a", "a:nth-of-type(1)", "Proyectos", ActionClassification.SAFE, "/projects", true, null, opener.getId());
+        when(analyses.findById(analysis.getId())).thenReturn(java.util.Optional.of(analysis));
+        when(pages.findById(page.getId())).thenReturn(java.util.Optional.of(page));
+        when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(page, new Page(analysis.getId(), "http://localhost/projects", "Projects")));
+        when(elements.findByPageId(page.getId())).thenReturn(List.of(opener, opened));
+        AnalysisService service = new AnalysisService(analyses, pages, elements, mock(ScreenshotRepository.class), mock(TargetApplicationRepository.class), mock(CredentialProtector.class), mock(ScreenAnalysisAdapter.class));
+
+        assertThat(service.elements(page.getId())).containsExactly(opener);
+        assertThat(service.modules(analysis.getId())).extracting(FunctionalModuleDeriver.Module::name).containsExactly("Dashboard", "Projects");
+    }
 }

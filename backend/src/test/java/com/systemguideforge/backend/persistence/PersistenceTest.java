@@ -199,6 +199,26 @@ class PersistenceTest {
     }
 
     @Test
+    void persistsOpenedFormElementsLinkedToTheirOpenerAndDeletesThemWithIt() {
+        Project project = projects.save(new Project("Opener project"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost:8080", "http://localhost:8080/login", "u", "p"));
+        Analysis analysis = analyses.save(new Analysis(application.getId()));
+        Page page = pages.save(new Page(analysis.getId(), "http://localhost:8080/board", "Board"));
+        UIElement opener = uiElements.save(new UIElement(page.getId(), "button", "button:nth-of-type(1)", "Create task", ActionClassification.MUTATING));
+        UIElement opened = uiElements.save(new UIElement(page.getId(), "input", "input:nth-of-type(1)", "Title", ActionClassification.UNKNOWN, null, false, "text", opener.getId()));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(uiElements.findById(opened.getId()).orElseThrow().getOpenerElementId()).isEqualTo(opener.getId());
+        assertThat(uiElements.findById(opener.getId()).orElseThrow().getOpenerElementId()).isNull();
+
+        uiElements.deleteById(opener.getId());
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(uiElements.findByPageId(page.getId())).isEmpty();
+    }
+
+    @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void persistsGeneratedSectionsWithinDatabaseBounds() {
         Project project = projects.save(new Project("Docs"));
