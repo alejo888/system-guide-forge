@@ -607,7 +607,7 @@ components:
             RF24 human-approved form openers: controls the analysis may press only to
             reveal a form. Like `excludedRoutes`, an update replaces the whole list and
             an omitted list clears it. Openers that differ only by an id segment or by
-            name case or spacing are deduplicated preserving first-seen order. The
+            name case or spacing are deduplicated keeping the first-seen spelling. The
             analysis does not press openers yet; that step arrives in a later release.
 
     ApplicationResponse:
@@ -647,7 +647,9 @@ components:
           maxItems: 50
           items:
             $ref: '#/components/schemas/ApprovedOpener'
-          description: Normalized approved form openers (RF24).
+          description: >-
+            Normalized approved form openers (RF24), sorted by `routePattern` and then
+            by `accessibleName` ignoring case, in every response.
 
     ApprovedOpener:
       type: object
@@ -669,7 +671,9 @@ components:
           description: >-
             Visible name of the control, trimmed with inner whitespace collapsed and
             compared case-insensitively. Names suggesting a password, token, secret,
-            API key, or credential are rejected.
+            API key, or credential are rejected, in English or Spanish (for example
+            "contraseña", "credencial", "clave de API", "clave secreta"); a plain
+            "clave" is allowed.
           example: Crear tarea
 
     AccessTestResult:

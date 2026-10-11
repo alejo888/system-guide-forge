@@ -14,8 +14,11 @@ public class ProjectApplicationService {
     static final int MAX_APPROVED_OPENERS = 50;
     static final int MAX_OPENER_NAME_LENGTH = 120;
     private static final String EXCLUDED_ROUTE_PATTERN = "^/(?:[^/?#]+(?:/[^/?#]+)*)?/?$";
-    // Same terms as ActionClassifier's sensitive-name check; a sensitive control is never approved as an opener.
-    private static final String SENSITIVE_NAME_PATTERN = ".*(password|api[-_ ]?key|secret|token|credential).*";
+    // ActionClassifier's English sensitive terms plus their Spanish forms (RF24), matched on the NFC lower-case name; a
+    // sensitive control is never approved as an opener. A plain "clave" stays allowed (it also means "key field" or
+    // "code"); only "clave de API", "clave API" and "clave secreta" are rejected ("secreta" already matches "secret").
+    private static final String SENSITIVE_NAME_PATTERN =
+            ".*(password|api[-_ ]?key|secret|token|credential|credencial|contrase(?:n|\\x{f1})a|clave (?:de )?api).*";
     private static final String INVALID_OPENER_ROUTE = "Approved opener routes must be URL paths of this application";
     private static final String INVALID_OPENER_NAME = "Approved opener names must be visible, non-sensitive control names of at most 120 characters";
     private final ProjectRepository projects; private final TargetApplicationRepository applications; private final CredentialProtector protector; private final AccessProbe accessProbe;

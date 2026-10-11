@@ -94,12 +94,27 @@ class ProjectApplicationServiceTest {
                         new ApprovedOpenerRule("/projects/{id}/board", "crear tarea"),
                         new ApprovedOpenerRule("/projects/3f2b8c1e-1d2a-4b3c-9d4e-5f6a7b8c9d0e/board", "Crear tarea"),
                         new ApprovedOpenerRule("/projects", "Crear proyecto"),
+                        new ApprovedOpenerRule("/projects", "abrir filtros"),
                         new ApprovedOpenerRule("/", "Nuevo")));
 
+        // Sorted by route, then by name ignoring case, the same order a later GET returns; duplicates keep the first spelling.
         assertEquals(java.util.List.of(
-                new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea"),
+                new ApprovedOpenerRule("/", "Nuevo"),
+                new ApprovedOpenerRule("/projects", "abrir filtros"),
                 new ApprovedOpenerRule("/projects", "Crear proyecto"),
-                new ApprovedOpenerRule("/", "Nuevo")), created.getApprovedOpeners());
+                new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea")), created.getApprovedOpeners());
+    }
+
+    @Test
+    void acceptsBenignApprovedOpenerNamesIncludingAPlainClave() {
+        when(projects.existsById("project-id")).thenReturn(true);
+        when(protector.encrypt(any())).thenReturn("encrypted");
+        when(applications.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var created = service.createApplication("project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, java.util.List.of(),
+                java.util.List.of(new ApprovedOpenerRule("/projects", "Crear tarea"), new ApprovedOpenerRule("/projects", "Ver clave del proyecto")));
+
+        assertEquals(2, created.getApprovedOpeners().size());
     }
 
     @Test
@@ -132,7 +147,8 @@ class ProjectApplicationServiceTest {
 
     @Test
     void rejectsBlankLongOrSensitiveApprovedOpenerNamesBeforePersistence() {
-        for (String name : java.util.Arrays.asList(null, "", "   ", "x".repeat(121), "Show password", "Copy API key", "Rotate Token", "Client secret", "Credentials")) {
+        for (String name : java.util.Arrays.asList(null, "", "   ", "x".repeat(121), "Show password", "Copy API key", "Rotate Token", "Client secret", "Credentials",
+                "Mostrar contrase" + (char) 0x00F1 + "a", "Mostrar contrasena", "Ver credencial", "Ver credenciales", "Copiar clave de API", "Copiar clave API", "Ver clave secreta", "Revelar secreto")) {
             var error = assertThrows(IllegalArgumentException.class, () -> service.createApplication(
                     "project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, java.util.List.of(),
                     java.util.List.of(new ApprovedOpenerRule("/projects", name))), String.valueOf(name));

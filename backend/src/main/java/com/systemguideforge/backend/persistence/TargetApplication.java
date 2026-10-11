@@ -19,7 +19,6 @@ public class TargetApplication {
     private Set<ExcludedRoute> excludedRouteEntities = new LinkedHashSet<>();
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @JoinColumn(name = "application_id", referencedColumnName = "id", insertable = false, updatable = false)
-    @OrderBy("routePattern ASC, accessibleName ASC")
     // Both collections are Sets: they are join-fetched together by TargetApplicationRepository (open-in-view is off),
     // and two Lists (bags) would fail with MultipleBagFetchException or repeat rows of the joined product.
     private Set<ApprovedOpener> approvedOpenerEntities = new LinkedHashSet<>();
@@ -80,5 +79,8 @@ public class TargetApplication {
     public String getId(){return id;} public String getProjectId(){return projectId;} public String getName(){return name;} public String getBaseUrl(){return baseUrl;} public String getLoginUrl(){return loginUrl;} public String getUsernameEncrypted(){return usernameEncrypted;} public String getPasswordEncrypted(){return passwordEncrypted;}
     public int getMaxCrawlDepth() { return maxCrawlDepth; }
     public List<String> getExcludedRoutes() { return excludedRouteEntities.stream().map(ExcludedRoute::getPath).toList(); }
-    public List<ApprovedOpenerRule> getApprovedOpeners() { return approvedOpenerEntities.stream().map(ApprovedOpener::toRule).toList(); }
+    /** Sorted by route pattern, then by name ignoring case, so create, update and later reads return the same order. */
+    public List<ApprovedOpenerRule> getApprovedOpeners() { return approvedOpenerEntities.stream().map(ApprovedOpener::toRule).sorted(OPENER_ORDER).toList(); }
+    private static final Comparator<ApprovedOpenerRule> OPENER_ORDER = Comparator.comparing(ApprovedOpenerRule::routePattern)
+            .thenComparing(ApprovedOpenerRule::accessibleName, String.CASE_INSENSITIVE_ORDER).thenComparing(ApprovedOpenerRule::accessibleName);
 }

@@ -284,6 +284,19 @@ class PersistenceTest {
                 mock(com.systemguideforge.backend.application.AccessProbe.class));
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new com.systemguideforge.backend.web.ApplicationController(service)).build();
 
+        // This test commits its rows (no surrounding transaction), so it removes them to keep other tests independent of it.
+        try {
+            assertApprovedOpenersServedOutsideASession(mvc, application);
+        } finally {
+            applications.deleteById(application.getId());
+            projects.deleteById(project.getId());
+        }
+        assertThat(applications.findById(application.getId())).isEmpty();
+        assertThat(entityManager.createNativeQuery("select count(*) from approved_openers where application_id = :id")
+                .setParameter("id", application.getId()).getSingleResult()).isEqualTo(0L);
+    }
+
+    private void assertApprovedOpenersServedOutsideASession(org.springframework.test.web.servlet.MockMvc mvc, TargetApplication application) throws Exception {
         assertThat(applications.findById(application.getId()).orElseThrow().getApprovedOpeners()).containsExactly(
                 new ApprovedOpenerRule("/projects", "Crear proyecto"), new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea"));
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/applications/" + application.getId()))
