@@ -48,6 +48,10 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
              Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
              // Service workers could answer or forward requests outside the opener request guard, so none are allowed.
              BrowserContext context = browser.newContext(new Browser.NewContextOptions().setServiceWorkers(ServiceWorkerPolicy.BLOCK))) {
+            List<ApprovedOpenerRule> approvedOpeners = application.getApprovedOpeners();
+            ApprovedOpenerMatcher openers = approvedOpeners.isEmpty() ? null : new ApprovedOpenerMatcher(approvedOpeners);
+            // Installed before any navigation so every socket, including ones opened at page load, passes the guard.
+            if (openers != null) context.addInitScript(WEBSOCKET_GUARD_SCRIPT);
             com.microsoft.playwright.Page page = context.newPage();
             page.navigate(application.getLoginUrl());
             Locator user = page.locator("input[name='username'], input[name='email'], input[type='email'], input[type='text']").first();
@@ -60,8 +64,6 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             if (!isAuthenticatedAfterRedirect(page.url(), application)) throw new IllegalStateException("Authentication failed");
             if (!isSafeNavigationResult(page.url(), application)) throw new IllegalStateException("Unsafe authenticated redirect rejected");
 
-            List<ApprovedOpenerRule> approvedOpeners = application.getApprovedOpeners();
-            ApprovedOpenerMatcher openers = approvedOpeners.isEmpty() ? null : new ApprovedOpenerMatcher(approvedOpeners);
             String startUrl = safeUrl(page.url());
             CrawlBudget budget = new CrawlBudget(AnalysisService.MAX_CRAWL_PAGES, AnalysisService.MAX_CRAWL_LINKS);
             if (!budget.takePage()) throw new IllegalStateException("Crawl page budget unavailable");
@@ -240,8 +242,8 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     /**
      * Presses each human-approved opener button (RF24) on the current page, captures the form it reveals, and closes it
      * again. While an opener is active every non-GET/HEAD request is aborted before it leaves the browser; a blocked
-     * request, WebSocket, popup, URL change, or failed close discards that opener's capture and restores the page.
-     * Never fails the analysis, never enqueues links, and never counts as a crawled page.
+     * request, WebSocket message or socket, popup, URL change, or failed close discards that opener's capture and
+     * restores the page. Never fails the analysis, never enqueues links, and never counts as a crawled page.
      */
     private List<OpenedForm> openApprovedForms(com.microsoft.playwright.Page page, TargetApplication app, ApprovedOpenerMatcher matcher,
                                                List<DetectedElement> pageElements) {
@@ -249,16 +251,20 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         String pageUrl = page.url();
         List<OpenedForm> opened = new ArrayList<>();
         Set<String> pressedNames = new HashSet<>();
-        int buttonIndex = -1;
         for (DetectedElement element : pageElements) {
             if (!"button".equals(element.kind())) continue;
-            buttonIndex++;
             String name = element.accessibleName();
             if (!matcher.matches(pageUrl, name) || pressedNames.contains(ApprovedOpenerMatcher.nameKey(name))) continue;
             try {
-                // Re-located by index and re-checked by name, so a DOM that changed since detection never gets the press.
-                Locator button = page.locator("button").nth(buttonIndex);
-                if (!button.isVisible() || !button.isEnabled() || !ApprovedOpenerMatcher.nameKey(name).equals(ApprovedOpenerMatcher.nameKey(buttonName(button)))) continue;
+                // Re-located from the element's own selector and re-checked by name, so a DOM that changed since detection
+                // never gets the press.
+                int buttonIndex = buttonIndex(element.selector());
+                Locator button = buttonIndex < 0 ? null : page.locator("button").nth(buttonIndex);
+                if (button == null || !button.isVisible() || !button.isEnabled()
+                        || !ApprovedOpenerMatcher.nameKey(name).equals(ApprovedOpenerMatcher.nameKey(buttonName(button)))) {
+                    LOG.info("Approved opener skipped: category=opener-not-found");
+                    continue;
+                }
                 pressedNames.add(ApprovedOpenerMatcher.nameKey(name));
                 OpenedForm form = openOne(page, app, button, name, element.selector());
                 if (form != null) opened.add(form);
@@ -272,20 +278,105 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         return opened;
     }
 
+    /** DOM index encoded by a page button selector ("button:nth-of-type(n)" is the n-th button, global index), or -1. */
+    static int buttonIndex(String selector) {
+        java.util.regex.Matcher matcher = selector == null ? null : BUTTON_SELECTOR.matcher(selector);
+        if (matcher == null || !matcher.matches()) return -1;
+        try { return Integer.parseInt(matcher.group(1)) - 1; } catch (NumberFormatException e) { return -1; }
+    }
+
+    private static final java.util.regex.Pattern BUTTON_SELECTOR = java.util.regex.Pattern.compile("button:nth-of-type\\(([1-9][0-9]{0,8})\\)");
+
+    /** Page-side key of the WebSocket guard state; installed by WEBSOCKET_GUARD_SCRIPT, armed only while an opener is active. */
+    private static final String WEBSOCKET_GUARD_KEY = "__systemGuideForgeWebSocketGuard";
+    /**
+     * WebSocket half of the opener request guard (RF24), installed as a context init script before any navigation when
+     * the application has approved openers, so it also covers sockets opened at page load. Outside an opener, sockets
+     * behave natively. While it is armed, page-to-server frames are dropped before they leave the browser and new sockets
+     * are refused before their handshake; both are counted so the opener's capture is discarded. Playwright's
+     * routeWebSocket is not used: in Playwright Java 1.55 its close event handler fails on every navigation away from a
+     * page with a routed socket (WebSocketRouteImpl reads a close code the driver omits), which would fail the analysis.
+     */
+    static final String WEBSOCKET_GUARD_SCRIPT = """
+            (() => {
+              const key = 'KEY';
+              if (Object.prototype.hasOwnProperty.call(window, key) || typeof window.WebSocket !== 'function') return;
+              const state = { active: false, blockedMessages: 0, blockedSockets: 0 };
+              Object.defineProperty(window, key, { value: state });
+              const Native = window.WebSocket;
+              const send = Native.prototype.send;
+              Native.prototype.send = function (data) {
+                if (state.active) { state.blockedMessages++; return; }
+                return send.call(this, data);
+              };
+              window.WebSocket = new Proxy(Native, { construct(target, args, newTarget) {
+                if (state.active) { state.blockedSockets++; throw new DOMException('WebSocket blocked', 'SecurityError'); }
+                return Reflect.construct(target, args, newTarget);
+              } });
+            })();
+            """.replace("KEY", WEBSOCKET_GUARD_KEY);
+    private static final String WEBSOCKET_GUARD_ARM_SCRIPT = "({ key, active }) => { const state = window[key]; if (!state) return false;"
+            + "if (active) { state.blockedMessages = 0; state.blockedSockets = 0; } state.active = active; return true; }";
+    private static final String WEBSOCKET_GUARD_READ_SCRIPT = "key => { const state = window[key]; return state ? [state.blockedMessages, state.blockedSockets] : [0, 0]; }";
+
+    /** Violations of one opener: the first category recorded by the request, popup, or WebSocket guards. */
+    private static final class OpenerGuard {
+        private final AtomicReference<String> violation = new AtomicReference<>();
+
+        void flag(String category) { violation.compareAndSet(null, category); }
+
+        /** Arms the WebSocket guard in every frame; the opener is not pressed when the main frame has no guard. */
+        void arm(com.microsoft.playwright.Page page) {
+            if (!Boolean.TRUE.equals(page.mainFrame().evaluate(WEBSOCKET_GUARD_ARM_SCRIPT, Map.of("key", WEBSOCKET_GUARD_KEY, "active", true)))) {
+                throw new IllegalStateException("WebSocket guard unavailable");
+            }
+            forOtherFrames(page, frame -> frame.evaluate(WEBSOCKET_GUARD_ARM_SCRIPT, Map.of("key", WEBSOCKET_GUARD_KEY, "active", true)));
+        }
+
+        void disarm(com.microsoft.playwright.Page page) {
+            page.mainFrame().evaluate(WEBSOCKET_GUARD_ARM_SCRIPT, Map.of("key", WEBSOCKET_GUARD_KEY, "active", false));
+            forOtherFrames(page, frame -> frame.evaluate(WEBSOCKET_GUARD_ARM_SCRIPT, Map.of("key", WEBSOCKET_GUARD_KEY, "active", false)));
+        }
+
+        /** Reads the page-side counters (lost on reload, so read before one) and returns the first violation, if any. */
+        String check(com.microsoft.playwright.Page page) {
+            for (Frame frame : page.frames()) {
+                try {
+                    Object counts = frame.evaluate(WEBSOCKET_GUARD_READ_SCRIPT, WEBSOCKET_GUARD_KEY);
+                    if (counts instanceof List<?> values && values.size() == 2) {
+                        if (number(values.get(0)) > 0) flag("websocket-message-blocked");
+                        if (number(values.get(1)) > 0) flag("websocket-opened");
+                    }
+                } catch (RuntimeException e) {
+                    if (frame == page.mainFrame()) throw e;
+                }
+            }
+            return violation.get();
+        }
+
+        /** Child frames may detach at any time; a detached frame has no sockets left to guard. */
+        private static void forOtherFrames(com.microsoft.playwright.Page page, Consumer<Frame> action) {
+            for (Frame frame : page.frames()) {
+                if (frame == page.mainFrame()) continue;
+                try { action.accept(frame); } catch (RuntimeException e) { LOG.debug("WebSocket guard skipped a frame: exception={}", e.getClass().getName()); }
+            }
+        }
+    }
+
     /** Null when nothing new appeared or the capture was discarded. Throws only when the page could not be restored. */
     private OpenedForm openOne(com.microsoft.playwright.Page page, TargetApplication app, Locator button, String name, String selector) {
         BrowserContext context = page.context();
         String originalUrl = page.url();
-        AtomicReference<String> violation = new AtomicReference<>();
-        Consumer<Route> guard = route -> {
+        OpenerGuard guard = new OpenerGuard();
+        Consumer<Route> requests = route -> {
             String method = route.request().method();
             if ("GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method)) { route.resume(); return; }
-            violation.compareAndSet(null, "write-request-blocked");
+            guard.flag("write-request-blocked");
             route.abort();
         };
-        Consumer<WebSocket> sockets = socket -> violation.compareAndSet(null, "websocket-opened");
-        Consumer<com.microsoft.playwright.Page> popups = popup -> violation.compareAndSet(null, "popup-opened");
-        context.route("**/*", guard);
+        Consumer<WebSocket> sockets = socket -> guard.flag("websocket-opened");
+        Consumer<com.microsoft.playwright.Page> popups = popup -> guard.flag("popup-opened");
+        context.route("**/*", requests);
         page.onWebSocket(sockets);
         context.onPage(popups);
         String discarded = null;
@@ -293,17 +384,21 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         try {
             int containersBefore = openerState(page).visibleContainers();
             page.evaluate(OPENER_SNAPSHOT_SCRIPT, Map.of("key", OPENER_SNAPSHOT_KEY, "selector", OPENER_CONTAINERS + ", " + INTERACTIVE_KINDS));
+            guard.arm(page);
             button.click(new Locator.ClickOptions().setTimeout(OPENER_ACTION_TIMEOUT_MS));
             settleAfterOpenerAction(page);
             OpenerState state = openerState(page);
-            if (violation.get() != null) discarded = violation.get();
+            String violation = guard.check(page);
+            if (violation != null) discarded = violation;
             else if (!page.url().equals(originalUrl) || !state.snapshot()) discarded = "url-changed";
             else if (state.containers() == 0 && state.controls() == 0) return null;
             else {
                 Locator container = newContainer(page);
                 List<DetectedElement> elements = captureOpened(page, app, container);
-                if (!closeOpened(page, app, container, containersBefore)) discarded = "close-failed";
-                else if (violation.get() != null) discarded = violation.get();
+                boolean closed = closeOpened(page, app, guard, container, containersBefore);
+                violation = guard.check(page);
+                if (!closed) discarded = "close-failed";
+                else if (violation != null) discarded = violation;
                 else if (!page.url().equals(originalUrl)) discarded = "url-changed";
                 else if (!elements.isEmpty()) form = new OpenedForm(name, selector, elements);
             }
@@ -311,6 +406,10 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             discarded = "opener-failed";
         } finally {
             try {
+                // A kept page is disarmed; a discarded one is restored by navigation, which starts with a fresh, disarmed guard.
+                if (discarded == null) {
+                    try { guard.disarm(page); } catch (RuntimeException e) { discarded = "opener-failed"; }
+                }
                 if (discarded != null) {
                     LOG.info("Approved opener capture discarded: category={}", discarded);
                     for (com.microsoft.playwright.Page other : context.pages()) if (other != page) other.close();
@@ -320,7 +419,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             } finally {
                 page.offWebSocket(sockets);
                 context.offPage(popups);
-                context.unroute("**/*", guard);
+                context.unroute("**/*", requests);
             }
         }
         return discarded == null ? form : null;
@@ -359,8 +458,8 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         return flags instanceof List<?> list ? list.stream().map(Boolean.TRUE::equals).toList() : List.of();
     }
 
-    /** Escape, then a visible non-mutating close button inside the opened container, then a reload. */
-    private boolean closeOpened(com.microsoft.playwright.Page page, TargetApplication app, Locator container, int containersBefore) {
+    /** Escape, then a visible non-mutating close button inside the opened container, then a reload (which is not re-armed). */
+    private boolean closeOpened(com.microsoft.playwright.Page page, TargetApplication app, OpenerGuard guard, Locator container, int containersBefore) {
         page.keyboard().press("Escape");
         settleAfterOpenerAction(page);
         if (isClosed(page, container != null, containersBefore)) return true;
@@ -370,6 +469,8 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
             settleAfterOpenerAction(page);
             if (isClosed(page, container != null, containersBefore)) return true;
         }
+        // The reload resets the page-side WebSocket counters, so whatever they recorded is collected first.
+        guard.check(page);
         page.reload(new com.microsoft.playwright.Page.ReloadOptions().setTimeout(PAGE_READY_TIMEOUT_MS));
         waitForPageSettled(page);
         return isClosed(page, container != null, containersBefore);

@@ -972,6 +972,166 @@ class PlaywrightScreenAnalysisAdapterTest {
                 .containsExactlyInAnyOrder(tuple("select", "Rol"), tuple("button", "Cerrar"));
     }
 
+    private static final String NEXT_PAGE = "<!doctype html><html><body><main><h1>Siguiente</h1><p>Contenido</p></main></body></html>";
+
+    /**
+     * Two approved openers ("Crear tarea" runs onTask before opening its dialog; "Crear proyecto" opens a plain dialog
+     * closed by Escape), a GET /page-loaded beacon on every load, a link to /next, and onLoad run at page load.
+     */
+    private static String dashboardWithTwoOpeners(String onLoad, String onTask) {
+        return """
+                <!doctype html><html><head><title>Tareas</title></head><body><main><h1>Tareas</h1>
+                <button type="button" id="task">Crear tarea</button><button type="button" id="project">Crear proyecto</button>
+                <a href="/next">Siguiente</a></main><script>
+                fetch('/page-loaded');
+                const dialog = html => document.body.insertAdjacentHTML('beforeend', '<div role="dialog">' + html + '</div>');
+                ON_LOAD
+                document.getElementById('task').addEventListener('click', () => { ON_TASK
+                  dialog('<label>Titulo <input name="title"></label>'); });
+                document.getElementById('project').addEventListener('click', () => dialog('<label>Nombre <input name="name"></label>'));
+                document.addEventListener('keydown', event => {
+                  if (event.key === 'Escape') document.querySelectorAll('[role=dialog]').forEach(d => d.remove());
+                });
+                </script></body></html>
+                """.replace("ON_LOAD", onLoad).replace("ON_TASK", onTask);
+    }
+
+    private static final List<ApprovedOpenerRule> BOTH_OPENERS =
+            List.of(new ApprovedOpenerRule("/dashboard", "Crear tarea"), new ApprovedOpenerRule("/dashboard", "Crear proyecto"));
+
+    private record Logged<T>(T result, List<String> messages) {}
+
+    private static <T> Logged<T> withAdapterLogs(java.util.concurrent.Callable<T> action) throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            T result = action.call();
+            return new Logged<>(result, appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList());
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    void restoresThePageAfterABlockedWriteSoALaterOpenerIsCapturedAndCrawlingContinues() throws Exception {
+        Map<String, AtomicInteger> requests = new ConcurrentHashMap<>();
+        var result = analyzeDashboard(dashboardWithTwoOpeners("", "fetch('/api/tasks', { method: 'POST', body: '{}' });"), NEXT_PAGE,
+                BOTH_OPENERS, countingRequests(requests, "/page-loaded", "/api/tasks"));
+
+        assertThat(count(requests, "POST /api/tasks")).isZero();
+        // Initial load plus the restore after the discarded opener.
+        assertThat(count(requests, "GET /page-loaded")).isEqualTo(2);
+        assertThat(result.openedForms()).extracting(ScreenAnalysisAdapter.OpenedForm::openerName).containsExactly("Crear proyecto");
+        assertThat(result.discoveredPages()).extracting(ScreenAnalysisAdapter.DiscoveredPage::heading).containsExactly("Siguiente");
+    }
+
+    @Test
+    void discardsAnOpenerThatOpensAPopupAndContinuesTheAnalysis() throws Exception {
+        Map<String, AtomicInteger> requests = new ConcurrentHashMap<>();
+        var logged = withAdapterLogs(() -> analyzeDashboard(dashboardWithTwoOpeners("", "window.open('/popup-page');"), NEXT_PAGE,
+                BOTH_OPENERS, countingRequests(requests, "/page-loaded", "/popup-page")));
+
+        assertThat(logged.messages()).anyMatch(message -> message.contains("category=popup-opened"));
+        assertThat(logged.result().openedForms()).extracting(ScreenAnalysisAdapter.OpenedForm::openerName).containsExactly("Crear proyecto");
+        assertThat(logged.result().discoveredPages()).hasSize(1);
+    }
+
+    @Test
+    void blocksWebSocketFramesOnASocketOpenedBeforeTheOpenerAndDiscardsItsCapture() throws Exception {
+        try (WebSocketFixtureServer sockets = new WebSocketFixtureServer()) {
+            String onLoad = "const socket = new WebSocket('" + sockets.url("/live") + "');"
+                    + "socket.addEventListener('open', () => socket.send('hello'));";
+            var logged = withAdapterLogs(() -> analyzeDashboard(dashboardWithTwoOpeners(onLoad, "socket.send('created');"), NEXT_PAGE,
+                    BOTH_OPENERS, server -> { }));
+
+            // Outside an opener the socket works normally, so the guard does not change baseline crawling.
+            assertThat(sockets.awaitMessage("hello", 5_000)).isTrue();
+            assertThat(sockets.received()).doesNotContain("created");
+            assertThat(logged.messages()).anyMatch(message -> message.contains("category=websocket-message-blocked"));
+            assertThat(logged.result().openedForms()).extracting(ScreenAnalysisAdapter.OpenedForm::openerName).containsExactly("Crear proyecto");
+            assertThat(logged.result().discoveredPages()).hasSize(1);
+        }
+    }
+
+    @Test
+    void neverConnectsAWebSocketOpenedByAnOpenerAndDiscardsItsCapture() throws Exception {
+        try (WebSocketFixtureServer sockets = new WebSocketFixtureServer()) {
+            String onTask = "const opened = new WebSocket('" + sockets.url("/live") + "');"
+                    + "opened.addEventListener('open', () => opened.send('from-opener'));";
+            var logged = withAdapterLogs(() -> analyzeDashboard(dashboardWithTwoOpeners("", onTask), NEXT_PAGE, BOTH_OPENERS, server -> { }));
+
+            assertThat(sockets.connections()).isZero();
+            assertThat(sockets.received()).isEmpty();
+            assertThat(logged.messages()).anyMatch(message -> message.contains("category=websocket-opened"));
+            assertThat(logged.result().openedForms()).extracting(ScreenAnalysisAdapter.OpenedForm::openerName).containsExactly("Crear proyecto");
+        }
+    }
+
+    @Test
+    void closesAFormThatIgnoresEscapeAndHasNoCloseButtonByReloadingAndKeepsItsCapture() throws Exception {
+        String dashboard = """
+                <!doctype html><html><body><main><h1>Tareas</h1><button type="button" id="task">Crear tarea</button>
+                <a href="/next">Siguiente</a></main><script>
+                fetch('/page-loaded');
+                document.getElementById('task').addEventListener('click', () => document.body.insertAdjacentHTML('beforeend',
+                  '<div role="dialog"><label>Titulo <input name="title"></label><button type="button">Guardar borrador</button></div>'));
+                </script></body></html>
+                """;
+        Map<String, AtomicInteger> requests = new ConcurrentHashMap<>();
+        var result = analyzeDashboard(dashboard, NEXT_PAGE, List.of(new ApprovedOpenerRule("/dashboard", "Crear tarea")),
+                countingRequests(requests, "/page-loaded"));
+
+        // Documented behavior: a reload that leaves no extra dialog counts as a successful close, so the capture is kept.
+        assertThat(result.openedForms()).extracting(ScreenAnalysisAdapter.OpenedForm::openerName).containsExactly("Crear tarea");
+        assertThat(result.openedForms().get(0).elements()).extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName)
+                .contains("Titulo", "Guardar borrador");
+        // Initial load plus the reload fallback; nothing was discarded, so no further restore.
+        assertThat(count(requests, "GET /page-loaded")).isEqualTo(2);
+        assertThat(result.discoveredPages()).hasSize(1);
+    }
+
+    @Test
+    void discardsAFormThatStaysOpenAfterTheReloadFallbackAndContinuesTheAnalysis() throws Exception {
+        // The opened dialog survives a reload (the page reopens it from session state), so closing fails.
+        String dashboard = """
+                <!doctype html><html><body><main><h1>Tareas</h1><button type="button" id="task">Crear tarea</button>
+                <a href="/next">Siguiente</a></main><script>
+                const show = () => document.body.insertAdjacentHTML('beforeend', '<div role="dialog"><label>Titulo <input name="title"></label></div>');
+                if (sessionStorage.getItem('draft')) show();
+                document.getElementById('task').addEventListener('click', () => { sessionStorage.setItem('draft', '1'); show(); });
+                </script></body></html>
+                """;
+        var logged = withAdapterLogs(() -> analyzeDashboard(dashboard, NEXT_PAGE, List.of(new ApprovedOpenerRule("/dashboard", "Crear tarea")),
+                server -> { }));
+
+        assertThat(logged.messages()).anyMatch(message -> message.contains("category=close-failed"));
+        assertThat(logged.result().openedForms()).isEmpty();
+        assertThat(logged.result().discoveredPages()).extracting(ScreenAnalysisAdapter.DiscoveredPage::heading).containsExactly("Siguiente");
+    }
+
+    @Test
+    void derivesTheOpenerDomIndexFromItsOwnPageSelectorOnly() {
+        assertThat(PlaywrightScreenAnalysisAdapter.buttonIndex("button:nth-of-type(1)")).isZero();
+        assertThat(PlaywrightScreenAnalysisAdapter.buttonIndex("button:nth-of-type(12)")).isEqualTo(11);
+        assertThat(PlaywrightScreenAnalysisAdapter.buttonIndex("a:nth-of-type(2)")).isEqualTo(-1);
+        assertThat(PlaywrightScreenAnalysisAdapter.buttonIndex("button:nth-of-type(0)")).isEqualTo(-1);
+        assertThat(PlaywrightScreenAnalysisAdapter.buttonIndex(null)).isEqualTo(-1);
+    }
+
+    @Test
+    void logsAnApprovedOpenerThatCanNoLongerBeFoundInsteadOfSkippingItSilently() throws Exception {
+        // Closing the first form renames the second opener, so its re-check before the press fails.
+        String onLoad = "document.addEventListener('keydown', event => { if (event.key === 'Escape')"
+                + " document.getElementById('project').textContent = 'Proyecto archivado'; });";
+        var logged = withAdapterLogs(() -> analyzeDashboard(dashboardWithTwoOpeners(onLoad, ""), NEXT_PAGE, BOTH_OPENERS, server -> { }));
+
+        assertThat(logged.result().openedForms()).extracting(ScreenAnalysisAdapter.OpenedForm::openerName).containsExactly("Crear tarea");
+        assertThat(logged.messages()).anyMatch(message -> message.contains("category=opener-not-found"));
+        assertThat(logged.result().discoveredPages()).hasSize(1);
+    }
+
     private static void respondHtml(com.sun.net.httpserver.HttpExchange exchange, String html) throws IOException {
         byte[] body = html.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
