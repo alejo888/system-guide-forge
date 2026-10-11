@@ -7,8 +7,8 @@ import java.util.Optional;
 
 public interface TargetApplicationRepository extends JpaRepository<TargetApplication, String> {
     @Override
-    @EntityGraph(attributePaths = "excludedRouteEntities")
+    @EntityGraph(attributePaths = {"excludedRouteEntities", "approvedOpenerEntities"})
     Optional<TargetApplication> findById(String id);
-    @EntityGraph(attributePaths = "excludedRouteEntities")
+    @EntityGraph(attributePaths = {"excludedRouteEntities", "approvedOpenerEntities"})
     List<TargetApplication> findAllByOrderByNameAscIdAsc();
 }

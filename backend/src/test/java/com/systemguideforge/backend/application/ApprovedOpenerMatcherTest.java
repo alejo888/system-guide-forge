@@ -23,8 +23,12 @@ class ApprovedOpenerMatcherTest {
     @Test
     void comparesNamesIgnoringCaseExtraWhitespaceAndUnicodeComposition() {
         assertTrue(matcher.matches("/projects/7/board", "  CREAR \n tarea "));
-        ApprovedOpenerMatcher accented = new ApprovedOpenerMatcher(List.of(new ApprovedOpenerRule("/", "Añadir")));
-        assertTrue(accented.matches("http://localhost/", "Añadir"));
+        // Approved with the precomposed n-tilde (U+00F1); the page exposes "n" followed by a combining tilde (U+0303).
+        String composed = "A" + (char) 0x00F1 + "adir";
+        String decomposed = "An" + (char) 0x0303 + "adir";
+        assertNotEquals(composed, decomposed);
+        ApprovedOpenerMatcher accented = new ApprovedOpenerMatcher(List.of(new ApprovedOpenerRule("/", composed)));
+        assertTrue(accented.matches("http://localhost/", decomposed));
     }
 
     @Test

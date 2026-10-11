@@ -69,7 +69,7 @@ describe('RegistrationComponent crawler configuration', () => {
     component.model.update(value => ({ ...value, projectName: 'Workspace', name: 'Portal', baseUrl: 'http://localhost:3000', loginUrl: 'http://localhost:3000/login', username: 'tester', password: 'secret' }));
     await component.register();
     expect(component.model().maxCrawlDepth).toBe(0);
-    expect(api.createApplication).toHaveBeenCalledWith('project-1', jasmine.objectContaining({ maxCrawlDepth: 0, excludedRoutes: [] }));
+    expect(api.createApplication).toHaveBeenCalledWith('project-1', jasmine.objectContaining({ maxCrawlDepth: 0, excludedRoutes: [], approvedOpeners: [] }));
   });
 
   it('renders crawler and local URL validation alerts only when invalid', () => {
@@ -178,6 +178,18 @@ describe('RegistrationComponent crawler configuration', () => {
       await edit.componentInstance.register();
       expect(api.updateApplication).toHaveBeenCalledWith('app-1', jasmine.objectContaining({ name: 'Portal', username: 'tester' }));
       expect(setItem.calls.allArgs().map(args => args[0])).not.toContain(['sgf', 'application'].join('.'));
+    });
+
+    it('sends approved openers back unchanged on update so editing never clears them', async () => {
+      const approvedOpeners = [{ routePattern: '/projects/{id}/board', accessibleName: 'Crear tarea' }];
+      api.getApplication.and.resolveTo({ ...existing, approvedOpeners });
+      api.updateApplication.and.resolveTo({ ...existing, approvedOpeners });
+      const edit = TestBed.createComponent(RegistrationComponent);
+      edit.detectChanges();
+      await edit.whenStable();
+      edit.componentInstance.model.update(value => ({ ...value, username: 'tester', password: 'secret' }));
+      await edit.componentInstance.register();
+      expect(api.updateApplication).toHaveBeenCalledWith('app-1', jasmine.objectContaining({ approvedOpeners }));
     });
   });
 

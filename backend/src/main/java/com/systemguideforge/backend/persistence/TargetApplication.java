@@ -16,11 +16,13 @@ public class TargetApplication {
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @JoinColumn(name = "application_id", referencedColumnName = "id", insertable = false, updatable = false)
     @OrderBy("path ASC")
-    private List<ExcludedRoute> excludedRouteEntities = new ArrayList<>();
+    private Set<ExcludedRoute> excludedRouteEntities = new LinkedHashSet<>();
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @JoinColumn(name = "application_id", referencedColumnName = "id", insertable = false, updatable = false)
     @OrderBy("routePattern ASC, accessibleName ASC")
-    private List<ApprovedOpener> approvedOpenerEntities = new ArrayList<>();
+    // Both collections are Sets: they are join-fetched together by TargetApplicationRepository (open-in-view is off),
+    // and two Lists (bags) would fail with MultipleBagFetchException or repeat rows of the joined product.
+    private Set<ApprovedOpener> approvedOpenerEntities = new LinkedHashSet<>();
 
     protected TargetApplication() {}
 
