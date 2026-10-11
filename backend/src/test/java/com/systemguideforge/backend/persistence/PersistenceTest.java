@@ -251,6 +251,68 @@ class PersistenceTest {
         }
 
     @Test
+    void persistsApprovedOpenersAndReplacesThemOnUpdate() {
+        Project project = projects.save(new Project("Opener project"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 2, List.of(),
+                List.of(new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea"), new ApprovedOpenerRule("/projects", "Crear proyecto"))));
+        applications.flush();
+        entityManager.clear();
+
+        TargetApplication loaded = applications.findById(application.getId()).orElseThrow();
+        assertThat(loaded.getApprovedOpeners()).containsExactly(
+                new ApprovedOpenerRule("/projects", "Crear proyecto"), new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea"));
+
+        loaded.updateConfiguration("App", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 2, List.of(),
+                List.of(new ApprovedOpenerRule("/projects", "Crear proyecto")));
+        applications.flush();
+        entityManager.clear();
+
+        assertThat(applications.findById(application.getId()).orElseThrow().getApprovedOpeners())
+                .containsExactly(new ApprovedOpenerRule("/projects", "Crear proyecto"));
+        assertThat(entityManager.createNativeQuery("select count(*) from approved_openers where application_id = :id")
+                .setParameter("id", application.getId()).getSingleResult()).isEqualTo(1L);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void servesApprovedOpenersFromListAndGetEndpointsOutsideAPersistenceSession() throws Exception {
+        Project project = projects.save(new Project("Opener endpoints project"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "Opener endpoints app", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 2,
+                List.of("/admin", "/settings"),
+                List.of(new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea"), new ApprovedOpenerRule("/projects", "Crear proyecto"))));
+        var service = new com.systemguideforge.backend.application.ProjectApplicationService(projects, applications, mock(CredentialProtector.class),
+                mock(com.systemguideforge.backend.application.AccessProbe.class));
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new com.systemguideforge.backend.web.ApplicationController(service)).build();
+
+        // This test commits its rows (no surrounding transaction), so it removes them to keep other tests independent of it.
+        try {
+            assertApprovedOpenersServedOutsideASession(mvc, application);
+        } finally {
+            applications.deleteById(application.getId());
+            projects.deleteById(project.getId());
+        }
+        assertThat(applications.findById(application.getId())).isEmpty();
+        assertThat(entityManager.createNativeQuery("select count(*) from approved_openers where application_id = :id")
+                .setParameter("id", application.getId()).getSingleResult()).isEqualTo(0L);
+    }
+
+    private void assertApprovedOpenersServedOutsideASession(org.springframework.test.web.servlet.MockMvc mvc, TargetApplication application) throws Exception {
+        assertThat(applications.findById(application.getId()).orElseThrow().getApprovedOpeners()).containsExactly(
+                new ApprovedOpenerRule("/projects", "Crear proyecto"), new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/applications/" + application.getId()))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.approvedOpeners.length()").value(2))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.approvedOpeners[0].routePattern").value("/projects"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.excludedRoutes.length()").value(2));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/applications"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$[?(@.id == '" + application.getId() + "')].approvedOpeners[1].accessibleName").value("Crear tarea"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$[?(@.id == '" + application.getId() + "')].excludedRoutes.length()").value(2));
+    }
+
+    @Test
     void listsApplicationsOrderedByNameThenIdWithExcludedRoutesLoaded() {
         Project project = projects.save(new Project("List project"));
         TargetApplication beta = applications.save(new TargetApplication(project.getId(), "Beta", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 2, List.of("/admin", "/settings")));

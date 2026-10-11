@@ -1,5 +1,6 @@
 package com.systemguideforge.backend.application;
 
+import com.systemguideforge.backend.persistence.ApprovedOpenerRule;
 import com.systemguideforge.backend.persistence.ProjectRepository;
 import com.systemguideforge.backend.persistence.TargetApplicationRepository;
 import org.junit.jupiter.api.Test;
@@ -78,6 +79,95 @@ class ProjectApplicationServiceTest {
             assertThrows(IllegalArgumentException.class, () -> service.createApplication(
                     "project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, java.util.List.of(route)));
         }
+        verifyNoInteractions(applications, protector);
+    }
+
+    @Test
+    void storesApprovedOpenersWithRouteTemplatesAndTrimmedNamesWithoutDuplicates() {
+        when(projects.existsById("project-id")).thenReturn(true);
+        when(protector.encrypt(any())).thenReturn("encrypted");
+        when(applications.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var created = service.createApplication("project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, java.util.List.of(),
+                java.util.List.of(
+                        new ApprovedOpenerRule("/projects/1/board/", "  Crear   tarea "),
+                        new ApprovedOpenerRule("/projects/{id}/board", "crear tarea"),
+                        new ApprovedOpenerRule("/projects/3f2b8c1e-1d2a-4b3c-9d4e-5f6a7b8c9d0e/board", "Crear tarea"),
+                        new ApprovedOpenerRule("/projects", "Crear proyecto"),
+                        new ApprovedOpenerRule("/projects", "abrir filtros"),
+                        new ApprovedOpenerRule("/", "Nuevo")));
+
+        // Sorted by route, then by name ignoring case, the same order a later GET returns; duplicates keep the first spelling.
+        assertEquals(java.util.List.of(
+                new ApprovedOpenerRule("/", "Nuevo"),
+                new ApprovedOpenerRule("/projects", "abrir filtros"),
+                new ApprovedOpenerRule("/projects", "Crear proyecto"),
+                new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea")), created.getApprovedOpeners());
+    }
+
+    @Test
+    void acceptsBenignApprovedOpenerNamesIncludingAPlainClave() {
+        when(projects.existsById("project-id")).thenReturn(true);
+        when(protector.encrypt(any())).thenReturn("encrypted");
+        when(applications.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var created = service.createApplication("project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, java.util.List.of(),
+                java.util.List.of(new ApprovedOpenerRule("/projects", "Crear tarea"), new ApprovedOpenerRule("/projects", "Ver clave del proyecto")));
+
+        assertEquals(2, created.getApprovedOpeners().size());
+    }
+
+    @Test
+    void missingApprovedOpenersOnUpdateClearThemLikeExcludedRoutes() {
+        var existing = TestFixtures.application("app-id");
+        when(applications.findById("app-id")).thenReturn(java.util.Optional.of(existing));
+        when(protector.encrypt(any())).thenReturn("encrypted");
+        when(applications.save(existing)).thenReturn(existing);
+        service.updateApplication("app-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, null,
+                java.util.List.of(new ApprovedOpenerRule("/projects", "Crear proyecto")));
+        assertEquals(1, existing.getApprovedOpeners().size());
+
+        var updated = service.updateApplication("app-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, null, null);
+
+        assertTrue(updated.getApprovedOpeners().isEmpty());
+        assertTrue(updated.getExcludedRoutes().isEmpty());
+    }
+
+    @Test
+    void rejectsApprovedOpenersWithRoutesOutsideTheApplicationBeforePersistence() {
+        for (String route : java.util.Arrays.asList(null, "", "  ", "projects", "//evil.example/projects", "http://localhost:8080/projects",
+                "/projects?tab=1", "/projects#new", "/projects//board", "/a%2Fb", "/projects/{slug}", "/projects/{id", "/" + "a".repeat(200))) {
+            var error = assertThrows(IllegalArgumentException.class, () -> service.createApplication(
+                    "project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, java.util.List.of(),
+                    java.util.List.of(new ApprovedOpenerRule(route, "Crear tarea"))), String.valueOf(route));
+            assertTrue(error.getMessage().contains("Approved opener routes"), error.getMessage());
+        }
+        verifyNoInteractions(applications, protector);
+    }
+
+    @Test
+    void rejectsBlankLongOrSensitiveApprovedOpenerNamesBeforePersistence() {
+        for (String name : java.util.Arrays.asList(null, "", "   ", "x".repeat(121), "Show password", "Copy API key", "Rotate Token", "Client secret", "Credentials",
+                "Mostrar contrase" + (char) 0x00F1 + "a", "Mostrar contrasena", "Ver credencial", "Ver credenciales", "Copiar clave de API", "Copiar clave API", "Ver clave secreta", "Revelar secreto")) {
+            var error = assertThrows(IllegalArgumentException.class, () -> service.createApplication(
+                    "project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, java.util.List.of(),
+                    java.util.List.of(new ApprovedOpenerRule("/projects", name))), String.valueOf(name));
+            assertTrue(error.getMessage().contains("Approved opener names"), error.getMessage());
+        }
+        assertThrows(IllegalArgumentException.class, () -> service.createApplication(
+                "project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, java.util.List.of(),
+                java.util.Collections.singletonList(null)));
+        verifyNoInteractions(applications, protector);
+    }
+
+    @Test
+    void rejectsTooManyApprovedOpenersBeforePersistence() {
+        var openers = java.util.stream.IntStream.range(0, 51).mapToObj(index -> new ApprovedOpenerRule("/page" + index, "Abrir")).toList();
+
+        var error = assertThrows(IllegalArgumentException.class, () -> service.createApplication(
+                "project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, java.util.List.of(), openers));
+
+        assertEquals("Too many approved openers", error.getMessage());
         verifyNoInteractions(applications, protector);
     }
 

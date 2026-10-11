@@ -16,7 +16,12 @@ public class TargetApplication {
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @JoinColumn(name = "application_id", referencedColumnName = "id", insertable = false, updatable = false)
     @OrderBy("path ASC")
-    private List<ExcludedRoute> excludedRouteEntities = new ArrayList<>();
+    private Set<ExcludedRoute> excludedRouteEntities = new LinkedHashSet<>();
+    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @JoinColumn(name = "application_id", referencedColumnName = "id", insertable = false, updatable = false)
+    // Both collections are Sets: they are join-fetched together by TargetApplicationRepository (open-in-view is off),
+    // and two Lists (bags) would fail with MultipleBagFetchException or repeat rows of the joined product.
+    private Set<ApprovedOpener> approvedOpenerEntities = new LinkedHashSet<>();
 
     protected TargetApplication() {}
 
@@ -25,24 +30,43 @@ public class TargetApplication {
     }
 
     public TargetApplication(String projectId, String name, String baseUrl, String loginUrl, String usernameEncrypted, String passwordEncrypted, int maxCrawlDepth, List<String> excludedRoutes) {
+        this(projectId, name, baseUrl, loginUrl, usernameEncrypted, passwordEncrypted, maxCrawlDepth, excludedRoutes, List.of());
+    }
+
+    public TargetApplication(String projectId, String name, String baseUrl, String loginUrl, String usernameEncrypted, String passwordEncrypted, int maxCrawlDepth, List<String> excludedRoutes, List<ApprovedOpenerRule> approvedOpeners) {
         this.id=UUID.randomUUID().toString(); this.projectId=projectId; this.name=name; this.baseUrl=baseUrl; this.loginUrl=loginUrl;
         this.usernameEncrypted=usernameEncrypted; this.passwordEncrypted=passwordEncrypted;
         this.maxCrawlDepth = maxCrawlDepth;
         setExcludedRoutes(excludedRoutes);
+        setApprovedOpeners(approvedOpeners);
     }
 
     public void updateConfiguration(String name, String baseUrl, String loginUrl, String usernameEncrypted, String passwordEncrypted) {
-        updateConfiguration(name, baseUrl, loginUrl, usernameEncrypted, passwordEncrypted, maxCrawlDepth, getExcludedRoutes());
+        updateConfiguration(name, baseUrl, loginUrl, usernameEncrypted, passwordEncrypted, maxCrawlDepth, getExcludedRoutes(), getApprovedOpeners());
     }
     public void updateConfiguration(String name, String baseUrl, String loginUrl, String usernameEncrypted, String passwordEncrypted, int maxCrawlDepth, List<String> excludedRoutes) {
+        updateConfiguration(name, baseUrl, loginUrl, usernameEncrypted, passwordEncrypted, maxCrawlDepth, excludedRoutes, getApprovedOpeners());
+    }
+    public void updateConfiguration(String name, String baseUrl, String loginUrl, String usernameEncrypted, String passwordEncrypted, int maxCrawlDepth, List<String> excludedRoutes, List<ApprovedOpenerRule> approvedOpeners) {
         this.name = name; this.baseUrl = baseUrl; this.loginUrl = loginUrl;
         this.usernameEncrypted = usernameEncrypted; this.passwordEncrypted = passwordEncrypted;
         this.maxCrawlDepth = maxCrawlDepth;
         setExcludedRoutes(excludedRoutes);
+        setApprovedOpeners(approvedOpeners);
     }
     private void setExcludedRoutes(List<String> routes) {
         excludedRouteEntities.clear();
         if (routes != null) for (String route : routes) excludedRouteEntities.add(new ExcludedRoute(id, route));
+    }
+    /**
+     * Keeps the rows of openers that stay approved and only adds the new ones: Hibernate flushes inserts before
+     * orphan deletes, so re-inserting an unchanged opener would collide with the unique (application, route, name) key.
+     */
+    private void setApprovedOpeners(List<ApprovedOpenerRule> openers) {
+        List<ApprovedOpenerRule> wanted = openers == null ? List.of() : openers;
+        approvedOpenerEntities.removeIf(opener -> !wanted.contains(opener.toRule()));
+        Set<ApprovedOpenerRule> kept = new HashSet<>(getApprovedOpeners());
+        for (ApprovedOpenerRule rule : wanted) if (kept.add(rule)) approvedOpenerEntities.add(new ApprovedOpener(id, rule));
     }
     public boolean isExcludedPath(String urlPath) {
         String path;
@@ -55,4 +79,8 @@ public class TargetApplication {
     public String getId(){return id;} public String getProjectId(){return projectId;} public String getName(){return name;} public String getBaseUrl(){return baseUrl;} public String getLoginUrl(){return loginUrl;} public String getUsernameEncrypted(){return usernameEncrypted;} public String getPasswordEncrypted(){return passwordEncrypted;}
     public int getMaxCrawlDepth() { return maxCrawlDepth; }
     public List<String> getExcludedRoutes() { return excludedRouteEntities.stream().map(ExcludedRoute::getPath).toList(); }
+    /** Sorted by route pattern, then by name ignoring case, so create, update and later reads return the same order. */
+    public List<ApprovedOpenerRule> getApprovedOpeners() { return approvedOpenerEntities.stream().map(ApprovedOpener::toRule).sorted(OPENER_ORDER).toList(); }
+    private static final Comparator<ApprovedOpenerRule> OPENER_ORDER = Comparator.comparing(ApprovedOpenerRule::routePattern)
+            .thenComparing(ApprovedOpenerRule::accessibleName, String.CASE_INSENSITIVE_ORDER).thenComparing(ApprovedOpenerRule::accessibleName);
 }

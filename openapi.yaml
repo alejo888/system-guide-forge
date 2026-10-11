@@ -597,11 +597,23 @@ components:
             fragment, and percent-encoded paths are rejected. Trailing slashes are
             removed except from `/`, duplicates are removed preserving first-seen order,
             and each prefix excludes its descendants.
+        approvedOpeners:
+          type: array
+          default: []
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/ApprovedOpener'
+          description: >-
+            RF24 human-approved form openers: controls the analysis may press only to
+            reveal a form. Like `excludedRoutes`, an update replaces the whole list and
+            an omitted list clears it. Openers that differ only by an id segment or by
+            name case or spacing are deduplicated keeping the first-seen spelling. The
+            analysis does not press openers yet; that step arrives in a later release.
 
     ApplicationResponse:
       type: object
       additionalProperties: false
-      required: [id, projectId, name, baseUrl, loginUrl, maxCrawlDepth, excludedRoutes]
+      required: [id, projectId, name, baseUrl, loginUrl, maxCrawlDepth, excludedRoutes, approvedOpeners]
       properties:
         id:
           type: string
@@ -630,6 +642,39 @@ components:
             maxLength: 200
             pattern: '^/(?:[^/?#%]+(?:/[^/?#%]+)*)?/?$'
           description: Normalized, deduplicated absolute path prefixes in first-seen order.
+        approvedOpeners:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/ApprovedOpener'
+          description: >-
+            Normalized approved form openers (RF24), sorted by `routePattern` and then
+            by `accessibleName` ignoring case, in every response.
+
+    ApprovedOpener:
+      type: object
+      additionalProperties: false
+      required: [routePattern, accessibleName]
+      properties:
+        routePattern:
+          type: string
+          maxLength: 200
+          description: >-
+            Absolute path of this application (no scheme, host, query, fragment, or
+            percent escapes). Numeric and UUID segments are stored as `{id}`, which is
+            also accepted literally; the trailing slash is removed except from `/`.
+          example: /projects/{id}/board
+        accessibleName:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: >-
+            Visible name of the control, trimmed with inner whitespace collapsed and
+            compared case-insensitively. Names suggesting a password, token, secret,
+            API key, or credential are rejected, in English or Spanish (for example
+            "contraseña", "credencial", "clave de API", "clave secreta"); a plain
+            "clave" is allowed.
+          example: Crear tarea
 
     AccessTestResult:
       type: object

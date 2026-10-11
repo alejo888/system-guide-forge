@@ -3,16 +3,22 @@ package com.systemguideforge.backend.web;
 import com.systemguideforge.backend.application.AccessResult;
 import com.systemguideforge.backend.application.AccessResultCode;
 import com.systemguideforge.backend.application.ProjectApplicationService;
+import com.systemguideforge.backend.persistence.ApprovedOpenerRule;
 import com.systemguideforge.backend.persistence.TargetApplication;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import java.util.List;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -43,6 +49,42 @@ class ApplicationControllerTest {
                 .andExpect(jsonPath("$[0].usernameEncrypted").doesNotExist())
                 .andExpect(jsonPath("$[0].passwordEncrypted").doesNotExist())
                 .andExpect(jsonPath("$[1].passwordEncrypted").doesNotExist());
+    }
+
+    @Test
+    void passesApprovedOpenersToTheServiceAndReturnsThemWithoutCredentials() throws Exception {
+        ProjectApplicationService service = mock(ProjectApplicationService.class);
+        List<ApprovedOpenerRule> openers = List.of(new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea"));
+        TargetApplication saved = new TargetApplication("project-1", "Alpha", "http://localhost:8080", "http://localhost:8080/login", "encrypted-user", "encrypted-password", 2, List.of(), openers);
+        when(service.updateApplication(eq("app-1"), eq("Alpha"), eq("http://localhost:8080"), eq("http://localhost:8080/login"), eq("user"), eq("password"), eq(2), eq(List.of()),
+                eq(List.of(new ApprovedOpenerRule("/projects/1/board", "Crear tarea"))))).thenReturn(saved);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new ApplicationController(service)).build();
+
+        mvc.perform(put("/api/applications/app-1").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"name":"Alpha","baseUrl":"http://localhost:8080","loginUrl":"http://localhost:8080/login","username":"user","password":"password",
+                         "maxCrawlDepth":2,"excludedRoutes":[],"approvedOpeners":[{"routePattern":"/projects/1/board","accessibleName":"Crear tarea"}]}
+                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.approvedOpeners.length()").value(1))
+                .andExpect(jsonPath("$.approvedOpeners[0].routePattern").value("/projects/{id}/board"))
+                .andExpect(jsonPath("$.approvedOpeners[0].accessibleName").value("Crear tarea"))
+                .andExpect(jsonPath("$.password").doesNotExist());
+    }
+
+    @Test
+    void passesMissingApprovedOpenersAsNullAndListsEmptyOpeners() throws Exception {
+        ProjectApplicationService service = mock(ProjectApplicationService.class);
+        TargetApplication saved = new TargetApplication("project-1", "Alpha", "http://localhost:8080", "http://localhost:8080/login", "encrypted-user", "encrypted-password");
+        when(service.createApplication(eq("project-1"), eq("Alpha"), eq("http://localhost:8080"), eq("http://localhost:8080/login"), eq("user"), eq("password"), isNull(), isNull(), isNull()))
+                .thenReturn(saved);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new ApplicationController(service)).build();
+
+        mvc.perform(post("/api/projects/project-1/applications").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"name":"Alpha","baseUrl":"http://localhost:8080","loginUrl":"http://localhost:8080/login","username":"user","password":"password"}
+                        """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.approvedOpeners").isArray())
+                .andExpect(jsonPath("$.approvedOpeners.length()").value(0));
     }
 
     @Test

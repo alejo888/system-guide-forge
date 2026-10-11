@@ -1,7 +1,9 @@
 import { Injectable, signal } from '@angular/core';
 
 export interface ProjectResponse { id: string; name: string; }
-export interface ApplicationResponse { id: string; projectId: string; name: string; baseUrl: string; loginUrl: string; maxCrawlDepth?: number; excludedRoutes?: string[]; }
+/** RF24 human-approved control that the analysis may press only to reveal a form. */
+export interface ApprovedOpener { routePattern: string; accessibleName: string; }
+export interface ApplicationResponse { id: string; projectId: string; name: string; baseUrl: string; loginUrl: string; maxCrawlDepth?: number; excludedRoutes?: string[]; approvedOpeners?: ApprovedOpener[]; }
 export type AccessResultCode = 'LOGIN_FORM_UNAVAILABLE' | 'AUTHENTICATED' | 'NOT_AUTHENTICATED' | 'BROWSER_LOGIN_FAILED' | 'HOST_REACHABLE' | 'HOST_UNREACHABLE';
 export interface AccessTestResult { reachable: boolean; authenticated: boolean; message?: string; code?: AccessResultCode; }
 export type AnalysisStatus = 'RUNNING' | 'COMPLETED' | 'FAILED';
@@ -23,7 +25,7 @@ export class ApiError extends Error {
   constructor(readonly status: number, message: string, readonly code?: string) { super(message); this.name = 'ApiError'; }
 }
 export interface ProjectInput { name: string; }
-export interface ApplicationInput { name: string; baseUrl: string; loginUrl: string; username: string; password: string; maxCrawlDepth?: number; excludedRoutes?: string[]; }
+export interface ApplicationInput { name: string; baseUrl: string; loginUrl: string; username: string; password: string; maxCrawlDepth?: number; excludedRoutes?: string[]; approvedOpeners?: ApprovedOpener[]; }
 
 export type Language = 'en' | 'es';
 

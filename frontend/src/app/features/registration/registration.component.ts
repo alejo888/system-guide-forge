@@ -18,7 +18,7 @@ export class RegistrationComponent {
   readonly editMode = this.route.snapshot.url.some(segment => segment.path === 'edit');
   readonly routeApplicationId = this.route.snapshot.paramMap.get('id') ?? '';
   readonly model = signal<ApplicationInput & { projectName: string }>({
-    projectName: '', name: '', baseUrl: '', loginUrl: '', username: '', password: '', maxCrawlDepth: 0, excludedRoutes: []
+    projectName: '', name: '', baseUrl: '', loginUrl: '', username: '', password: '', maxCrawlDepth: 0, excludedRoutes: [], approvedOpeners: []
   });
   readonly registrationForm = form(this.model, path => {
     required(path.projectName); required(path.name); required(path.baseUrl); required(path.loginUrl); required(path.username); required(path.password);
@@ -98,7 +98,9 @@ export class RegistrationComponent {
   private async loadApplication(): Promise<void> {
     try {
       const application = await this.api.getApplication(this.routeApplicationId);
-      this.model.update(model => ({ ...model, projectName: application.name, name: application.name, baseUrl: application.baseUrl, loginUrl: application.loginUrl, maxCrawlDepth: application.maxCrawlDepth ?? 0, excludedRoutes: application.excludedRoutes ?? [] }));
+      this.model.update(model => ({ ...model, projectName: application.name, name: application.name, baseUrl: application.baseUrl, loginUrl: application.loginUrl, maxCrawlDepth: application.maxCrawlDepth ?? 0, excludedRoutes: application.excludedRoutes ?? [],
+        // No editor exists yet for approved openers (RF24); keep them so an update, which replaces the list, preserves them.
+        approvedOpeners: application.approvedOpeners ?? [] }));
       this.applicationLoadState.set('ready');
     } catch { this.applicationLoadState.set('error'); }
   }
