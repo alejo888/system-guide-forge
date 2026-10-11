@@ -437,20 +437,22 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                 return unit.parentElement.tagName + '>' + unit.tagName + '>' + steps.join('>'); };
               const buttonsIn = unit => unit.querySelectorAll('button');
               const ancestors = b => { const out = []; for (let n = b.parentElement, d = 0; n && n.parentElement && n !== document.body && d < 8; n = n.parentElement, d++) out.push(n); return out; };
-              const repeating = new Set(); const withContent = new Set(); const assigned = buttons.map(() => null);
+              const repeating = new Map(); const withContent = new Set(); const assigned = buttons.map(() => null);
               buttons.forEach((b, i) => { if (!eligible(b)) return;
                 for (const unit of ancestors(b)) {
                   const members = [...unit.parentElement.children].filter(s => alike(s, unit) && buttonsIn(s).length > 0);
                   if (members.length < 2) continue;
                   const sig = signature(unit, b);
-                  if (members.every(s => buttonsIn(s).length === 1 && signature(s, buttonsIn(s)[0]) === sig)) { repeating.add(sig); assigned[i] = sig;
+                  if (members.every(s => buttonsIn(s).length === 1 && signature(s, buttonsIn(s)[0]) === sig)) { if (!repeating.has(sig)) repeating.set(sig, []); repeating.get(sig).push(unit); assigned[i] = sig;
                     if (hasContent(unit, b)) withContent.add(sig); }
                   return;
                 } });
-              // A lone card (one card left in a column) joins a signature that repeats elsewhere on the page.
+              // A lone card (one card left in a column) joins a signature that repeats elsewhere on the page, but only when it
+              // and its container look like one of those repeated cards; a same-tag-path button elsewhere stays ordinary.
+              const matchesPeer = (unit, peers) => peers.some(u => alike(u, unit) && alike(u.parentElement, unit.parentElement));
               buttons.forEach((b, i) => { if (assigned[i] !== null || !eligible(b)) return;
                 for (const unit of ancestors(b)) { if (buttonsIn(unit).length !== 1) return; const sig = signature(unit, b);
-                  if (repeating.has(sig)) { assigned[i] = sig; if (hasContent(unit, b)) withContent.add(sig); return; } } });
+                  if (repeating.has(sig)) { if (matchesPeer(unit, repeating.get(sig))) { assigned[i] = sig; if (hasContent(unit, b)) withContent.add(sig); } return; } } });
               const names = new Map();
               assigned.forEach((sig, i) => { if (sig !== null) { if (!names.has(sig)) names.set(sig, []); names.get(sig).push(nameOf(buttons[i])); } });
               // Content is judged per structure: optional fields (assignee, badges) may be absent on some cards.

@@ -478,6 +478,25 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void keepsAnUnrelatedLoneButtonWithTheSameTagPathAsAnOrdinaryButton() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Proyecto</h1><section class=\"board\"><div class=\"board-column-list\">"
+                        + "<div class=\"card\"><button type=\"button\">Revisar informe</button><p>Ana</p></div>"
+                        + "<div class=\"card\"><button type=\"button\">Migrar datos</button><p>Luis</p></div>"
+                        + "</div></section>"
+                        + "<div class=\"settings\"><div class=\"danger-zone\"><button type=\"button\">Eliminar proyecto</button><p>No se puede deshacer</p></div></div>"
+                        + "</main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::controlType,
+                        ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactlyInAnyOrder(tuple("Revisar informe", "item", ActionClassification.UNKNOWN),
+                        tuple("Migrar datos", "item", ActionClassification.UNKNOWN),
+                        tuple("Eliminar proyecto", null, ActionClassification.MUTATING));
+    }
+
+    @Test
     void keepsPerRowActionsNamedAfterTheirRecordAsOrdinaryButtons() throws Exception {
         ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
                 "<!doctype html><html><body><main><h1>Usuarios</h1><table><tbody>"
