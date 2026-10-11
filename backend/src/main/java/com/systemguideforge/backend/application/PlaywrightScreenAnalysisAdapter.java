@@ -411,14 +411,20 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
      * Read-only structural check, aligned with the locator's matches: a button is a repeated data item (a board card or
      * list entry whose name is record data) when its nearest repeating ancestor (a sibling group sharing tag and a class)
      * holds exactly one button at the same relative path, the same structural signature appears at least twice
-     * page-wide, and every name in that signature is distinct and non-empty. Per-row actions with identical names
-     * ("Desactivar" on each row), navigation-landmark buttons, tabs and submit buttons are never data items.
+     * page-wide, and every name in that signature is distinct and non-empty. Each repeating unit must also carry text
+     * beyond the button's own (a title plus assignee or priority): a wrapper holding only a button is indistinguishable
+     * from a toolbar slot. Per-row actions with identical names ("Desactivar" on each row), buttons inside navigation
+     * landmarks, toolbars or menus, tabs, and buttons that submit (explicit type=submit, or type-less inside a form)
+     * are never data items.
      */
     private static final String DATA_ITEMS_SCRIPT = """
             (buttons, landmarks) => {
-              const eligible = b => !b.closest(landmarks)
+              const eligible = b => !b.closest(landmarks + ', [role=toolbar], [role=menu], [role=menubar]')
                 && (b.getAttribute('role') || '').trim().split(/\\s+/)[0].toLowerCase() !== 'tab'
-                && (b.getAttribute('type') || '').trim().toLowerCase() !== 'submit';
+                && (b.getAttribute('type') || '').trim().toLowerCase() !== 'submit'
+                && !(b.form && (b.type || '').toLowerCase() === 'submit');
+              const textOf = n => (n.textContent || '').replace(/\\s+/g, ' ').trim();
+              const hasContent = (unit, b) => textOf(unit).length > textOf(b).length;
               const nameOf = b => (b.getAttribute('aria-label') || b.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
               const alike = (a, b) => a.tagName === b.tagName
                 && ((a.classList.length === 0 && b.classList.length === 0) || [...a.classList].some(c => b.classList.contains(c)));
@@ -432,13 +438,13 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                   const members = [...unit.parentElement.children].filter(s => alike(s, unit) && buttonsIn(s).length > 0);
                   if (members.length < 2) continue;
                   const sig = signature(unit, b);
-                  if (members.every(s => buttonsIn(s).length === 1 && signature(s, buttonsIn(s)[0]) === sig)) { repeating.add(sig); assigned[i] = sig; }
+                  if (members.every(s => buttonsIn(s).length === 1 && signature(s, buttonsIn(s)[0]) === sig) && hasContent(unit, b)) { repeating.add(sig); assigned[i] = sig; }
                   return;
                 } });
               // A lone card (one card left in a column) joins a signature that repeats elsewhere on the page.
               buttons.forEach((b, i) => { if (assigned[i] !== null || !eligible(b)) return;
                 for (const unit of ancestors(b)) { if (buttonsIn(unit).length !== 1) return; const sig = signature(unit, b);
-                  if (repeating.has(sig)) { assigned[i] = sig; return; } } });
+                  if (repeating.has(sig)) { if (hasContent(unit, b)) assigned[i] = sig; return; } } });
               const names = new Map();
               assigned.forEach((sig, i) => { if (sig !== null) { if (!names.has(sig)) names.set(sig, []); names.get(sig).push(nameOf(buttons[i])); } });
               const valid = new Set([...names].filter(([, list]) => list.length >= 2 && list.every(n => n) && new Set(list).size === list.length).map(([sig]) => sig));
@@ -447,7 +453,11 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
     private static List<Boolean> dataItems(Locator buttons) {
         try { Object result = buttons.evaluateAll(DATA_ITEMS_SCRIPT, NAVIGATION_LANDMARKS);
             return result instanceof List<?> flags ? flags.stream().map(Boolean.TRUE::equals).toList() : List.of(); }
-        catch (RuntimeException e) { return List.of(); }
+        catch (RuntimeException e) {
+            // Detection falls back to ordinary buttons; only the exception type is logged, never page content.
+            LOG.warn("Data-item detection failed; treating buttons as ordinary: exception={}", e.getClass().getName());
+            return List.of();
+        }
     }
     /** The first token of an ARIA role attribute (browsers use the first recognized one), normalized; only the attribute is read. */
     static String ariaRole(String role) {

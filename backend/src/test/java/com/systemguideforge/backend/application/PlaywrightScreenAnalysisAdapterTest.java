@@ -456,6 +456,44 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void keepsWrappedToolbarButtonsAsActionsInsteadOfDataItems() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Documento</h1>"
+                        + "<div class=\"actions\"><span class=\"btn-wrap\"><button type=\"button\">Guardar</button></span>"
+                        + "<span class=\"btn-wrap\"><button type=\"button\">Eliminar</button></span>"
+                        + "<span class=\"btn-wrap\"><button type=\"button\">Publicar</button></span></div>"
+                        + "<div class=\"actions\"><span class=\"btn-wrap\"><button type=\"button\">Duplicar</button></span>"
+                        + "<span class=\"btn-wrap\"><button type=\"button\">Archivar</button></span></div>"
+                        + "<div role=\"toolbar\"><span class=\"tool\"><button type=\"button\">Crear copia</button><small>Ctrl+D</small></span>"
+                        + "<span class=\"tool\"><button type=\"button\">Borrar todo</button><small>Ctrl+X</small></span></div>"
+                        + "</main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::controlType).doesNotContain("item");
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .filteredOn(element -> List.of("Guardar", "Eliminar", "Crear copia").contains(element.accessibleName()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsOnly(ActionClassification.MUTATING).hasSize(3);
+    }
+
+    @Test
+    void keepsImplicitSubmitButtonsOfAFormOutOfDataItems() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Solicitud</h1><form>"
+                        + "<div class=\"step\"><p>Conserva los cambios</p><button>Guardar borrador</button></div>"
+                        + "<div class=\"step\"><p>Envia la solicitud</p><button>Enviar</button></div>"
+                        + "<div class=\"step\"><p>Elimina el borrador</p><button>Eliminar borrador</button></div>"
+                        + "</form></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::controlType, ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactly(tuple(null, ActionClassification.MUTATING), tuple(null, ActionClassification.MUTATING),
+                        tuple(null, ActionClassification.MUTATING));
+    }
+
+    @Test
     void flagsLinksInsideNavigationLandmarksOnly() throws Exception {
         ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
                 "<!doctype html><html><body><header><a href=\"/next\">Cabecera</a></header><nav><a href=\"/next\">Menu</a></nav><div role=\"navigation\"><a href=\"/next\">Rol</a></div>"
