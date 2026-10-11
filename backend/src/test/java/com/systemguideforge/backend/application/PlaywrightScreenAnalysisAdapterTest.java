@@ -456,6 +456,25 @@ class PlaywrightScreenAnalysisAdapterTest {
     }
 
     @Test
+    void capturesTitleOnlyCardsAsItemsWhenTheirStructureCarriesContentElsewhere() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Tablero</h1>"
+                        + "<section class=\"board-column\"><h3>Por hacer</h3><div class=\"board-column-list\">"
+                        + "<fp-card class=\"board-card\"><button type=\"button\" class=\"card-title\"><span>Disenar pantalla de onboarding</span></button></fp-card>"
+                        + "<fp-card class=\"board-card\"><button type=\"button\" class=\"card-title\"><span>Crear backup</span></button><span class=\"assignee\">Ana</span></fp-card>"
+                        + "</div></section>"
+                        + "<section class=\"board-column\"><h3>Hecho</h3><div class=\"board-column-list\">"
+                        + "<fp-card class=\"board-card\"><button type=\"button\" class=\"card-title\"><span>Investigar soporte offline-first</span></button></fp-card>"
+                        + "</div></section></main></body></html>",
+                "<!doctype html><html><body><main><h1>Next</h1></main></body></html>");
+
+        assertThat(result.elements()).filteredOn(element -> "button".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::controlType)
+                .containsExactlyInAnyOrder(tuple("Disenar pantalla de onboarding", "item"), tuple("Crear backup", "item"),
+                        tuple("Investigar soporte offline-first", "item"));
+    }
+
+    @Test
     void keepsWrappedToolbarButtonsAsActionsInsteadOfDataItems() throws Exception {
         ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
                 "<!doctype html><html><body><main><h1>Documento</h1>"

@@ -411,9 +411,9 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
      * Read-only structural check, aligned with the locator's matches: a button is a repeated data item (a board card or
      * list entry whose name is record data) when its nearest repeating ancestor (a sibling group sharing tag and a class)
      * holds exactly one button at the same relative path, the same structural signature appears at least twice
-     * page-wide, and every name in that signature is distinct and non-empty. Each repeating unit must also carry text
-     * beyond the button's own (a title plus assignee or priority): a wrapper holding only a button is indistinguishable
-     * from a toolbar slot. Per-row actions with identical names ("Desactivar" on each row), buttons inside navigation
+     * page-wide, and every name in that signature is distinct and non-empty. At least one unit of that signature must
+     * also carry text beyond its button (a title plus assignee or priority); title-only cards then join it, while a
+     * structure whose units all hold only a button is indistinguishable from a toolbar. Per-row actions with identical names ("Desactivar" on each row), buttons inside navigation
      * landmarks, toolbars or menus, tabs, and buttons that submit (explicit type=submit, or type-less inside a form)
      * are never data items.
      */
@@ -432,22 +432,24 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                 return unit.parentElement.tagName + '>' + unit.tagName + '>' + steps.join('>'); };
               const buttonsIn = unit => unit.querySelectorAll('button');
               const ancestors = b => { const out = []; for (let n = b.parentElement, d = 0; n && n.parentElement && n !== document.body && d < 8; n = n.parentElement, d++) out.push(n); return out; };
-              const repeating = new Set(); const assigned = buttons.map(() => null);
+              const repeating = new Set(); const withContent = new Set(); const assigned = buttons.map(() => null);
               buttons.forEach((b, i) => { if (!eligible(b)) return;
                 for (const unit of ancestors(b)) {
                   const members = [...unit.parentElement.children].filter(s => alike(s, unit) && buttonsIn(s).length > 0);
                   if (members.length < 2) continue;
                   const sig = signature(unit, b);
-                  if (members.every(s => buttonsIn(s).length === 1 && signature(s, buttonsIn(s)[0]) === sig) && hasContent(unit, b)) { repeating.add(sig); assigned[i] = sig; }
+                  if (members.every(s => buttonsIn(s).length === 1 && signature(s, buttonsIn(s)[0]) === sig)) { repeating.add(sig); assigned[i] = sig;
+                    if (hasContent(unit, b)) withContent.add(sig); }
                   return;
                 } });
               // A lone card (one card left in a column) joins a signature that repeats elsewhere on the page.
               buttons.forEach((b, i) => { if (assigned[i] !== null || !eligible(b)) return;
                 for (const unit of ancestors(b)) { if (buttonsIn(unit).length !== 1) return; const sig = signature(unit, b);
-                  if (repeating.has(sig)) { if (hasContent(unit, b)) assigned[i] = sig; return; } } });
+                  if (repeating.has(sig)) { assigned[i] = sig; if (hasContent(unit, b)) withContent.add(sig); return; } } });
               const names = new Map();
               assigned.forEach((sig, i) => { if (sig !== null) { if (!names.has(sig)) names.set(sig, []); names.get(sig).push(nameOf(buttons[i])); } });
-              const valid = new Set([...names].filter(([, list]) => list.length >= 2 && list.every(n => n) && new Set(list).size === list.length).map(([sig]) => sig));
+              // Content is judged per structure: optional fields (assignee, badges) may be absent on some cards.
+              const valid = new Set([...names].filter(([sig, list]) => withContent.has(sig) && list.length >= 2 && list.every(n => n) && new Set(list).size === list.length).map(([sig]) => sig));
               return assigned.map(sig => sig !== null && valid.has(sig));
             }""";
     private static List<Boolean> dataItems(Locator buttons) {
