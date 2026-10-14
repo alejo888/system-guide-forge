@@ -76,7 +76,7 @@ public class DocumentService {
         List<Page> sourcePages = pages.findByAnalysisId(analysisId);
         Map<String, Page> pagesById = sourcePages.stream().collect(Collectors.toMap(Page::getId, page -> page));
         List<Page> derivedPages = moduleDeriver.derive(sourcePages).stream().flatMap(module -> module.pages().stream()).map(modulePage -> pagesById.get(modulePage.id())).toList();
-        Map<String, String> labels = moduleDeriver.navigationLabels(sourcePages, sourcePages.stream().flatMap(page -> elements.findByPageId(page.getId()).stream()).toList());
+        Map<String, String> labels = moduleDeriver.navigationLabels(sourcePages, sourcePages.stream().flatMap(page -> pageElements(page.getId()).stream()).toList());
         List<List<Page>> routeGroups = groupByRouteTemplate(derivedPages);
         for (int position = 0; position < routeGroups.size(); position++) {
             List<Page> routeGroup = routeGroups.get(position);
@@ -108,14 +108,18 @@ public class DocumentService {
     /** The example page's elements plus approved UNKNOWN elements from the other collapsed pages, so no manual approval is lost. */
     private List<UIElement> sectionElements(List<Page> routeGroup) {
         Comparator<UIElement> order = Comparator.comparing(UIElement::getKind, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getSelector, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getId);
-        List<UIElement> result = new ArrayList<>(elements.findByPageId(routeGroup.get(0).getId()).stream().sorted(order).toList());
+        List<UIElement> result = new ArrayList<>(pageElements(routeGroup.get(0).getId()).stream().sorted(order).toList());
         // Only elements the manual will actually show count as duplicates; excluded ones must not hide an approval.
         Set<String> seen = new HashSet<>(result.stream().filter(this::isIncludedInManual).map(this::elementIdentity).toList());
-        routeGroup.stream().skip(1).flatMap(page -> elements.findByPageId(page.getId()).stream().sorted(order))
+        routeGroup.stream().skip(1).flatMap(page -> pageElements(page.getId()).stream().sorted(order))
                 .filter(element -> classification(element) == ActionClassification.UNKNOWN && element.isManualInclusionApproved())
                 .filter(element -> seen.add(elementIdentity(element)))
                 .forEach(result::add);
         return result;
+    }
+    /** Elements visible on the page itself; opened-form elements stay out of the manual until it has wording for them. */
+    private List<UIElement> pageElements(String pageId) {
+        return elements.findByPageId(pageId).stream().filter(element -> element.getOpenerElementId() == null).toList();
     }
     private String elementIdentity(UIElement element) {
         // Every repeated data item on a page is described by the same single generic step.

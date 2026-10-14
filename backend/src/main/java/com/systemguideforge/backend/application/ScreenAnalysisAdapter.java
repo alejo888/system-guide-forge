@@ -6,9 +6,18 @@ import java.util.List;
 public interface ScreenAnalysisAdapter {
     ScreenAnalysisResult analyze(TargetApplication application, String username, String password);
 
-    /** heading is the first visible h1 (sanitized, nullable); title stays the raw document title. */
+    /** heading is the first visible h1 (sanitized, nullable); title stays the raw document title.
+     * openedForms belong to the first page only; discovered pages carry their own. */
     record ScreenAnalysisResult(String url, String title, List<DetectedElement> elements,
-                                byte[] sanitizedScreenshot, List<DiscoveredPage> discoveredPages, LoginPage loginPage, String heading) {
+                                byte[] sanitizedScreenshot, List<DiscoveredPage> discoveredPages, LoginPage loginPage, String heading,
+                                List<OpenedForm> openedForms) {
+        public ScreenAnalysisResult {
+            openedForms = openedForms == null ? List.of() : List.copyOf(openedForms);
+        }
+        public ScreenAnalysisResult(String url, String title, List<DetectedElement> elements,
+                                     byte[] sanitizedScreenshot, List<DiscoveredPage> discoveredPages, LoginPage loginPage, String heading) {
+            this(url, title, elements, sanitizedScreenshot, discoveredPages, loginPage, heading, List.of());
+        }
         public ScreenAnalysisResult(String url, String title, List<DetectedElement> elements,
                                      byte[] sanitizedScreenshot, List<DiscoveredPage> discoveredPages, LoginPage loginPage) {
             this(url, title, elements, sanitizedScreenshot, discoveredPages, loginPage, null);
@@ -23,7 +32,15 @@ public interface ScreenAnalysisAdapter {
     }
 
     record DiscoveredPage(String url, String title, List<DetectedElement> elements,
-                          byte[] sanitizedScreenshot, int depth, ActionClassification classification, String heading) {
+                          byte[] sanitizedScreenshot, int depth, ActionClassification classification, String heading,
+                          List<OpenedForm> openedForms) {
+        public DiscoveredPage {
+            openedForms = openedForms == null ? List.of() : List.copyOf(openedForms);
+        }
+        public DiscoveredPage(String url, String title, List<DetectedElement> elements,
+                              byte[] sanitizedScreenshot, int depth, ActionClassification classification, String heading) {
+            this(url, title, elements, sanitizedScreenshot, depth, classification, heading, List.of());
+        }
         public DiscoveredPage(String url, String title, List<DetectedElement> elements,
                               byte[] sanitizedScreenshot, int depth, ActionClassification classification) {
             this(url, title, elements, sanitizedScreenshot, depth, classification, null);
@@ -40,6 +57,17 @@ public interface ScreenAnalysisAdapter {
         }
         public LoginPage(String url, String title, List<DetectedElement> elements, byte[] sanitizedScreenshot) {
             this(url, title, elements, sanitizedScreenshot, null, null, null, null);
+        }
+    }
+
+    /**
+     * A form revealed by pressing a human-approved opener button (RF24) and closed again without submitting.
+     * openerName is the opener's sanitized visible name; openerSelector is the selector of that button among the page
+     * elements; elements are the controls inside the opened container, captured without focusing, typing, or choosing.
+     */
+    record OpenedForm(String openerName, String openerSelector, List<DetectedElement> elements) {
+        public OpenedForm {
+            elements = elements == null ? List.of() : List.copyOf(elements);
         }
     }
 
