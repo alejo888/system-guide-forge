@@ -805,7 +805,7 @@ class DocumentServiceTest {
     }
 
     @Test
-    void leavesOpenedFormElementsOutOfTheManualUntilTheyHaveTheirOwnWording() {
+    void describesOpenedFormElementsOnlyAsSubStepsOfTheExampleOpenerAndNeverAsNavigationOrPageSteps() {
         Page dashboard = new Page("a", "http://localhost/dashboard", "Dashboard");
         Page board1 = new Page("a", "http://localhost/projects/1/board", "FlowPilot");
         Page board2 = new Page("a", "http://localhost/projects/2/board", "FlowPilot");
@@ -821,8 +821,151 @@ class DocumentServiceTest {
 
         assertThat(document.getSections()).extracting(DocumentSection::getTitle).noneMatch(title -> title.contains("Dialog projects"));
         assertThat(document.getSections()).extracting(DocumentSection::getContent)
-                .anyMatch(content -> content.contains("\"Create task\""))
-                .noneMatch(content -> content.contains("Task title") || content.contains("Dialog archive") || content.contains("Dialog projects"));
+                .anyMatch(content -> content.contains("1. Press the \"Create task\" button. A form opens:\n   - Enter the information in the field \"Task title\".\n"))
+                .noneMatch(content -> content.contains("Dialog archive") || content.contains("Dialog projects"))
+                .noneMatch(content -> content.contains("2. Enter the information in the field \"Task title\"."));
+    }
+
+    @Test
+    void describesAnOpenedFormAsUnnumberedSubStepsUnderItsOpenerWithoutChangingTheStepNumbering() {
+        Page board = new Page("a", "http://localhost/board", "Tablero");
+        UIElement help = new UIElement(board.getId(), "a", "a:nth-of-type(1)", "Ayuda", ActionClassification.SAFE);
+        UIElement opener = new UIElement(board.getId(), "button", "button:nth-of-type(1)", "Crear tarea", ActionClassification.MUTATING);
+        UIElement export = new UIElement(board.getId(), "button", "button:nth-of-type(2)", "Exportar", ActionClassification.SAFE);
+        List<UIElement> form = List.of(
+                new UIElement(board.getId(), "button", "button:nth-of-type(2)", "Cancelar", ActionClassification.UNKNOWN, null, false, null, opener.getId()),
+                new UIElement(board.getId(), "button", "button:nth-of-type(1)", "Guardar tarea", ActionClassification.MUTATING, null, false, null, opener.getId()),
+                new UIElement(board.getId(), "textarea", "textarea:nth-of-type(1)", "Descripción", ActionClassification.UNKNOWN, null, false, null, opener.getId()),
+                new UIElement(board.getId(), "input", "input:nth-of-type(2)", "Usuario asignado (opcional)", ActionClassification.UNKNOWN, null, false, "text", opener.getId()),
+                new UIElement(board.getId(), "input", "input:nth-of-type(1)", "Título", ActionClassification.UNKNOWN, null, false, "text", opener.getId()));
+        List<UIElement> elements = new java.util.ArrayList<>(List.of(help, opener, export));
+        elements.addAll(form);
+
+        String content = generateForPages(Document.DocumentLanguage.ES, List.of(board), page -> elements).getSections().getFirst().getContent();
+
+        assertThat(content).contains("Navegación:\n1. Abrí el enlace \"Ayuda\".\nAcciones:\n"
+                + "2. Presioná el botón \"Crear tarea\". Se abre un formulario:\n"
+                + "   - Ingresá la información en el campo \"Título\".\n"
+                + "   - Ingresá la información en el campo \"Usuario asignado (opcional)\".\n"
+                + "   - Escribí la información en el campo \"Descripción\".\n"
+                + "   - Para guardar, presioná \"Guardar tarea\".\n"
+                + "   - Para cerrarlo sin guardar, presioná \"Cancelar\".\n"
+                + "3. Presioná el botón \"Exportar\".\n");
+    }
+
+    @Test
+    void wordsOpenedFormSubStepsInEnglishForAnEnglishManual() {
+        Page projects = new Page("a", "http://localhost/projects", "Projects");
+        UIElement opener = new UIElement(projects.getId(), "button", "button:nth-of-type(1)", "Create project", ActionClassification.MUTATING);
+        List<UIElement> elements = List.of(opener,
+                new UIElement(projects.getId(), "select", "select:nth-of-type(1)", "Technology", ActionClassification.UNKNOWN, null, false, null, opener.getId()),
+                new UIElement(projects.getId(), "button", "button:nth-of-type(1)", "Create project", ActionClassification.MUTATING, null, false, null, opener.getId()),
+                new UIElement(projects.getId(), "button", "button:nth-of-type(2)", " close ", ActionClassification.UNKNOWN, null, false, null, opener.getId()));
+
+        String content = generateForPages(Document.DocumentLanguage.EN, List.of(projects), page -> elements).getSections().getFirst().getContent();
+
+        assertThat(content).contains("1. Press the \"Create project\" button. A form opens:\n"
+                + "   - Choose an option in \"Technology\".\n"
+                + "   - To save, press \"Create project\".\n"
+                + "   - To close it without saving, press \" close \".\n");
+    }
+
+    @Test
+    void keepsOpenedFormIdentitiesSeparateFromThePageAndDedupesThemOnlyWithinTheirOwnForm() {
+        Page projects = new Page("a", "http://localhost/projects", "Proyectos");
+        UIElement opener = new UIElement(projects.getId(), "button", "button:nth-of-type(1)", "Crear proyecto", ActionClassification.MUTATING);
+        UIElement pageName = new UIElement(projects.getId(), "input", "input:nth-of-type(1)", "Buscar", ActionClassification.SAFE, null, false, "search");
+        List<UIElement> elements = List.of(opener, pageName,
+                new UIElement(projects.getId(), "input", "input:nth-of-type(1)", "Buscar", ActionClassification.UNKNOWN, null, false, "search", opener.getId()),
+                new UIElement(projects.getId(), "button", "button:nth-of-type(1)", "Crear proyecto", ActionClassification.MUTATING, null, false, null, opener.getId()),
+                new UIElement(projects.getId(), "button", "button:nth-of-type(2)", "Cancelar", ActionClassification.UNKNOWN, null, false, null, opener.getId()),
+                new UIElement(projects.getId(), "button", "button:nth-of-type(3)", "Cancelar", ActionClassification.UNKNOWN, null, false, null, opener.getId()));
+
+        String content = generateForPages(Document.DocumentLanguage.ES, List.of(projects), page -> elements).getSections().getFirst().getContent();
+
+        assertThat(content).contains("Presioná el botón \"Crear proyecto\". Se abre un formulario:\n"
+                + "   - Ingresá la información en el campo \"Buscar\".\n"
+                + "   - Para guardar, presioná \"Crear proyecto\".\n"
+                + "   - Para cerrarlo sin guardar, presioná \"Cancelar\".\n");
+        assertThat(content.split("Para cerrarlo sin guardar", -1)).hasSize(2);
+    }
+
+    @Test
+    void keepsTheOpenerStepUnchangedWhenNoOpenedElementIsIncludedInTheManual() {
+        Page board = new Page("a", "http://localhost/board", "Board");
+        UIElement opener = new UIElement(board.getId(), "button", "button:nth-of-type(1)", "Create task", ActionClassification.MUTATING);
+        String withoutForm = generateForPages(Document.DocumentLanguage.EN, List.of(board), page -> List.of(opener)).getSections().getFirst().getContent();
+        List<UIElement> elements = List.of(opener,
+                new UIElement(board.getId(), "button", "button:nth-of-type(1)", "Options", ActionClassification.UNKNOWN, null, false, null, opener.getId()),
+                new UIElement(board.getId(), "input", "input:nth-of-type(1)", null, ActionClassification.UNKNOWN, null, false, "text", opener.getId()),
+                new UIElement(board.getId(), "input", "input:nth-of-type(2)", "Color", ActionClassification.UNKNOWN, null, false, "color", opener.getId()));
+
+        String content = generateForPages(Document.DocumentLanguage.EN, List.of(board), page -> elements).getSections().getFirst().getContent();
+
+        assertThat(content).isEqualTo(withoutForm).contains("1. Press the \"Create task\" button.\n").doesNotContain("A form opens");
+    }
+
+    @Test
+    void keepsTheDestructiveCautionAndTheLongOptionSortInsideAnOpenedForm() {
+        Page board = new Page("a", "http://localhost/board", "Board");
+        UIElement opener = new UIElement(board.getId(), "button", "button:nth-of-type(1)", "Manage task", ActionClassification.MUTATING);
+        List<UIElement> elements = new java.util.ArrayList<>(List.of(opener,
+                new UIElement(board.getId(), "button", "button:nth-of-type(1)", "Delete task", ActionClassification.MUTATING, null, false, null, opener.getId())));
+        for (int index = 11; index >= 1; index--) {
+            elements.add(new UIElement(board.getId(), "input", "input:nth-of-type(" + (12 - index) + ")", "Label " + (char) ('a' + index - 1), ActionClassification.UNKNOWN, null, false, "checkbox", opener.getId()));
+        }
+
+        String content = generateForPages(Document.DocumentLanguage.EN, List.of(board), page -> elements).getSections().getFirst().getContent();
+
+        assertThat(content).contains("   - Select or clear the option \"Label a\".\n   - Select or clear the option \"Label b\".\n")
+                .contains("   - Select or clear the option \"Label k\".\n   - To save, press \"Delete task\". Caution: this action may permanently remove information.\n");
+    }
+
+    @Test
+    void usesTheFormOfAnotherCollapsedPageWhenTheExamplePageHasNoFormForAnOpenerWithTheSameName() {
+        Page board1 = new Page("a", "http://localhost/projects/1/board", "FlowPilot");
+        Page board2 = new Page("a", "http://localhost/projects/2/board", "FlowPilot");
+        Page board3 = new Page("a", "http://localhost/projects/3/board", "FlowPilot");
+        UIElement opener1 = new UIElement(board1.getId(), "button", "button:nth-of-type(1)", "Create task", ActionClassification.MUTATING);
+        UIElement opener2 = new UIElement(board2.getId(), "button", "button:nth-of-type(1)", "Create  TASK", ActionClassification.MUTATING);
+        UIElement opener3 = new UIElement(board3.getId(), "button", "button:nth-of-type(1)", "Create task", ActionClassification.MUTATING);
+        Document document = generateForPages(Document.DocumentLanguage.EN, List.of(board1, board2, board3), page -> page == board1
+                ? List.of(opener1)
+                : page == board2 ? List.of(opener2, new UIElement(board2.getId(), "input", "input:nth-of-type(1)", "Title", ActionClassification.UNKNOWN, null, false, "text", opener2.getId()))
+                : List.of(opener3, new UIElement(board3.getId(), "input", "input:nth-of-type(1)", "Third page field", ActionClassification.UNKNOWN, null, false, "text", opener3.getId())));
+
+        assertThat(document.getSections()).hasSize(1);
+        assertThat(document.getSections().getFirst().getContent())
+                .contains("1. Press the \"Create task\" button. A form opens:\n   - Enter the information in the field \"Title\".\n")
+                .doesNotContain("Third page field");
+    }
+
+    @Test
+    void prefersTheExamplePageFormOverTheFormsOfOtherCollapsedPages() {
+        Page board1 = new Page("a", "http://localhost/projects/1/board", "FlowPilot");
+        Page board2 = new Page("a", "http://localhost/projects/2/board", "FlowPilot");
+        UIElement opener1 = new UIElement(board1.getId(), "button", "button:nth-of-type(1)", "Create task", ActionClassification.MUTATING);
+        UIElement opener2 = new UIElement(board2.getId(), "button", "button:nth-of-type(1)", "Create task", ActionClassification.MUTATING);
+        Document document = generateForPages(Document.DocumentLanguage.EN, List.of(board1, board2), page -> page == board1
+                ? List.of(opener1, new UIElement(board1.getId(), "input", "input:nth-of-type(1)", "Title", ActionClassification.UNKNOWN, null, false, "text", opener1.getId()))
+                : List.of(opener2, new UIElement(board2.getId(), "input", "input:nth-of-type(1)", "Other page field", ActionClassification.UNKNOWN, null, false, "text", opener2.getId())));
+
+        assertThat(document.getSections().getFirst().getContent()).contains("   - Enter the information in the field \"Title\".\n").doesNotContain("Other page field");
+    }
+
+    @Test
+    void leavesOutAWholeOpenerStepWithItsSubStepsInsteadOfCuttingItAtTheContentLimit() {
+        Page board = new Page("a", "http://localhost/board", "Board");
+        UIElement first = new UIElement(board.getId(), "button", "button:nth-of-type(1)", "Archive", ActionClassification.SAFE);
+        UIElement opener = new UIElement(board.getId(), "button", "button:nth-of-type(2)", "Create task", ActionClassification.MUTATING);
+        List<UIElement> elements = new java.util.ArrayList<>(List.of(first, opener));
+        for (int index = 1; index <= 5; index++) {
+            elements.add(new UIElement(board.getId(), "input", "input:nth-of-type(" + index + ")", index + "x".repeat(2500), ActionClassification.UNKNOWN, null, false, "text", opener.getId()));
+        }
+
+        String content = generateForPages(Document.DocumentLanguage.EN, List.of(board), page -> elements).getSections().getFirst().getContent();
+
+        assertThat(content).hasSizeLessThanOrEqualTo(10000).contains("1. Press the \"Archive\" button.\n").doesNotContain("Create task").doesNotContain("   - ");
     }
 
     @Test
