@@ -954,6 +954,55 @@ class DocumentServiceTest {
     }
 
     @Test
+    void describesAPreRenderedDialogFieldCapturedTwiceOnlyInsideItsOpenedForm() {
+        Page projects = new Page("a", "http://localhost/projects", "Proyectos");
+        UIElement opener = new UIElement(projects.getId(), "button", "button:nth-of-type(1)", "Crear proyecto", ActionClassification.MUTATING);
+        List<UIElement> elements = List.of(opener,
+                new UIElement(projects.getId(), "input", "input:nth-of-type(1)", "Nombre", ActionClassification.UNKNOWN, null, false, "text"),
+                new UIElement(projects.getId(), "button", "button:nth-of-type(2)", "Cancelar", ActionClassification.SAFE),
+                new UIElement(projects.getId(), "input", "input:nth-of-type(1)", " nombre ", ActionClassification.UNKNOWN, null, false, "text", opener.getId()),
+                new UIElement(projects.getId(), "button", "button:nth-of-type(1)", "Crear proyecto", ActionClassification.MUTATING, null, false, null, opener.getId()),
+                new UIElement(projects.getId(), "button", "button:nth-of-type(2)", "Cancelar", ActionClassification.UNKNOWN, null, false, null, opener.getId()));
+
+        String content = generateForPages(Document.DocumentLanguage.ES, List.of(projects), page -> elements).getSections().getFirst().getContent();
+
+        assertThat(content).contains("Acciones:\n1. Presioná el botón \"Crear proyecto\". Se abre un formulario:\n"
+                + "   - Ingresá la información en el campo \" nombre \".\n"
+                + "   - Para guardar, presioná \"Crear proyecto\".\n"
+                + "   - Para cerrarlo sin guardar, presioná \"Cancelar\".\n")
+                .doesNotContain("Información:").doesNotContain("\"Nombre\"").doesNotContain("Presioná el botón \"Cancelar\"");
+    }
+
+    @Test
+    void stillListsAPageElementWhoseNameMatchesAnOpenedFieldButWhoseKindOrControlTypeDiffers() {
+        Page board = new Page("a", "http://localhost/board", "Board");
+        UIElement opener = new UIElement(board.getId(), "button", "button:nth-of-type(1)", "Create task", ActionClassification.MUTATING);
+        List<UIElement> elements = List.of(opener,
+                new UIElement(board.getId(), "input", "input:nth-of-type(1)", "Title", ActionClassification.UNKNOWN, null, false, "search"),
+                new UIElement(board.getId(), "textarea", "textarea:nth-of-type(1)", "Notes", ActionClassification.UNKNOWN),
+                new UIElement(board.getId(), "input", "input:nth-of-type(1)", "Title", ActionClassification.UNKNOWN, null, false, "text", opener.getId()),
+                new UIElement(board.getId(), "input", "input:nth-of-type(2)", "Notes", ActionClassification.UNKNOWN, null, false, "text", opener.getId()));
+
+        String content = generateForPages(Document.DocumentLanguage.EN, List.of(board), page -> elements).getSections().getFirst().getContent();
+
+        assertThat(content).contains("1. Enter the information in the field \"Title\".\n2. Write the information in the field \"Notes\".\n")
+                .contains("3. Press the \"Create task\" button. A form opens:\n   - Enter the information in the field \"Title\".\n   - Enter the information in the field \"Notes\".\n");
+    }
+
+    @Test
+    void keepsListingPageElementsOfAPageWithoutOpenedFormsEvenWhenAnotherPageHasAFormWithTheSameField() {
+        Page projects = new Page("a", "http://localhost/projects", "Projects");
+        Page settings = new Page("a", "http://localhost/settings", "Settings");
+        UIElement opener = new UIElement(projects.getId(), "button", "button:nth-of-type(1)", "Create project", ActionClassification.MUTATING);
+        Document document = generateForPages(Document.DocumentLanguage.EN, List.of(projects, settings), page -> page == projects
+                ? List.of(opener, new UIElement(projects.getId(), "input", "input:nth-of-type(1)", "Name", ActionClassification.UNKNOWN, null, false, "text", opener.getId()))
+                : List.of(new UIElement(settings.getId(), "input", "input:nth-of-type(1)", "Name", ActionClassification.UNKNOWN, null, false, "text")));
+
+        assertThat(document.getSections()).extracting(DocumentSection::getContent)
+                .anyMatch(content -> content.contains("Information:\n1. Enter the information in the field \"Name\".\n") && !content.contains("A form opens"));
+    }
+
+    @Test
     void leavesOutAWholeOpenerStepWithItsSubStepsInsteadOfCuttingItAtTheContentLimit() {
         Page board = new Page("a", "http://localhost/board", "Board");
         UIElement first = new UIElement(board.getId(), "button", "button:nth-of-type(1)", "Archive", ActionClassification.SAFE);

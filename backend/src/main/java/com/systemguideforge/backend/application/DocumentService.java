@@ -108,10 +108,10 @@ public class DocumentService {
     /** The example page's elements plus approved UNKNOWN elements from the other collapsed pages, so no manual approval is lost. */
     private List<UIElement> sectionElements(List<Page> routeGroup) {
         Comparator<UIElement> order = Comparator.comparing(UIElement::getKind, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getSelector, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getId);
-        List<UIElement> result = new ArrayList<>(pageElements(routeGroup.get(0).getId()).stream().sorted(order).toList());
+        List<UIElement> result = new ArrayList<>(describedPageElements(routeGroup.get(0).getId()).stream().sorted(order).toList());
         // Only elements the manual will actually show count as duplicates; excluded ones must not hide an approval.
         Set<String> seen = new HashSet<>(result.stream().filter(this::isIncludedInManual).map(this::elementIdentity).toList());
-        routeGroup.stream().skip(1).flatMap(page -> pageElements(page.getId()).stream().sorted(order))
+        routeGroup.stream().skip(1).flatMap(page -> describedPageElements(page.getId()).stream().sorted(order))
                 .filter(element -> classification(element) == ActionClassification.UNKNOWN && element.isManualInclusionApproved())
                 .filter(element -> seen.add(elementIdentity(element)))
                 .forEach(result::add);
@@ -120,6 +120,23 @@ public class DocumentService {
     /** Elements visible on the page itself; opened-form elements are only described as sub-steps of their opener. */
     private List<UIElement> pageElements(String pageId) {
         return elements.findByPageId(pageId).stream().filter(element -> element.getOpenerElementId() == null).toList();
+    }
+    /** Page elements the section describes as its own steps. A dialog pre-rendered hidden in the page is captured both by the
+     * page pass and as an opened form, so a page element matching an opened element of the same page by kind, normalized name
+     * and control type is described only inside the form; openers themselves are always kept. */
+    private List<UIElement> describedPageElements(String pageId) {
+        Map<String, List<UIElement>> forms = openedForms(pageId);
+        if (forms.isEmpty()) return pageElements(pageId);
+        Set<String> formIdentities = forms.values().stream().flatMap(List::stream).map(this::formFieldIdentity).filter(Objects::nonNull).collect(Collectors.toSet());
+        return pageElements(pageId).stream()
+                .filter(element -> forms.containsKey(element.getId()) || !formIdentities.contains(formFieldIdentity(element)))
+                .toList();
+    }
+    /** Kind, normalized name and control type; null for unnamed elements, which are never folded into a form. */
+    private String formFieldIdentity(UIElement element) {
+        String name = normalizedName(element.getAccessibleName());
+        if (name.isEmpty()) return null;
+        return normalizedKind(element.getKind()) + "|" + name + "|" + Objects.requireNonNullElse(element.getControlType(), "");
     }
     /** Elements of the forms that human-approved openers opened on the page, keyed by the opener's element id. */
     private Map<String, List<UIElement>> openedForms(String pageId) {
