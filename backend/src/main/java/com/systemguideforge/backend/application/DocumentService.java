@@ -106,12 +106,12 @@ public class DocumentService {
     }
 
     /** The example page's elements plus approved UNKNOWN elements from the other collapsed pages, so no manual approval is lost. */
+    private static final Comparator<UIElement> SECTION_ORDER = Comparator.comparing(UIElement::getKind, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getSelector, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getId);
     private List<UIElement> sectionElements(List<Page> routeGroup) {
-        Comparator<UIElement> order = Comparator.comparing(UIElement::getKind, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getSelector, Comparator.nullsFirst(String::compareTo)).thenComparing(UIElement::getId);
-        List<UIElement> result = new ArrayList<>(describedPageElements(routeGroup.get(0).getId()).stream().sorted(order).toList());
+        List<UIElement> result = new ArrayList<>(pageElements(routeGroup.get(0).getId()).stream().sorted(SECTION_ORDER).toList());
         // Only elements the manual will actually show count as duplicates; excluded ones must not hide an approval.
         Set<String> seen = new HashSet<>(result.stream().filter(this::isIncludedInManual).map(this::elementIdentity).toList());
-        routeGroup.stream().skip(1).flatMap(page -> describedPageElements(page.getId()).stream().sorted(order))
+        routeGroup.stream().skip(1).flatMap(page -> pageElements(page.getId()).stream().sorted(SECTION_ORDER))
                 .filter(element -> classification(element) == ActionClassification.UNKNOWN && element.isManualInclusionApproved())
                 .filter(element -> seen.add(elementIdentity(element)))
                 .forEach(result::add);
@@ -121,15 +121,23 @@ public class DocumentService {
     private List<UIElement> pageElements(String pageId) {
         return elements.findByPageId(pageId).stream().filter(element -> element.getOpenerElementId() == null).toList();
     }
-    /** Page elements the section describes as its own steps. A dialog pre-rendered hidden in the page is captured both by the
-     * page pass and as an opened form, so a page element matching an opened element of the same page by kind, normalized name
-     * and control type is described only inside the form; openers themselves are always kept. */
-    private List<UIElement> describedPageElements(String pageId) {
-        Map<String, List<UIElement>> forms = openedForms(pageId);
-        if (forms.isEmpty()) return pageElements(pageId);
-        Set<String> formIdentities = forms.values().stream().flatMap(List::stream).map(this::formFieldIdentity).filter(Objects::nonNull).collect(Collectors.toSet());
-        return pageElements(pageId).stream()
-                .filter(element -> forms.containsKey(element.getId()) || !formIdentities.contains(formFieldIdentity(element)))
+    /** Section elements without the page fields folded into an expanded form. A dialog pre-rendered hidden in the page is
+     * captured both by the page pass and as an opened form, so a page element matching an element of the own form of an
+     * opener on the same page (kind, normalized name and control type) is described only inside that form, and only while
+     * the opener step is shown with its sub-steps; otherwise it stays a page step. Openers themselves are always kept. */
+    private List<UIElement> withoutFoldedFields(List<UIElement> sectionElements, Map<String, List<UIElement>> forms, Set<String> expandedOpeners) {
+        Set<String> folded = new HashSet<>();
+        for (UIElement opener : sectionElements) {
+            if (!expandedOpeners.contains(opener.getId())) continue;
+            for (UIElement opened : forms.get(opener.getId())) {
+                String identity = formFieldIdentity(opened);
+                // Only the opener's own form on its own page folds; a form borrowed from another collapsed page does not.
+                if (identity != null && opener.getId().equals(opened.getOpenerElementId())) folded.add(opener.getPageId() + "|" + identity);
+            }
+        }
+        if (folded.isEmpty()) return sectionElements;
+        return sectionElements.stream()
+                .filter(element -> forms.containsKey(element.getId()) || !folded.contains(element.getPageId() + "|" + formFieldIdentity(element)))
                 .toList();
     }
     /** Kind, normalized name and control type; null for unnamed elements, which are never folded into a form. */
@@ -155,7 +163,8 @@ public class DocumentService {
             Map<String, List<UIElement>> pageForms = openedForms(page.getId());
             forms.putAll(pageForms);
             if (page == routeGroup.get(0)) continue;
-            for (UIElement candidate : pageElements(page.getId())) {
+            // Sorted like the section, so the chosen form never depends on repository row order.
+            for (UIElement candidate : pageElements(page.getId()).stream().sorted(SECTION_ORDER).toList()) {
                 String openerName = normalizedName(candidate.getAccessibleName());
                 if (pageForms.containsKey(candidate.getId()) && !openerName.isEmpty()) formsByOpenerName.putIfAbsent(openerName, pageForms.get(candidate.getId()));
             }
@@ -206,27 +215,50 @@ public class DocumentService {
             appendLoginSteps(page, spanish, result);
             return boundedText(result.toString(), CONTENT_LIMIT);
         }
-        int step = 1;
-        // Repeated controls (a logo in header and sidebar, the same link on every card) would produce identical instructions.
+        // Openers whose step is described and whose form adds sub-steps; an opener whose block does not fit the limit is
+        // shown bare instead, with its folded page fields restored, and the section is laid out again.
+        Set<String> expanded = manualElements(pageElements, spanish).stream()
+                .filter(element -> !openedFormSubSteps(forms.get(element.getId()), spanish).isEmpty())
+                .map(UIElement::getId).collect(Collectors.toCollection(HashSet::new));
+        String header = result.toString();
+        while (true) {
+            LaidOutSteps laidOut = layOutSteps(header, withoutFoldedFields(pageElements, forms, expanded), forms, expanded, spanish);
+            if (laidOut.overflowingOpener() == null) return laidOut.content();
+            expanded.remove(laidOut.overflowingOpener());
+        }
+    }
+    /** Described elements in captured order, without repeated controls (a logo in header and sidebar, the same link on
+     * every card), which would produce identical instructions. */
+    private List<UIElement> manualElements(List<UIElement> pageElements, boolean spanish) {
         Set<String> listed = new HashSet<>();
-        List<UIElement> manualElements = sortLongOptionLists(pageElements.stream().filter(this::isIncludedInManual).filter(element -> listed.add(elementIdentity(element))).toList(), spanish);
+        return sortLongOptionLists(pageElements.stream().filter(this::isIncludedInManual).filter(element -> listed.add(elementIdentity(element))).toList(), spanish);
+    }
+    /** The section content, or the first expanded opener whose step with its sub-steps does not fit the content limit. */
+    private record LaidOutSteps(String content, String overflowingOpener) {}
+    private LaidOutSteps layOutSteps(String header, List<UIElement> pageElements, Map<String, List<UIElement>> forms, Set<String> expanded, boolean spanish) {
+        StringBuilder result = new StringBuilder(header);
+        int step = 1;
+        List<UIElement> manualElements = manualElements(pageElements, spanish);
         for (InstructionGroup group : InstructionGroup.values()) {
             List<UIElement> groupElements = manualElements.stream()
                     .filter(element -> instructionGroupFor(element) == group)
                     .toList();
             boolean groupStarted = false;
             for (UIElement element : groupElements) {
-                // The opener step and its form sub-steps are one block: either all of it fits or none of it is added.
-                String instruction = instructionFor(element, step, spanish) + openedFormSubSteps(forms.get(element.getId()), spanish);
+                // The opener step and its form sub-steps are one block: it is never cut in the middle.
+                boolean expand = expanded.contains(element.getId());
+                String instruction = instructionFor(element, step, spanish) + (expand ? openedFormSubSteps(forms.get(element.getId()), spanish) : "");
                 String prefix = groupStarted ? "" : instructionGroupTitle(group, spanish) + "\n";
-                if (result.length() + prefix.length() + instruction.length() + 1 > CONTENT_LIMIT) return boundedText(result.toString(), CONTENT_LIMIT);
+                if (result.length() + prefix.length() + instruction.length() + 1 > CONTENT_LIMIT) {
+                    return expand ? new LaidOutSteps(null, element.getId()) : new LaidOutSteps(boundedText(result.toString(), CONTENT_LIMIT), null);
+                }
                 result.append(prefix).append(instruction).append('\n');
                 groupStarted = true;
                 step++;
             }
         }
         if (step == 1) result.append(spanish ? "No se identificaron acciones para documentar; consultá la información visible en esta pantalla.\n" : "No actions were identified for this guide; review the visible information on this screen.\n");
-        return boundedText(result.toString(), CONTENT_LIMIT);
+        return new LaidOutSteps(boundedText(result.toString(), CONTENT_LIMIT), null);
     }
     /** Fixed sign-in steps built only from the real captured control names; unrelated controls (logo, register,
      * forgot password, show password) are never part of the login section. */

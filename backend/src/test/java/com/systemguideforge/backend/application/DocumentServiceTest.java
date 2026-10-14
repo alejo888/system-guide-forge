@@ -1003,7 +1003,7 @@ class DocumentServiceTest {
     }
 
     @Test
-    void leavesOutAWholeOpenerStepWithItsSubStepsInsteadOfCuttingItAtTheContentLimit() {
+    void fallsBackToTheBareOpenerStepInsteadOfCuttingItsSubStepsAtTheContentLimit() {
         Page board = new Page("a", "http://localhost/board", "Board");
         UIElement first = new UIElement(board.getId(), "button", "button:nth-of-type(1)", "Archive", ActionClassification.SAFE);
         UIElement opener = new UIElement(board.getId(), "button", "button:nth-of-type(2)", "Create task", ActionClassification.MUTATING);
@@ -1014,7 +1014,63 @@ class DocumentServiceTest {
 
         String content = generateForPages(Document.DocumentLanguage.EN, List.of(board), page -> elements).getSections().getFirst().getContent();
 
-        assertThat(content).hasSizeLessThanOrEqualTo(10000).contains("1. Press the \"Archive\" button.\n").doesNotContain("Create task").doesNotContain("   - ");
+        assertThat(content).hasSizeLessThanOrEqualTo(10000).contains("1. Press the \"Archive\" button.\n2. Press the \"Create task\" button.\n")
+                .doesNotContain("A form opens").doesNotContain("   - ");
+    }
+
+    @Test
+    void keepsLaterStepsAndFoldedPageFieldsWhenAnOpenedFormDoesNotFitTheContentLimit() {
+        Page board = new Page("a", "http://localhost/board", "Board");
+        UIElement opener = new UIElement(board.getId(), "button", "button:nth-of-type(1)", "Create task", ActionClassification.MUTATING);
+        UIElement export = new UIElement(board.getId(), "button", "button:nth-of-type(2)", "Export", ActionClassification.SAFE);
+        UIElement preRendered = new UIElement(board.getId(), "input", "input:nth-of-type(1)", "Title", ActionClassification.UNKNOWN, null, false, "text");
+        List<UIElement> elements = new java.util.ArrayList<>(List.of(opener, export, preRendered,
+                new UIElement(board.getId(), "input", "input:nth-of-type(1)", "Title", ActionClassification.UNKNOWN, null, false, "text", opener.getId())));
+        for (int index = 2; index <= 6; index++) {
+            elements.add(new UIElement(board.getId(), "input", "input:nth-of-type(" + index + ")", index + "x".repeat(2500), ActionClassification.UNKNOWN, null, false, "text", opener.getId()));
+        }
+
+        String content = generateForPages(Document.DocumentLanguage.EN, List.of(board), page -> elements).getSections().getFirst().getContent();
+
+        assertThat(content).contains("Information:\n1. Enter the information in the field \"Title\".\n"
+                        + "Actions:\n2. Press the \"Create task\" button.\n3. Press the \"Export\" button.\n")
+                .doesNotContain("A form opens");
+    }
+
+    @Test
+    void stillListsPageFieldsDuplicatedByTheFormOfAnOpenerWhoseStepIsNotDescribed() {
+        Page board = new Page("a", "http://localhost/board", "Board");
+        UIElement unapproved = new UIElement(board.getId(), "button", "button:nth-of-type(1)", "Open editor", ActionClassification.UNKNOWN);
+        UIElement unnamed = new UIElement(board.getId(), "button", "button:nth-of-type(2)", null, ActionClassification.MUTATING);
+        List<UIElement> elements = List.of(unapproved, unnamed,
+                new UIElement(board.getId(), "input", "input:nth-of-type(1)", "Title", ActionClassification.UNKNOWN, null, false, "text"),
+                new UIElement(board.getId(), "textarea", "textarea:nth-of-type(1)", "Notes", ActionClassification.UNKNOWN),
+                new UIElement(board.getId(), "input", "input:nth-of-type(1)", "Title", ActionClassification.UNKNOWN, null, false, "text", unapproved.getId()),
+                new UIElement(board.getId(), "textarea", "textarea:nth-of-type(1)", "Notes", ActionClassification.UNKNOWN, null, false, null, unnamed.getId()));
+
+        String content = generateForPages(Document.DocumentLanguage.EN, List.of(board), page -> elements).getSections().getFirst().getContent();
+
+        assertThat(content).contains("Information:\n1. Enter the information in the field \"Title\".\n2. Write the information in the field \"Notes\".\n")
+                .doesNotContain("A form opens").doesNotContain("Open editor");
+    }
+
+    @Test
+    void picksTheFallbackFormOfACollapsedPageByElementOrderNotByRepositoryRowOrder() {
+        Page board1 = new Page("a", "http://localhost/projects/1/board", "FlowPilot");
+        Page board2 = new Page("a", "http://localhost/projects/2/board", "FlowPilot");
+        UIElement opener1 = new UIElement(board1.getId(), "button", "button:nth-of-type(1)", "Create task", ActionClassification.MUTATING);
+        UIElement firstOpener = new UIElement(board2.getId(), "button", "button:nth-of-type(1)", "Create task", ActionClassification.MUTATING);
+        UIElement secondOpener = new UIElement(board2.getId(), "button", "button:nth-of-type(2)", "Create task", ActionClassification.MUTATING);
+        List<UIElement> board2Rows = List.of(
+                new UIElement(board2.getId(), "input", "input:nth-of-type(1)", "Second form field", ActionClassification.UNKNOWN, null, false, "text", secondOpener.getId()),
+                secondOpener,
+                new UIElement(board2.getId(), "input", "input:nth-of-type(1)", "First form field", ActionClassification.UNKNOWN, null, false, "text", firstOpener.getId()),
+                firstOpener);
+        Document document = generateForPages(Document.DocumentLanguage.EN, List.of(board1, board2), page -> page == board1 ? List.of(opener1) : board2Rows);
+
+        assertThat(document.getSections().getFirst().getContent())
+                .contains("1. Press the \"Create task\" button. A form opens:\n   - Enter the information in the field \"First form field\".\n")
+                .doesNotContain("Second form field");
     }
 
     @Test
