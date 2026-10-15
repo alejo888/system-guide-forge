@@ -1,7 +1,7 @@
 import { ComponentFixture, fakeAsync, TestBed, tick } from '@angular/core/testing';
 import { ActivatedRoute, Router } from '@angular/router';
 import { AnalysisComponent } from './analysis.component';
-import { ApiError, ApiService, DocumentResponse, LocalizationService } from '../../core/api.service';
+import { ApiError, ApiService, ApplicationResponse, ApprovedOpener, DocumentResponse, ElementResponse, LocalizationService } from '../../core/api.service';
 
 const document: DocumentResponse = {
   id: 'doc-1', title: 'Guide', applicationId: 'app-1', sourceAnalysisId: 'analysis-1', status: 'DRAFT', language: 'en', type: 'user_manual',
@@ -597,5 +597,159 @@ describe('AnalysisComponent heading and completed status text', () => {
     component.pages.set(evidence(3));
     fixture.detectChanges();
     expect(text('.progress-card p')).toBe('Analyzed 3 pages without running any controls.');
+  });
+});
+
+describe('AnalysisComponent approve as opener', () => {
+  let fixture: ComponentFixture<AnalysisComponent>;
+  let component: AnalysisComponent;
+  let api: jasmine.SpyObj<ApiService>;
+  const analysis = { id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED' as const, startedAt: '', completedAt: null, failureMessage: null };
+  const page = { id: 'page-1', analysisId: 'analysis-1', url: 'http://localhost/projects/1/board', title: 'Board' };
+  const createTask: ElementResponse = { id: 'element-create', kind: 'button', selector: '#create-task', accessibleName: 'Create task', actionClassification: 'MUTATING', manualInclusionApproved: false };
+  const otherElements: ElementResponse[] = [
+    { id: 'element-link', kind: 'link', selector: 'a[href="/projects"]', accessibleName: 'Projects', actionClassification: 'SAFE', manualInclusionApproved: false },
+    { id: 'element-input', kind: 'input', selector: '#title', accessibleName: 'Title', actionClassification: 'UNKNOWN', manualInclusionApproved: false },
+    { id: 'element-unnamed', kind: 'button', selector: 'button:nth-of-type(2)', accessibleName: null, actionClassification: 'UNKNOWN', manualInclusionApproved: false },
+    { id: 'element-blank', kind: 'button', selector: 'button:nth-of-type(3)', accessibleName: '   ', actionClassification: 'UNKNOWN', manualInclusionApproved: false },
+  ];
+  const application = (approvedOpeners: ApprovedOpener[]): ApplicationResponse => ({ id: 'app-1', projectId: 'project-1', name: 'Portal', baseUrl: 'http://localhost', loginUrl: 'http://localhost/login', approvedOpeners });
+
+  beforeEach(async () => {
+    localStorage.setItem('sgf.language', 'en');
+    api = jasmine.createSpyObj<ApiService>('ApiService', ['getAnalysis', 'getAnalysisPages', 'getAnalysisModules', 'getPageElements', 'getPageScreenshot', 'getAnalysisDocument', 'getApplication', 'approveOpener', 'updateManualInclusion']);
+    api.getAnalysis.and.resolveTo(analysis);
+    api.getAnalysisPages.and.resolveTo([page]);
+    api.getAnalysisModules.and.resolveTo([{ key: 'projects', name: 'Projects', pages: [page] }]);
+    api.getPageElements.and.resolveTo([createTask, ...otherElements]);
+    api.getPageScreenshot.and.rejectWith(new Error('no screenshot'));
+    api.getAnalysisDocument.and.rejectWith(new ApiError(404, 'Document not found'));
+    api.getApplication.and.resolveTo(application([]));
+    await TestBed.configureTestingModule({ imports: [AnalysisComponent], providers: [
+      { provide: ApiService, useValue: api }, { provide: Router, useValue: jasmine.createSpyObj<Router>('Router', ['navigate']) }, { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => 'analysis-1' } } } },
+    ] }).compileComponents();
+  });
+
+  async function render(): Promise<void> {
+    fixture = TestBed.createComponent(AnalysisComponent); component = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+  async function settle(): Promise<void> { await fixture.whenStable(); fixture.detectChanges(); }
+  const approveButtons = (): HTMLButtonElement[] => Array.from(fixture.nativeElement.querySelectorAll('.approve-opener-button'));
+
+  it('offers "Approve as opener" only on buttons that have a visible name', async () => {
+    await render();
+
+    expect(api.getApplication).toHaveBeenCalledOnceWith('app-1');
+    const buttons = approveButtons();
+    expect(buttons.length).toBe(1);
+    expect(buttons[0].type).toBe('button');
+    expect(buttons[0].textContent).toContain('Approve as opener');
+    expect(buttons[0].getAttribute('aria-label')).toBe('Approve as opener: Create task');
+    expect(buttons[0].closest('.element-row')?.textContent).toContain('Create task');
+  });
+
+  it('sends the path of the page address and the control name without touching its classification', async () => {
+    api.approveOpener.and.resolveTo(application([{ routePattern: '/projects/{id}/board', accessibleName: 'Create task' }]));
+    await render();
+
+    approveButtons()[0].click();
+    await settle();
+
+    expect(api.approveOpener).toHaveBeenCalledOnceWith('app-1', { routePattern: '/projects/1/board', accessibleName: 'Create task' });
+    expect(api.updateManualInclusion).not.toHaveBeenCalled();
+    expect(component.pages()[0].elements[0]).toEqual(createTask);
+  });
+
+  it('shows the approved state when a stored opener matches the route template and the name ignoring case and spacing', async () => {
+    api.getApplication.and.resolveTo(application([
+      { routePattern: '/projects/{id}/list', accessibleName: 'Create task' },
+      { routePattern: '/projects/{id}/board', accessibleName: '  create   TASK ' },
+    ]));
+    await render();
+
+    expect(approveButtons().length).toBe(0);
+    const approved = fixture.nativeElement.querySelector('.opener-approved');
+    expect(approved?.textContent).toContain('Approved opener');
+    expect(approved?.closest('.element-row')?.textContent).toContain('Create task');
+  });
+
+  it('keeps offering the action when the stored openers belong to another route or control', async () => {
+    api.getApplication.and.resolveTo(application([
+      { routePattern: '/projects/{id}', accessibleName: 'Create task' },
+      { routePattern: '/projects/{id}/board', accessibleName: 'Create project' },
+    ]));
+    await render();
+
+    expect(approveButtons().length).toBe(1);
+    expect(fixture.nativeElement.querySelector('.opener-approved')).toBeNull();
+  });
+
+  it('disables the action while the approval is pending, then shows the approved state and a next-analysis notice', async () => {
+    let resolveApproval!: (value: ApplicationResponse) => void;
+    api.approveOpener.and.returnValue(new Promise(resolve => { resolveApproval = resolve; }));
+    await render();
+    component.document.set(document); component.documentState.set('ready');
+
+    approveButtons()[0].click();
+    fixture.detectChanges();
+    expect(approveButtons()[0].disabled).toBeTrue();
+
+    resolveApproval(application([{ routePattern: '/projects/{id}/board', accessibleName: 'Create task' }]));
+    await settle();
+
+    expect(approveButtons().length).toBe(0);
+    expect(fixture.nativeElement.querySelector('.opener-approved')?.textContent).toContain('Approved opener');
+    const status = fixture.nativeElement.querySelector('.opener-feedback[role="status"]');
+    expect(status?.textContent).toContain('next analysis');
+    expect(component.document()).toBe(document);
+    expect(component.documentState()).toBe('ready');
+  });
+
+  it('shows the server message when the approval is rejected and keeps the action available', async () => {
+    api.approveOpener.and.rejectWith(new ApiError(400, 'Approved opener names must not mention secrets'));
+    await render();
+
+    approveButtons()[0].click();
+    await settle();
+
+    const alert = fixture.nativeElement.querySelector('.opener-feedback[role="alert"]');
+    expect(alert?.textContent).toContain('Approved opener names must not mention secrets');
+    expect(approveButtons().length).toBe(1);
+    expect(approveButtons()[0].disabled).toBeFalse();
+  });
+
+  it('shows a generic error when the approval fails without a server message', async () => {
+    api.approveOpener.and.rejectWith(new Error('offline'));
+    await render();
+
+    approveButtons()[0].click();
+    await settle();
+
+    expect(fixture.nativeElement.querySelector('.opener-feedback[role="alert"]')?.textContent).toContain('The opener could not be approved. Please try again.');
+  });
+
+  it('still renders the analysis and allows approving when the application cannot be loaded', async () => {
+    api.getApplication.and.rejectWith(new ApiError(404, 'Application not found'));
+    await render();
+
+    expect(component.state()).toBe('ready');
+    expect(fixture.nativeElement.querySelector('.page-card')).not.toBeNull();
+    expect(approveButtons().length).toBe(1);
+  });
+
+  it('localizes the opener action and its approved state in Spanish', async () => {
+    TestBed.inject(LocalizationService).setLanguage('es');
+    api.approveOpener.and.resolveTo(application([{ routePattern: '/projects/{id}/board', accessibleName: 'Create task' }]));
+    await render();
+
+    expect(approveButtons()[0].textContent).toContain('Aprobar como apertura');
+    expect(approveButtons()[0].getAttribute('aria-label')).toBe('Aprobar como apertura: Create task');
+    approveButtons()[0].click();
+    await settle();
+    expect(fixture.nativeElement.querySelector('.opener-approved')?.textContent).toContain('Apertura aprobada');
+    expect(fixture.nativeElement.querySelector('.opener-feedback[role="status"]')?.textContent).toContain('próximo análisis');
   });
 });

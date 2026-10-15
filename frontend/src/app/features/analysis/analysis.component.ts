@@ -1,6 +1,6 @@
 import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { ApiError, ApiService, AnalysisResponse, DocumentResponse, DocumentSectionResponse, ElementResponse, FunctionalModule, PageResponse, LocalizationService, DocumentLanguage, DocumentType } from '../../core/api.service';
+import { ApiError, ApiService, AnalysisResponse, ApprovedOpener, DocumentResponse, DocumentSectionResponse, ElementResponse, FunctionalModule, PageResponse, LocalizationService, DocumentLanguage, DocumentType } from '../../core/api.service';
 
 interface PageEvidence extends PageResponse { elements: ElementResponse[]; screenshotUrl: string | null; }
 interface ManualReviewGroup { page: PageEvidence; elements: ElementResponse[]; }
@@ -8,6 +8,9 @@ type SaveState = 'idle' | 'saving' | 'success' | 'error';
 type RetryState = 'idle' | 'starting' | 'error';
 type DocxExportState = 'idle' | 'exporting' | 'error';
 type DraftLookupState = 'idle' | 'loading';
+interface OpenerFeedback { elementId: string; kind: 'success' | 'error'; message: string; }
+/** Mirrors the backend RF23 id segment: purely numeric or a UUID. */
+const ID_SEGMENT = /^(?:[0-9]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/;
 
 @Component({ selector: 'sgf-analysis', standalone: true, imports: [RouterLink], templateUrl: './analysis.component.html', styleUrl: './analysis.component.css' })
 export class AnalysisComponent implements OnInit {
@@ -23,10 +26,12 @@ export class AnalysisComponent implements OnInit {
   readonly approvedUnknownElementCount = computed(() => this.unknownReviewGroups().reduce((count, group) => count + group.elements.filter(element => element.manualInclusionApproved).length, 0));
   readonly filteredModules = computed(() => { const query = this.normalizedSearch(); const selected = this.selectedModule(); return this.modules().map(module => { const moduleMatches = !query || this.searchText(module.name, module.key).includes(query); if (selected !== 'all' && module.key !== selected) return null; const pages = module.pages.filter(page => moduleMatches || this.pageMatches(page, query)); return pages.length ? { ...module, pages } : null; }).filter((module): module is FunctionalModule => module !== null); });
   readonly state = signal<'loading' | 'ready' | 'error'>('loading'); readonly moduleState = signal<'loading' | 'ready' | 'error'>('loading'); readonly documentState = signal<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle'); readonly saveState = signal<SaveState>('idle'); readonly manualInclusionState = signal<'idle' | 'saving' | 'error'>('idle'); readonly manualInclusionMessage = signal(''); readonly retryState = signal<RetryState>('idle'); readonly retryErrorMessage = signal(''); readonly errorMessage = signal(''); readonly docxExportState = signal<DocxExportState>('idle'); readonly draftLookupState = signal<DraftLookupState>('idle');
+  /** RF24 openers already approved for this analysis' application; empty when they could not be loaded. */
+  readonly approvedOpeners = signal<ApprovedOpener[]>([]); readonly openerPendingId = signal<string | null>(null); readonly openerFeedback = signal<OpenerFeedback | null>(null);
   private draftGenerationStarted = false;
 
   ngOnInit(): void { const id = this.route.snapshot.paramMap.get('id'); if (!id) { this.fail(this.t('no-analysis-selected')); return; } void this.load(id); this.destroyRef.onDestroy(() => this.pages().forEach(p => p.screenshotUrl && URL.revokeObjectURL(p.screenshotUrl))); }
-  private async load(id: string): Promise<void> { try { const analysis = await this.api.getAnalysis(id); this.analysis.set(analysis); this.moduleState.set('loading'); const [pages, moduleResult] = await Promise.all([this.api.getAnalysisPages(id), this.api.getAnalysisModules(id).then(modules => ({ modules, failed: false })).catch(() => ({ modules: [], failed: true }))]); const pageEvidence = await Promise.all(pages.map(p => this.loadPage(p))); this.pages.set(pageEvidence); this.modules.set(moduleResult.failed ? (pages.length ? [{ key: 'unassigned', name: this.t('unassigned-pages'), pages }] : []) : moduleResult.modules); this.moduleState.set(moduleResult.failed ? 'error' : 'ready'); this.state.set('ready'); await this.loadExistingDraft(id); } catch { this.fail(this.t('analysis-load-error')); } }
+  private async load(id: string): Promise<void> { try { const analysis = await this.api.getAnalysis(id); this.analysis.set(analysis); void this.loadApprovedOpeners(analysis.applicationId); this.moduleState.set('loading'); const [pages, moduleResult] = await Promise.all([this.api.getAnalysisPages(id), this.api.getAnalysisModules(id).then(modules => ({ modules, failed: false })).catch(() => ({ modules: [], failed: true }))]); const pageEvidence = await Promise.all(pages.map(p => this.loadPage(p))); this.pages.set(pageEvidence); this.modules.set(moduleResult.failed ? (pages.length ? [{ key: 'unassigned', name: this.t('unassigned-pages'), pages }] : []) : moduleResult.modules); this.moduleState.set(moduleResult.failed ? 'error' : 'ready'); this.state.set('ready'); await this.loadExistingDraft(id); } catch { this.fail(this.t('analysis-load-error')); } }
   /** Auto-loads the analysis' single existing draft (if any) so it does not need to be regenerated on reload.
    * A 404 (no draft yet) and any other lookup failure both stay non-blocking: the state remains 'idle' and
    * manual generation remains available. If the user already triggered generation before this resolves, its
@@ -44,6 +49,38 @@ export class AnalysisComponent implements OnInit {
       this.draftLookupState.set('idle');
     }
   }
+  /** Loads the application's approved openers once; any failure leaves the list empty and approving still available. */
+  private async loadApprovedOpeners(applicationId: string): Promise<void> {
+    try { this.approvedOpeners.set((await this.api.getApplication(applicationId)).approvedOpeners ?? []); } catch { /* Unknown openers: every named button keeps its approve action. */ }
+  }
+  /** Only named buttons can open a form; links, fields, and unnamed controls never become openers. */
+  canApproveOpener(element: ElementResponse): boolean { return element.kind === 'button' && !!element.accessibleName?.trim(); }
+  /** Mirrors the backend ApprovedOpenerMatcher: same route template and same visible name ignoring case and spacing. */
+  isApprovedOpener(page: PageResponse, element: ElementResponse): boolean {
+    const route = this.routeTemplate(this.routeLabel(page.url)); const name = this.openerNameKey(element.accessibleName);
+    return this.approvedOpeners().some(opener => this.routeTemplate(opener.routePattern) === route && this.openerNameKey(opener.accessibleName) === name);
+  }
+  approveOpenerLabel(element: ElementResponse): string { return `${this.t('approve-opener')}: ${this.elementLabel(element)}`; }
+  /** RF24: approves the control for future analyses only; the current evidence, classification, and draft stay as they are. */
+  async approveOpener(page: PageResponse, element: ElementResponse): Promise<void> {
+    const applicationId = this.analysis()?.applicationId;
+    if (!applicationId || !element.accessibleName || this.openerPendingId()) return;
+    this.openerPendingId.set(element.id); this.openerFeedback.set(null);
+    try {
+      const application = await this.api.approveOpener(applicationId, { routePattern: new URL(page.url).pathname, accessibleName: element.accessibleName });
+      this.approvedOpeners.set(application.approvedOpeners ?? []);
+      this.openerFeedback.set({ elementId: element.id, kind: 'success', message: this.t('opener-approved-next-analysis') });
+    } catch (error) {
+      const message = error instanceof ApiError && error.status === 400 && error.message ? error.message : this.t('opener-approve-error');
+      this.openerFeedback.set({ elementId: element.id, kind: 'error', message });
+    } finally {
+      this.openerPendingId.set(null);
+    }
+  }
+  /** The RF23 route template of a path: numeric or UUID segments become {id}; a trailing slash is dropped. */
+  private routeTemplate(path: string): string { const template = path.split('/').map(segment => ID_SEGMENT.test(segment) ? '{id}' : segment).join('/'); return template.length > 1 && template.endsWith('/') ? template.slice(0, -1) : template; }
+  /** NFC, Java \s whitespace collapsed and trimmed, lower case: the backend's ApprovedOpenerMatcher.nameKey. */
+  private openerNameKey(name: string | null): string { return (name ?? '').normalize('NFC').replace(/[ \t\n\x0B\f\r]+/g, ' ').trim().toLowerCase(); }
   /** The completed-status sentence with the real number of pages that were analyzed. */
   completedText(): string { const count = this.pages().length; return count === 1 ? this.t('progress-completed-one') : this.t('progress-completed-many').replace('{n}', String(count)); }
   pageEvidence(id: string): PageEvidence | undefined { return this.pages().find(page => page.id === id); }
