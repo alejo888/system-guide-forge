@@ -120,7 +120,7 @@ class ProjectApplicationServiceTest {
     @Test
     void missingApprovedOpenersOnUpdateClearThemLikeExcludedRoutes() {
         var existing = TestFixtures.application("app-id");
-        when(applications.findById("app-id")).thenReturn(java.util.Optional.of(existing));
+        when(applications.findForUpdateById("app-id")).thenReturn(java.util.Optional.of(existing));
         when(protector.encrypt(any())).thenReturn("encrypted");
         when(applications.save(existing)).thenReturn(existing);
         service.updateApplication("app-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, null,
@@ -176,7 +176,7 @@ class ProjectApplicationServiceTest {
         var existing = TestFixtures.application("app-id");
         existing.updateConfiguration("App", "http://localhost:8080", "http://localhost:8080/login", "encrypted-user", "encrypted", 3, java.util.List.of("/admin"),
                 java.util.List.of(new ApprovedOpenerRule("/projects", "Crear proyecto")));
-        when(applications.findById("app-id")).thenReturn(java.util.Optional.of(existing));
+        when(applications.findForUpdateById("app-id")).thenReturn(java.util.Optional.of(existing));
         when(applications.save(existing)).thenReturn(existing);
 
         var updated = service.approveOpener("app-id", new ApprovedOpenerRule("/projects/7/board/", "  Crear   tarea "));
@@ -196,7 +196,7 @@ class ProjectApplicationServiceTest {
         var existing = TestFixtures.application("app-id");
         existing.updateConfiguration("App", "http://localhost:8080", "http://localhost:8080/login", "encrypted-user", "encrypted", 2, java.util.List.of(),
                 java.util.List.of(new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea")));
-        when(applications.findById("app-id")).thenReturn(java.util.Optional.of(existing));
+        when(applications.findForUpdateById("app-id")).thenReturn(java.util.Optional.of(existing));
 
         var updated = service.approveOpener("app-id", new ApprovedOpenerRule("/projects/12/board", "CREAR  TAREA"));
 
@@ -221,7 +221,7 @@ class ProjectApplicationServiceTest {
         var existing = TestFixtures.application("app-id");
         var fifty = java.util.stream.IntStream.range(0, 50).mapToObj(index -> new ApprovedOpenerRule("/page" + index, "Abrir")).toList();
         existing.updateConfiguration("App", "http://localhost:8080", "http://localhost:8080/login", "encrypted-user", "encrypted", 2, java.util.List.of(), fifty);
-        when(applications.findById("app-id")).thenReturn(java.util.Optional.of(existing));
+        when(applications.findForUpdateById("app-id")).thenReturn(java.util.Optional.of(existing));
 
         var error = assertThrows(IllegalArgumentException.class, () -> service.approveOpener("app-id", new ApprovedOpenerRule("/page50", "Abrir")));
 
@@ -232,7 +232,7 @@ class ProjectApplicationServiceTest {
 
     @Test
     void rejectsAnOpenerApprovalForAMissingApplication() {
-        when(applications.findById("missing")).thenReturn(java.util.Optional.empty());
+        when(applications.findForUpdateById("missing")).thenReturn(java.util.Optional.empty());
 
         assertThrows(java.util.NoSuchElementException.class, () -> service.approveOpener("missing", new ApprovedOpenerRule("/projects", "Crear proyecto")));
         verify(applications, never()).save(any());
@@ -248,7 +248,7 @@ class ProjectApplicationServiceTest {
     @Test
     void updatesConfigurationAndReencryptsCredentials() {
         var existing = TestFixtures.application("app-id");
-        when(applications.findById("app-id")).thenReturn(java.util.Optional.of(existing));
+        when(applications.findForUpdateById("app-id")).thenReturn(java.util.Optional.of(existing));
         when(protector.encrypt("new-user")).thenReturn("encrypted-new-user");
         when(protector.encrypt("new-password")).thenReturn("encrypted-new-password");
         when(applications.save(existing)).thenReturn(existing);
@@ -268,7 +268,7 @@ class ProjectApplicationServiceTest {
 
     @Test
     void rejectsMissingApplicationUpdate() {
-        when(applications.findById("missing")).thenReturn(java.util.Optional.empty());
+        when(applications.findForUpdateById("missing")).thenReturn(java.util.Optional.empty());
         assertThrows(java.util.NoSuchElementException.class, () -> service.updateApplication("missing", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password"));
         verify(applications, never()).save(any());
     }

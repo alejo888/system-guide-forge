@@ -381,6 +381,141 @@ class PersistenceTest {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void concurrentApprovalsOfOneOpenerWithDifferentCasingStoreItOnce() throws Exception {
+        withCommittedApplication(List.of(), applicationId -> {
+            List<Throwable> outcomes = approveConcurrently(applicationId,
+                    new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea"), new ApprovedOpenerRule("/projects/7/board", "CREAR TAREA"));
+
+            assertThat(outcomes).containsOnlyNulls();
+            assertThat(applications.findById(applicationId).orElseThrow().getApprovedOpeners()).hasSize(1)
+                    .allMatch(rule -> rule.routePattern().equals("/projects/{id}/board") && rule.accessibleName().equalsIgnoreCase("Crear tarea"));
+        });
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void concurrentApprovalsOfTheSameOpenerBothReturnNormally() throws Exception {
+        withCommittedApplication(List.of(), applicationId -> {
+            List<Throwable> outcomes = approveConcurrently(applicationId,
+                    new ApprovedOpenerRule("/projects", "Crear proyecto"), new ApprovedOpenerRule("/projects", "Crear proyecto"));
+
+            assertThat(outcomes).containsOnlyNulls();
+            assertThat(applications.findById(applicationId).orElseThrow().getApprovedOpeners())
+                    .containsExactly(new ApprovedOpenerRule("/projects", "Crear proyecto"));
+        });
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void concurrentApprovalsNeverStoreTheFiftyFirstOpener() throws Exception {
+        List<ApprovedOpenerRule> fortyNine = java.util.stream.IntStream.range(0, 49).mapToObj(index -> new ApprovedOpenerRule("/page" + index, "Abrir")).toList();
+        withCommittedApplication(fortyNine, applicationId -> {
+            List<Throwable> outcomes = approveConcurrently(applicationId, new ApprovedOpenerRule("/page49", "Abrir"), new ApprovedOpenerRule("/page50", "Abrir"));
+
+            // Exactly one approval takes the 50th place; the other is rejected as the 400 "too many" case.
+            assertThat(outcomes).filteredOn(java.util.Objects::isNull).hasSize(1);
+            assertThat(outcomes).filteredOn(java.util.Objects::nonNull).singleElement()
+                    .isInstanceOf(IllegalArgumentException.class).hasFieldOrPropertyWithValue("message", "Too many approved openers");
+            assertThat(applications.findById(applicationId).orElseThrow().getApprovedOpeners()).hasSize(50);
+        });
+    }
+
+    private interface CommittedApplicationCheck { void run(String applicationId) throws Exception; }
+
+    /** Commits an application with the given openers, runs the check and removes the rows (no surrounding test transaction rolls them back). */
+    private void withCommittedApplication(List<ApprovedOpenerRule> openers, CommittedApplicationCheck check) throws Exception {
+        Project project = projects.save(new Project("Concurrent opener project"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "Concurrent opener app", "http://localhost:8080", "http://localhost:8080/login",
+                "u", "p", 2, List.of(), openers));
+        try {
+            check.run(application.getId());
+        } finally {
+            applications.deleteById(application.getId());
+            projects.deleteById(project.getId());
+        }
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void serializesAFullUpdateWithAConcurrentOpenerApproval() throws Exception {
+        Project project = projects.save(new Project("Concurrent update project"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "Update and approve", "http://localhost:8080", "http://localhost:8080/login",
+                "u", "p", 2, List.of("/admin"), List.of(new ApprovedOpenerRule("/projects", "Crear proyecto"))));
+        ApprovedOpenerRule board = new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea");
+        var service = transactionalService(new java.util.concurrent.CyclicBarrier(2));
+        // This test commits its rows (no surrounding transaction), so it removes them to keep other tests independent of it.
+        try {
+            List<Throwable> outcomes = runConcurrently(
+                    () -> service.updateApplication(application.getId(), "Updated", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2,
+                            List.of("/admin"), List.of(new ApprovedOpenerRule("/projects", "Crear proyecto"), board)),
+                    () -> service.approveOpener(application.getId(), board));
+            assertThat(outcomes).containsOnlyNulls();
+            TargetApplication stored = applications.findById(application.getId()).orElseThrow();
+            // Either order leaves the same configuration: the update lists the opener and the approval adds it at most once.
+            assertThat(stored.getName()).isEqualTo("Updated");
+            assertThat(stored.getExcludedRoutes()).containsExactly("/admin");
+            assertThat(stored.getApprovedOpeners()).containsExactly(new ApprovedOpenerRule("/projects", "Crear proyecto"), board);
+        } finally {
+            applications.deleteById(application.getId());
+            projects.deleteById(project.getId());
+        }
+    }
+
+    /** Runs two approvals of one application at the same time; each outcome is null when it returned normally, else what it threw. */
+    private List<Throwable> approveConcurrently(String applicationId, ApprovedOpenerRule first, ApprovedOpenerRule second) throws Exception {
+        var service = transactionalService(new java.util.concurrent.CyclicBarrier(2));
+        return runConcurrently(() -> service.approveOpener(applicationId, first), () -> service.approveOpener(applicationId, second));
+    }
+
+    /**
+     * The service as Spring wires it (its @Transactional methods run in a transaction) over a repository whose application
+     * finders wait for the other request to load the same application too, so both checks would run against the same
+     * state unless loading serializes them. A request that cannot reach the barrier (a lock holds it in the database)
+     * lets the waiting one go on after a bounded wait instead of failing.
+     */
+    private com.systemguideforge.backend.application.ProjectApplicationService transactionalService(java.util.concurrent.CyclicBarrier loaded) {
+        var repositoryProxy = new org.springframework.aop.framework.ProxyFactory(applications);
+        repositoryProxy.addInterface(TargetApplicationRepository.class);
+        repositoryProxy.addAdvice((org.aopalliance.intercept.MethodInterceptor) invocation -> {
+            Object result = invocation.proceed();
+            if (invocation.getMethod().getName().startsWith("find") && result instanceof java.util.Optional<?>) {
+                try { loaded.await(2, java.util.concurrent.TimeUnit.SECONDS); }
+                catch (java.util.concurrent.TimeoutException | java.util.concurrent.BrokenBarrierException ignored) { /* the other request is held by a lock */ }
+            }
+            return result;
+        });
+        var repository = (TargetApplicationRepository) repositoryProxy.getProxy();
+        CredentialProtector protector = mock(CredentialProtector.class);
+        when(protector.encrypt(any())).thenAnswer(invocation -> "encrypted-" + invocation.getArgument(0));
+        var proxyFactory = new org.springframework.aop.framework.ProxyFactory(new com.systemguideforge.backend.application.ProjectApplicationService(projects, repository,
+                protector, mock(com.systemguideforge.backend.application.AccessProbe.class)));
+        proxyFactory.setProxyTargetClass(true);
+        proxyFactory.addAdvice(new org.springframework.transaction.interceptor.TransactionInterceptor(transactionManager,
+                new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource()));
+        return (com.systemguideforge.backend.application.ProjectApplicationService) proxyFactory.getProxy();
+    }
+
+    /** Starts both tasks together and waits a bounded time for each; an outcome is null when the task returned, else what it threw. */
+    private List<Throwable> runConcurrently(java.util.concurrent.Callable<?> first, java.util.concurrent.Callable<?> second) throws Exception {
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<Throwable>> futures = java.util.stream.Stream.of(first, second).map(task -> executor.submit(() -> {
+                start.await();
+                try { task.call(); return (Throwable) null; }
+                catch (Throwable error) { return error; }
+            })).toList();
+            start.countDown();
+            java.util.ArrayList<Throwable> outcomes = new java.util.ArrayList<>();
+            for (Future<Throwable> future : futures) outcomes.add(future.get(30, java.util.concurrent.TimeUnit.SECONDS));
+            return outcomes;
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void listsApplicationsOrderedByNameThenIdWithExcludedRoutesLoaded() {
         Project project = projects.save(new Project("List project"));
         TargetApplication beta = applications.save(new TargetApplication(project.getId(), "Beta", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 2, List.of("/admin", "/settings")));
