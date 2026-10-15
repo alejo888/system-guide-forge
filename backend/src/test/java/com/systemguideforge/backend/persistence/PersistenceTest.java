@@ -52,6 +52,7 @@ class PersistenceTest {
     @Autowired DocumentRepository documents;
     @Autowired DocumentSectionRepository documentSections;
     @Autowired DocumentService documentService;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @Test
     void listsAnalysesNewestFirstAndCountsTheirPages() throws InterruptedException {
@@ -312,6 +313,53 @@ class PersistenceTest {
             projects.deleteById(project.getId());
         }
         assertThat(applications.findById(application.getId())).isEmpty();
+        assertThat(entityManager.createNativeQuery("select count(*) from approved_openers where application_id = :id")
+                .setParameter("id", application.getId()).getSingleResult()).isEqualTo(0L);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void approvesOneOpenerOutsideAPersistenceSessionKeepingOpenersRoutesAndCredentials() throws Exception {
+        Project project = projects.save(new Project("Opener approval project"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "Opener approval app", "http://localhost:8080", "http://localhost:8080/login",
+                "encrypted-user", "encrypted-password", 3, List.of("/admin", "/settings"), List.of(new ApprovedOpenerRule("/projects", "Crear proyecto"))));
+        String openerRowId = (String) entityManager.createNativeQuery("select id from approved_openers where application_id = :id")
+                .setParameter("id", application.getId()).getSingleResult();
+        CredentialProtector protector = mock(CredentialProtector.class);
+        // The service as Spring wires it: its @Transactional methods run inside a transaction, the controller outside one.
+        var proxyFactory = new org.springframework.aop.framework.ProxyFactory(new com.systemguideforge.backend.application.ProjectApplicationService(projects, applications,
+                protector, mock(com.systemguideforge.backend.application.AccessProbe.class)));
+        proxyFactory.setProxyTargetClass(true);
+        proxyFactory.addAdvice(new org.springframework.transaction.interceptor.TransactionInterceptor(transactionManager,
+                new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource()));
+        var service = (com.systemguideforge.backend.application.ProjectApplicationService) proxyFactory.getProxy();
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new com.systemguideforge.backend.web.ApplicationController(service)).build();
+
+        // This test commits its rows (no surrounding transaction), so it removes them to keep other tests independent of it.
+        try {
+            for (int attempt = 0; attempt < 2; attempt++) {
+                mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/applications/" + application.getId() + "/approved-openers")
+                                .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content("{\"routePattern\":\"/projects/4/board\",\"accessibleName\":\"Crear tarea\"}"))
+                        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.approvedOpeners.length()").value(2))
+                        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.approvedOpeners[1].routePattern").value("/projects/{id}/board"))
+                        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.excludedRoutes.length()").value(2));
+            }
+
+            TargetApplication loaded = applications.findById(application.getId()).orElseThrow();
+            assertThat(loaded.getApprovedOpeners()).containsExactly(
+                    new ApprovedOpenerRule("/projects", "Crear proyecto"), new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea"));
+            assertThat(loaded.getExcludedRoutes()).containsExactly("/admin", "/settings");
+            assertThat(loaded.getMaxCrawlDepth()).isEqualTo(3);
+            assertThat(loaded.getUsernameEncrypted()).isEqualTo("encrypted-user");
+            assertThat(loaded.getPasswordEncrypted()).isEqualTo("encrypted-password");
+            assertThat(entityManager.createNativeQuery("select count(*) from approved_openers where application_id = :id and id = :row")
+                    .setParameter("id", application.getId()).setParameter("row", openerRowId).getSingleResult()).isEqualTo(1L);
+            org.mockito.Mockito.verifyNoInteractions(protector);
+        } finally {
+            applications.deleteById(application.getId());
+            projects.deleteById(project.getId());
+        }
         assertThat(entityManager.createNativeQuery("select count(*) from approved_openers where application_id = :id")
                 .setParameter("id", application.getId()).getSingleResult()).isEqualTo(0L);
     }

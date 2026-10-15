@@ -143,6 +143,44 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /applications/{applicationId}/approved-openers:
+    post:
+      tags: [Applications]
+      summary: Approve one form opener without re-entering credentials
+      description: >-
+        RF24: adds one human-approved form opener to the application, normalized and
+        validated exactly like the `approvedOpeners` of `ApplicationInput`. Credentials,
+        excluded routes, and every other field are left unchanged, so no username or
+        password is required. An opener equal to an approved one (same route template,
+        same name ignoring case and spacing) is a no-op that still succeeds. Adding a
+        51st opener is rejected.
+      operationId: approveApplicationOpener
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovedOpener'
+      responses:
+        '200':
+          description: >-
+            The application with the opener approved, as returned by GET. Credentials
+            are never returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationResponse'
+        '400':
+          description: Invalid route pattern or accessible name, or the application already has 50 approved openers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /applications/{applicationId}/test-access:
     post:
       tags: [Applications]
@@ -607,8 +645,9 @@ components:
             RF24 human-approved form openers: controls the analysis may press only to
             reveal a form. Like `excludedRoutes`, an update replaces the whole list and
             an omitted list clears it. Openers that differ only by an id segment or by
-            name case or spacing are deduplicated keeping the first-seen spelling. The
-            analysis does not press openers yet; that step arrives in a later release.
+            name case or spacing are deduplicated keeping the first-seen spelling. A
+            single opener can also be approved without credentials through
+            `POST /applications/{applicationId}/approved-openers`.
 
     ApplicationResponse:
       type: object

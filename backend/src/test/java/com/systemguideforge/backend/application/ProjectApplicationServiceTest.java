@@ -172,6 +172,73 @@ class ProjectApplicationServiceTest {
     }
 
     @Test
+    void approvesOneNormalizedOpenerKeepingTheOtherOpenersRoutesAndCredentials() {
+        var existing = TestFixtures.application("app-id");
+        existing.updateConfiguration("App", "http://localhost:8080", "http://localhost:8080/login", "encrypted-user", "encrypted", 3, java.util.List.of("/admin"),
+                java.util.List.of(new ApprovedOpenerRule("/projects", "Crear proyecto")));
+        when(applications.findById("app-id")).thenReturn(java.util.Optional.of(existing));
+        when(applications.save(existing)).thenReturn(existing);
+
+        var updated = service.approveOpener("app-id", new ApprovedOpenerRule("/projects/7/board/", "  Crear   tarea "));
+
+        assertEquals(java.util.List.of(new ApprovedOpenerRule("/projects", "Crear proyecto"), new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea")),
+                updated.getApprovedOpeners());
+        assertEquals(java.util.List.of("/admin"), updated.getExcludedRoutes());
+        assertEquals(3, updated.getMaxCrawlDepth());
+        assertEquals("encrypted-user", updated.getUsernameEncrypted());
+        assertEquals("encrypted", updated.getPasswordEncrypted());
+        verify(applications).save(existing);
+        verifyNoInteractions(protector, accessProbe);
+    }
+
+    @Test
+    void approvingAnOpenerThatIsAlreadyApprovedChangesNothing() {
+        var existing = TestFixtures.application("app-id");
+        existing.updateConfiguration("App", "http://localhost:8080", "http://localhost:8080/login", "encrypted-user", "encrypted", 2, java.util.List.of(),
+                java.util.List.of(new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea")));
+        when(applications.findById("app-id")).thenReturn(java.util.Optional.of(existing));
+
+        var updated = service.approveOpener("app-id", new ApprovedOpenerRule("/projects/12/board", "CREAR  TAREA"));
+
+        assertSame(existing, updated);
+        assertEquals(java.util.List.of(new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea")), updated.getApprovedOpeners());
+        verify(applications, never()).save(any());
+        verifyNoInteractions(protector);
+    }
+
+    @Test
+    void rejectsAnInvalidOpenerApprovalBeforeLoadingTheApplication() {
+        for (ApprovedOpenerRule opener : java.util.Arrays.asList(null, new ApprovedOpenerRule("http://localhost:8080/projects", "Crear tarea"),
+                new ApprovedOpenerRule("/projects?tab=1", "Crear tarea"), new ApprovedOpenerRule("/projects", "Mostrar contrase" + (char) 0x00F1 + "a"),
+                new ApprovedOpenerRule("/projects", " "), new ApprovedOpenerRule("/projects", "x".repeat(121)))) {
+            assertThrows(IllegalArgumentException.class, () -> service.approveOpener("app-id", opener), String.valueOf(opener));
+        }
+        verifyNoInteractions(applications, protector);
+    }
+
+    @Test
+    void rejectsTheFiftyFirstApprovedOpenerButStillAcceptsARepeatedOne() {
+        var existing = TestFixtures.application("app-id");
+        var fifty = java.util.stream.IntStream.range(0, 50).mapToObj(index -> new ApprovedOpenerRule("/page" + index, "Abrir")).toList();
+        existing.updateConfiguration("App", "http://localhost:8080", "http://localhost:8080/login", "encrypted-user", "encrypted", 2, java.util.List.of(), fifty);
+        when(applications.findById("app-id")).thenReturn(java.util.Optional.of(existing));
+
+        var error = assertThrows(IllegalArgumentException.class, () -> service.approveOpener("app-id", new ApprovedOpenerRule("/page50", "Abrir")));
+
+        assertEquals("Too many approved openers", error.getMessage());
+        assertEquals(50, service.approveOpener("app-id", new ApprovedOpenerRule("/page7", "abrir")).getApprovedOpeners().size());
+        verify(applications, never()).save(any());
+    }
+
+    @Test
+    void rejectsAnOpenerApprovalForAMissingApplication() {
+        when(applications.findById("missing")).thenReturn(java.util.Optional.empty());
+
+        assertThrows(java.util.NoSuchElementException.class, () -> service.approveOpener("missing", new ApprovedOpenerRule("/projects", "Crear proyecto")));
+        verify(applications, never()).save(any());
+    }
+
+    @Test
     void rejectsRemoteApplicationUrlBeforePersistence() {
         assertThrows(IllegalArgumentException.class, () -> service.createApplication(
                 "project-id", "App", "https://example.com", "https://example.com/login", "user", "password"));

@@ -88,6 +88,54 @@ class ApplicationControllerTest {
     }
 
     @Test
+    void approvesOneOpenerWithoutCredentialsAndReturnsTheUpdatedApplication() throws Exception {
+        ProjectApplicationService service = mock(ProjectApplicationService.class);
+        TargetApplication saved = new TargetApplication("project-1", "Alpha", "http://localhost:8080", "http://localhost:8080/login", "encrypted-user", "encrypted-password", 2,
+                List.of("/admin"), List.of(new ApprovedOpenerRule("/projects", "Crear proyecto"), new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea")));
+        when(service.approveOpener("app-1", new ApprovedOpenerRule("/projects/1/board", "Crear tarea"))).thenReturn(saved);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new ApplicationController(service)).build();
+
+        mvc.perform(post("/api/applications/app-1/approved-openers").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"routePattern":"/projects/1/board","accessibleName":"Crear tarea"}
+                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Alpha"))
+                .andExpect(jsonPath("$.excludedRoutes[0]").value("/admin"))
+                .andExpect(jsonPath("$.approvedOpeners.length()").value(2))
+                .andExpect(jsonPath("$.approvedOpeners[1].routePattern").value("/projects/{id}/board"))
+                .andExpect(jsonPath("$.approvedOpeners[1].accessibleName").value("Crear tarea"))
+                .andExpect(jsonPath("$.username").doesNotExist())
+                .andExpect(jsonPath("$.password").doesNotExist())
+                .andExpect(jsonPath("$.passwordEncrypted").doesNotExist());
+    }
+
+    @Test
+    void rejectsAnInvalidOpenerApprovalWithItsMessage() throws Exception {
+        ProjectApplicationService service = mock(ProjectApplicationService.class);
+        when(service.approveOpener("app-1", new ApprovedOpenerRule("/projects", "Show password")))
+                .thenThrow(new IllegalArgumentException("Approved opener names must be visible, non-sensitive control names of at most 120 characters"));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new ApplicationController(service)).build();
+
+        mvc.perform(post("/api/applications/app-1/approved-openers").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"routePattern":"/projects","accessibleName":"Show password"}
+                        """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Approved opener names must be visible, non-sensitive control names of at most 120 characters"));
+    }
+
+    @Test
+    void returnsNotFoundWhenApprovingAnOpenerOfAMissingApplication() throws Exception {
+        ProjectApplicationService service = mock(ProjectApplicationService.class);
+        when(service.approveOpener("missing", new ApprovedOpenerRule("/projects", "Crear proyecto"))).thenThrow(new java.util.NoSuchElementException());
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new ApplicationController(service)).build();
+
+        mvc.perform(post("/api/applications/missing/approved-openers").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"routePattern":"/projects","accessibleName":"Crear proyecto"}
+                        """))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void listsAnEmptyArrayWhenNoApplicationsAreRegistered() throws Exception {
         ProjectApplicationService service = mock(ProjectApplicationService.class);
         when(service.listApplications()).thenReturn(java.util.List.of());
