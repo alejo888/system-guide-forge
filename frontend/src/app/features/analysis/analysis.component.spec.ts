@@ -740,6 +740,56 @@ describe('AnalysisComponent approve as opener', () => {
     expect(approveButtons().length).toBe(1);
   });
 
+  it('keeps the approved state when the application load resolves after a successful approval', async () => {
+    let resolveLoad!: (value: ApplicationResponse) => void;
+    api.getApplication.and.returnValue(new Promise(resolve => { resolveLoad = resolve; }));
+    api.approveOpener.and.resolveTo(application([{ routePattern: '/projects/{id}/board', accessibleName: 'Create task' }]));
+    await render();
+
+    approveButtons()[0].click();
+    await settle();
+    expect(fixture.nativeElement.querySelector('.opener-approved')).not.toBeNull();
+
+    resolveLoad(application([]));
+    await settle();
+
+    expect(approveButtons().length).toBe(0);
+    expect(fixture.nativeElement.querySelector('.opener-approved')?.textContent).toContain('Approved opener');
+  });
+
+  it('approves two different controls concurrently, disabling each only while its own request is pending', async () => {
+    const archive: ElementResponse = { id: 'element-archive', kind: 'button', selector: '#archive', accessibleName: 'Archive board', actionClassification: 'MUTATING', manualInclusionApproved: false };
+    api.getPageElements.and.resolveTo([createTask, archive]);
+    const resolvers = new Map<string, (value: ApplicationResponse) => void>();
+    api.approveOpener.and.callFake((_id, request) => new Promise(resolve => { resolvers.set(request.accessibleName, resolve); }));
+    await render();
+    const buttonFor = (name: string) => approveButtons().find(button => button.getAttribute('aria-label') === `Approve as opener: ${name}`);
+
+    buttonFor('Create task')!.click();
+    fixture.detectChanges();
+    expect(buttonFor('Create task')!.disabled).toBeTrue();
+    expect(buttonFor('Archive board')!.disabled).toBeFalse();
+
+    buttonFor('Archive board')!.click();
+    fixture.detectChanges();
+    expect(api.approveOpener).toHaveBeenCalledTimes(2);
+    expect(buttonFor('Archive board')!.disabled).toBeTrue();
+
+    const createOnly = { routePattern: '/projects/{id}/board', accessibleName: 'Create task' };
+    const archiveOnly = { routePattern: '/projects/{id}/board', accessibleName: 'Archive board' };
+    resolvers.get('Archive board')!(application([archiveOnly]));
+    await settle();
+    expect(buttonFor('Archive board')).toBeUndefined();
+    expect(buttonFor('Create task')!.disabled).toBeTrue();
+
+    resolvers.get('Create task')!(application([createOnly]));
+    await settle();
+
+    expect(approveButtons().length).toBe(0);
+    expect(fixture.nativeElement.querySelectorAll('.opener-approved').length).toBe(2);
+    expect(fixture.nativeElement.querySelectorAll('.opener-feedback[role="status"]').length).toBe(2);
+  });
+
   it('localizes the opener action and its approved state in Spanish', async () => {
     TestBed.inject(LocalizationService).setLanguage('es');
     api.approveOpener.and.resolveTo(application([{ routePattern: '/projects/{id}/board', accessibleName: 'Create task' }]));

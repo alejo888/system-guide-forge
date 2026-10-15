@@ -27,8 +27,10 @@ export class AnalysisComponent implements OnInit {
   readonly filteredModules = computed(() => { const query = this.normalizedSearch(); const selected = this.selectedModule(); return this.modules().map(module => { const moduleMatches = !query || this.searchText(module.name, module.key).includes(query); if (selected !== 'all' && module.key !== selected) return null; const pages = module.pages.filter(page => moduleMatches || this.pageMatches(page, query)); return pages.length ? { ...module, pages } : null; }).filter((module): module is FunctionalModule => module !== null); });
   readonly state = signal<'loading' | 'ready' | 'error'>('loading'); readonly moduleState = signal<'loading' | 'ready' | 'error'>('loading'); readonly documentState = signal<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle'); readonly saveState = signal<SaveState>('idle'); readonly manualInclusionState = signal<'idle' | 'saving' | 'error'>('idle'); readonly manualInclusionMessage = signal(''); readonly retryState = signal<RetryState>('idle'); readonly retryErrorMessage = signal(''); readonly errorMessage = signal(''); readonly docxExportState = signal<DocxExportState>('idle'); readonly draftLookupState = signal<DraftLookupState>('idle');
   /** RF24 openers already approved for this analysis' application; empty when they could not be loaded. */
-  readonly approvedOpeners = signal<ApprovedOpener[]>([]); readonly openerPendingId = signal<string | null>(null); readonly openerFeedback = signal<OpenerFeedback | null>(null);
+  readonly approvedOpeners = signal<ApprovedOpener[]>([]); readonly openerPendingIds = signal<ReadonlySet<string>>(new Set()); readonly openerFeedback = signal<ReadonlyMap<string, OpenerFeedback>>(new Map());
   private draftGenerationStarted = false;
+  /** Every opener-list request (load or approval) takes the next number, so a load that resolves after a newer approval was applied is discarded. */
+  private openerRequestSequence = 0; private openerAppliedSequence = 0;
 
   ngOnInit(): void { const id = this.route.snapshot.paramMap.get('id'); if (!id) { this.fail(this.t('no-analysis-selected')); return; } void this.load(id); this.destroyRef.onDestroy(() => this.pages().forEach(p => p.screenshotUrl && URL.revokeObjectURL(p.screenshotUrl))); }
   private async load(id: string): Promise<void> { try { const analysis = await this.api.getAnalysis(id); this.analysis.set(analysis); void this.loadApprovedOpeners(analysis.applicationId); this.moduleState.set('loading'); const [pages, moduleResult] = await Promise.all([this.api.getAnalysisPages(id), this.api.getAnalysisModules(id).then(modules => ({ modules, failed: false })).catch(() => ({ modules: [], failed: true }))]); const pageEvidence = await Promise.all(pages.map(p => this.loadPage(p))); this.pages.set(pageEvidence); this.modules.set(moduleResult.failed ? (pages.length ? [{ key: 'unassigned', name: this.t('unassigned-pages'), pages }] : []) : moduleResult.modules); this.moduleState.set(moduleResult.failed ? 'error' : 'ready'); this.state.set('ready'); await this.loadExistingDraft(id); } catch { this.fail(this.t('analysis-load-error')); } }
@@ -51,8 +53,24 @@ export class AnalysisComponent implements OnInit {
   }
   /** Loads the application's approved openers once; any failure leaves the list empty and approving still available. */
   private async loadApprovedOpeners(applicationId: string): Promise<void> {
-    try { this.approvedOpeners.set((await this.api.getApplication(applicationId)).approvedOpeners ?? []); } catch { /* Unknown openers: every named button keeps its approve action. */ }
+    const sequence = ++this.openerRequestSequence;
+    try { this.applyApprovedOpeners(sequence, (await this.api.getApplication(applicationId)).approvedOpeners, false); } catch { /* Unknown openers: every named button keeps its approve action. */ }
   }
+  /** A load replaces the list unless a newer approval was already applied. An approval response is merged instead:
+   * approvals only add openers, and concurrent approvals may be answered by the server in any order, so a response that
+   * lacks another just-approved opener must not drop it. */
+  private applyApprovedOpeners(sequence: number, openers: ApprovedOpener[] | null | undefined, merge: boolean): void {
+    if (!merge && sequence < this.openerAppliedSequence) return;
+    const received = openers ?? [];
+    const key = (opener: ApprovedOpener): string => `${this.routeTemplate(opener.routePattern)}\n${this.openerNameKey(opener.accessibleName)}`;
+    const receivedKeys = new Set(received.map(key));
+    this.openerAppliedSequence = Math.max(this.openerAppliedSequence, sequence);
+    this.approvedOpeners.set(merge ? [...received, ...this.approvedOpeners().filter(opener => !receivedKeys.has(key(opener)))] : received);
+  }
+  isOpenerPending(element: ElementResponse): boolean { return this.openerPendingIds().has(element.id); }
+  openerFeedbackFor(element: ElementResponse): OpenerFeedback | undefined { return this.openerFeedback().get(element.id); }
+  private setOpenerPending(elementId: string, pending: boolean): void { this.openerPendingIds.update(ids => { const next = new Set(ids); if (pending) next.add(elementId); else next.delete(elementId); return next; }); }
+  private setOpenerFeedback(elementId: string, feedback: OpenerFeedback | null): void { this.openerFeedback.update(current => { const next = new Map(current); if (feedback) next.set(elementId, feedback); else next.delete(elementId); return next; }); }
   /** Only named buttons can open a form; links, fields, and unnamed controls never become openers. */
   canApproveOpener(element: ElementResponse): boolean { return element.kind === 'button' && !!element.accessibleName?.trim(); }
   /** Mirrors the backend ApprovedOpenerMatcher: same route template and same visible name ignoring case and spacing. */
@@ -64,17 +82,18 @@ export class AnalysisComponent implements OnInit {
   /** RF24: approves the control for future analyses only; the current evidence, classification, and draft stay as they are. */
   async approveOpener(page: PageResponse, element: ElementResponse): Promise<void> {
     const applicationId = this.analysis()?.applicationId;
-    if (!applicationId || !element.accessibleName || this.openerPendingId()) return;
-    this.openerPendingId.set(element.id); this.openerFeedback.set(null);
+    if (!applicationId || !element.accessibleName || this.isOpenerPending(element)) return;
+    this.setOpenerPending(element.id, true); this.setOpenerFeedback(element.id, null);
+    const sequence = ++this.openerRequestSequence;
     try {
       const application = await this.api.approveOpener(applicationId, { routePattern: new URL(page.url).pathname, accessibleName: element.accessibleName });
-      this.approvedOpeners.set(application.approvedOpeners ?? []);
-      this.openerFeedback.set({ elementId: element.id, kind: 'success', message: this.t('opener-approved-next-analysis') });
+      this.applyApprovedOpeners(sequence, application.approvedOpeners, true);
+      this.setOpenerFeedback(element.id, { elementId: element.id, kind: 'success', message: this.t('opener-approved-next-analysis') });
     } catch (error) {
       const message = error instanceof ApiError && error.status === 400 && error.message ? error.message : this.t('opener-approve-error');
-      this.openerFeedback.set({ elementId: element.id, kind: 'error', message });
+      this.setOpenerFeedback(element.id, { elementId: element.id, kind: 'error', message });
     } finally {
-      this.openerPendingId.set(null);
+      this.setOpenerPending(element.id, false);
     }
   }
   /** The RF23 route template of a path: numeric or UUID segments become {id}; a trailing slash is dropped. */
