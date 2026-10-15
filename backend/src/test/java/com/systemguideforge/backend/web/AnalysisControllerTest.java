@@ -57,7 +57,8 @@ class AnalysisControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[0].controlType").value("tab"))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[1].controlType").value("email"))
-                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[2].controlType").doesNotExist());
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[2]").value(org.hamcrest.Matchers.hasKey("controlType")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[2].controlType").value(org.hamcrest.Matchers.nullValue()));
     }
 
     @Test
