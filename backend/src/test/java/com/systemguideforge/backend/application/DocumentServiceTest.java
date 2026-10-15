@@ -1275,6 +1275,39 @@ class DocumentServiceTest {
     }
 
     @Test
+    void regeneratesADraftWithTheSameGenerationSettingsAfterExplicitConfirmation() {
+        Analysis analysis = new Analysis("application-1");
+        analysis.complete();
+        Page page = new Page(analysis.getId(), "http://localhost/home", "Home");
+        Document existing = new Document(analysis.getId(), analysis.getApplicationId(), Document.DocumentLanguage.EN, Document.DocumentType.USER_MANUAL);
+        DocumentSection editedSection = new DocumentSection(existing.getId(), 0, page.getId(), null, "My edited title", "My edited content.");
+        existing.replaceSections(new java.util.ArrayList<>(List.of(editedSection)));
+        AnalysisRepository analyses = mock(AnalysisRepository.class);
+        PageRepository pages = mock(PageRepository.class);
+        DocumentRepository documents = mock(DocumentRepository.class);
+        DocumentSectionRepository sections = mock(DocumentSectionRepository.class);
+        when(analyses.findById(analysis.getId())).thenReturn(Optional.of(analysis));
+        when(documents.findBySourceAnalysisId(analysis.getId())).thenReturn(Optional.of(existing));
+        when(pages.findByAnalysisId(analysis.getId())).thenReturn(List.of(page));
+        when(sections.findByDocumentIdOrderByPositionAsc(existing.getId())).thenReturn(List.of(editedSection));
+        when(sections.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        String originalId = existing.getId();
+
+        Document result = service(analyses, pages, mock(UIElementRepository.class), mock(ScreenshotRepository.class), documents, sections)
+                .generate(analysis.getId(), Document.DocumentLanguage.EN, Document.DocumentType.USER_MANUAL, true);
+
+        assertThat(result).isSameAs(existing);
+        assertThat(result.getId()).isEqualTo(originalId);
+        assertThat(result.getLanguage()).isEqualTo(Document.DocumentLanguage.EN);
+        assertThat(result.getType()).isEqualTo(Document.DocumentType.USER_MANUAL);
+        verify(sections).deleteAll(List.of(editedSection));
+        verify(documents, never()).saveAndFlush(any());
+        assertThat(result.getSections()).isNotEmpty().doesNotContain(editedSection);
+        assertThat(result.getSections()).extracting(DocumentSection::getTitle).doesNotContain("My edited title");
+        assertThat(result.getSections()).extracting(DocumentSection::getContent).doesNotContain("My edited content.");
+    }
+
+    @Test
     void getsExistingDraftForAnalysisWithOrderedSections() {
         Analysis analysis = new Analysis("application-1");
         analysis.complete();

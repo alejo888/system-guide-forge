@@ -260,6 +260,60 @@ describe('AnalysisComponent document editing', () => {
     expect(component.document()).toBe(document);
     expect(component.documentState()).toBe('ready');
   });
+  it('offers regeneration only while a loaded draft matches the selected language and type', () => {
+    component.setDocumentLanguage('en');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.regenerate-draft')?.textContent).toContain('Regenerate (discards edits)');
+
+    component.setDocumentLanguage('es');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.regenerate-draft')).toBeNull();
+
+    component.setDocumentLanguage('en');
+    component.document.set(null);
+    component.documentState.set('idle');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.regenerate-draft')).toBeNull();
+  });
+  it('regenerates the matching draft with explicit confirmation and shows the rebuilt draft', async () => {
+    component.setDocumentLanguage('en');
+    const rebuilt: DocumentResponse = { ...document, title: 'Rebuilt guide', sections: [{ id: 'section-new', position: 0, sourcePageId: 'page-1', screenshotId: null, title: 'Regenerated', content: 'Fresh content', hidden: false }] };
+    api.generateDocument.and.resolveTo(rebuilt);
+    component.editTitle('My edited title');
+    fixture.detectChanges();
+
+    fixture.nativeElement.querySelector('.regenerate-draft').click();
+    await fixture.whenStable();
+
+    expect(window.confirm).toHaveBeenCalledOnceWith('Regenerating discards every edit made to this draft and rebuilds it from the analysis evidence. Do you want to continue?');
+    expect(api.generateDocument).toHaveBeenCalledOnceWith('analysis-1', { language: 'en', type: 'user_manual', confirmReplacement: true });
+    expect(component.document()).toBe(rebuilt);
+    expect(component.editableTitle()).toBe('Rebuilt guide');
+    expect(component.editableSections().map(section => section.title)).toEqual(['Regenerated']);
+    expect(component.documentState()).toBe('ready');
+  });
+  it('keeps the draft and its edits when regeneration is cancelled', async () => {
+    component.setDocumentLanguage('en');
+    component.editTitle('My edited title');
+    (window.confirm as jasmine.Spy).and.returnValue(false);
+
+    await component.regenerateDocument();
+
+    expect(window.confirm).toHaveBeenCalledTimes(1);
+    expect(api.generateDocument).not.toHaveBeenCalled();
+    expect(component.document()).toBe(document);
+    expect(component.editableTitle()).toBe('My edited title');
+    expect(component.documentState()).toBe('ready');
+  });
+  it('reports a regeneration failure without calling the API again', async () => {
+    component.setDocumentLanguage('en');
+    api.generateDocument.and.rejectWith(new ApiError(500, 'boom'));
+
+    await component.regenerateDocument();
+
+    expect(api.generateDocument).toHaveBeenCalledOnceWith('analysis-1', { language: 'en', type: 'user_manual', confirmReplacement: true });
+    expect(component.documentState()).toBe('error');
+  });
       it('reorders sections by array order', () => { component.moveSection('section-2', -1); expect(component.editableSections().map(section => section.id)).toEqual(['section-2', 'section-1']); });
     it('keeps hidden sections in the editable array while excluding them from the reader-facing draft', () => { expect(component.visibleSections().map(section => section.id)).toEqual(['section-1']); expect(component.hiddenSections().map(section => section.id)).toEqual(['section-2']); component.setSectionHidden('section-2', false); expect(component.editableSections()[1].hidden).toBeFalse(); });
     it('renders a traceable hidden management row outside the draft content and contents list', () => { fixture.detectChanges(); expect(fixture.nativeElement.querySelectorAll('.draft-card').length).toBe(1); expect(fixture.nativeElement.querySelector('.hidden-section-row').textContent).toContain('Source page: page-2'); expect(fixture.nativeElement.querySelector('.hidden-section-row').textContent).toContain('Screenshot: Unavailable'); expect(fixture.nativeElement.querySelector('.toc-card').textContent).toContain('First'); expect(fixture.nativeElement.querySelector('.toc-card').textContent).not.toContain('Second'); });

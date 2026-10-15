@@ -172,6 +172,25 @@ export class AnalysisComponent implements OnInit {
       this.documentState.set('error');
     }
   }
+  /** RF11: a matching draft is only rebuilt on explicit request, because regeneration discards every edit. */
+  canRegenerateDocument(): boolean {
+    const current = this.document();
+    return !!current && current.language === this.documentLanguage() && current.type === this.documentType();
+  }
+  async regenerateDocument(): Promise<void> {
+    const id = this.analysis()?.id;
+    if (!id || !this.canRegenerateDocument()) return;
+    if (!window.confirm(this.t('regenerate-draft-confirmation'))) return;
+    this.draftGenerationStarted = true;
+    this.draftLookupState.set('idle');
+    this.documentState.set('loading');
+    try {
+      const regenerated = await this.api.generateDocument(id, { language: this.documentLanguage(), type: this.documentType(), confirmReplacement: true });
+      this.setGeneratedDocument(regenerated);
+    } catch {
+      this.documentState.set('error');
+    }
+  }
   async setManualInclusionApproval(elementId: string, approved: boolean): Promise<void> { this.manualInclusionState.set('saving'); this.manualInclusionMessage.set(''); try { const updated = await this.api.updateManualInclusion(elementId, approved); this.pages.update(pages => pages.map(page => ({ ...page, elements: page.elements.map(element => element.id === elementId ? updated : element) }))); if (this.document()) { this.document.set(null); this.editableTitle.set(''); this.editableSections.set([]); this.documentState.set('idle'); this.saveState.set('idle'); this.manualInclusionMessage.set(this.t('draft-invalidated')); } else this.manualInclusionMessage.set(this.t('manual-inclusion-updated')); this.manualInclusionState.set('idle'); } catch { this.manualInclusionState.set('error'); this.manualInclusionMessage.set(this.t('manual-inclusion-error')); } }
   editTitle(title: string): void { this.ensureEditable(); this.editableTitle.set(title); }
   editSectionTitle(id: string, title: string): void { this.updateSection(id, section => ({ ...section, title })); }

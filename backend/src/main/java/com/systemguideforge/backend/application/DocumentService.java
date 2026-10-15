@@ -59,7 +59,9 @@ public class DocumentService {
         Analysis analysis = analyses.findById(analysisId).orElseThrow(AnalysisNotFoundException::new);
         if (analysis.getStatus() != AnalysisStatus.COMPLETED) throw new AnalysisNotCompletedException();
         Optional<Document> existing = documents.findBySourceAnalysisId(analysisId);
-        if (existing.isPresent() && language == existing.get().getLanguage() && type == existing.get().getType() && !isLegacyTechnicalUserManual(existing.get())) return load(existing.get());
+        // RF11: a repeated request with the same settings reuses the draft (keeping edits) unless the user explicitly confirmed
+        // regeneration, which takes the same transactional replacement path as a settings change (RF12) and discards edits.
+        if (existing.isPresent() && !confirmReplacement && language == existing.get().getLanguage() && type == existing.get().getType() && !isLegacyTechnicalUserManual(existing.get())) return load(existing.get());
         if (existing.isPresent() && !confirmReplacement) throw new DraftReplacementConfirmationRequiredException();
         Document document = existing.orElseGet(() -> {
             String applicationId = analysis.getApplicationId();
