@@ -1282,6 +1282,7 @@ class DocumentServiceTest {
         Document existing = new Document(analysis.getId(), analysis.getApplicationId(), Document.DocumentLanguage.EN, Document.DocumentType.USER_MANUAL);
         DocumentSection editedSection = new DocumentSection(existing.getId(), 0, page.getId(), null, "My edited title", "My edited content.");
         existing.replaceSections(new java.util.ArrayList<>(List.of(editedSection)));
+        existing.updateTitle("My edited document title");
         AnalysisRepository analyses = mock(AnalysisRepository.class);
         PageRepository pages = mock(PageRepository.class);
         DocumentRepository documents = mock(DocumentRepository.class);
@@ -1305,6 +1306,7 @@ class DocumentServiceTest {
         assertThat(result.getSections()).isNotEmpty().doesNotContain(editedSection);
         assertThat(result.getSections()).extracting(DocumentSection::getTitle).doesNotContain("My edited title");
         assertThat(result.getSections()).extracting(DocumentSection::getContent).doesNotContain("My edited content.");
+        assertThat(result.getTitle()).isNotBlank().isNotEqualTo("My edited document title");
     }
 
     @Test
