@@ -22,6 +22,12 @@ describe('RegistrationComponent crawler configuration', () => {
     component = fixture.componentInstance;
   });
 
+  it('numbers the project, application, and crawler sections consecutively when registering', () => {
+    fixture.detectChanges();
+    const steps = Array.from(fixture.nativeElement.querySelectorAll('.form-section .step') as NodeListOf<HTMLElement>).map(step => step.textContent?.trim());
+    expect(steps).toEqual(['01', '02', '03']);
+  });
+
   it('toggles password visibility with an accessible button without changing the value', () => {
     component.model.update(value => ({ ...value, password: 'secret' }));
     fixture.detectChanges();
@@ -250,6 +256,15 @@ describe('RegistrationComponent crawler configuration', () => {
       routeUrl.push({ path: 'edit' }, { path: 'app-1' });
       routeParams['id'] = 'app-1';
       api.getApplication.and.resolveTo(existing);
+    });
+
+    it('numbers the visible sections consecutively without the project section', async () => {
+      const edit = TestBed.createComponent(RegistrationComponent);
+      edit.detectChanges();
+      await edit.whenStable();
+      edit.detectChanges();
+      const steps = Array.from(edit.nativeElement.querySelectorAll('.form-section .step') as NodeListOf<HTMLElement>).map(step => step.textContent?.trim());
+      expect(steps).toEqual(['01', '02']);
     });
 
     it('loads the application by route id and hydrates the form without credentials', async () => {
