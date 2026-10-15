@@ -54,9 +54,18 @@ public class TargetApplication {
         setExcludedRoutes(excludedRoutes);
         setApprovedOpeners(approvedOpeners);
     }
+    /**
+     * Keeps the rows of routes that stay excluded, in the given order, and only adds the new ones, for the same reason
+     * as {@link #setApprovedOpeners}: inside one transaction a re-inserted unchanged route would collide with the
+     * unique (application, path) key before its old row is deleted.
+     */
     private void setExcludedRoutes(List<String> routes) {
+        Map<String, ExcludedRoute> existing = new HashMap<>();
+        for (ExcludedRoute route : excludedRouteEntities) existing.put(route.getPath(), route);
+        List<ExcludedRoute> wanted = new ArrayList<>();
+        if (routes != null) for (String route : routes) wanted.add(existing.containsKey(route) ? existing.get(route) : new ExcludedRoute(id, route));
         excludedRouteEntities.clear();
-        if (routes != null) for (String route : routes) excludedRouteEntities.add(new ExcludedRoute(id, route));
+        excludedRouteEntities.addAll(wanted);
     }
     /**
      * Keeps the rows of openers that stay approved and only adds the new ones: Hibernate flushes inserts before

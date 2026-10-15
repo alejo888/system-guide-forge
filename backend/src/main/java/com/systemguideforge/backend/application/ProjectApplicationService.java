@@ -39,16 +39,25 @@ public class ProjectApplicationService {
     }
     public List<TargetApplication> listApplications() { return applications.findAllByOrderByNameAscIdAsc(); }
     public Optional<TargetApplication> getApplication(String id) { return applications.findById(id); }
+    // The shorter overloads call the full one directly, past Spring's proxy, so each needs its own @Transactional:
+    // without it findForUpdateById's SELECT ... FOR UPDATE has no transaction to lock the application in.
+    @Transactional
     public TargetApplication updateApplication(String id, String name, String baseUrl, String loginUrl, String username, String password) {
         return updateApplication(id, name, baseUrl, loginUrl, username, password, DEFAULT_CRAWL_DEPTH, List.of());
     }
+    @Transactional
     public TargetApplication updateApplication(String id, String name, String baseUrl, String loginUrl, String username, String password, Integer maxCrawlDepth, List<String> excludedRoutes) {
         return updateApplication(id, name, baseUrl, loginUrl, username, password, maxCrawlDepth, excludedRoutes, List.of());
     }
-    /** A full replacement, like the rest of the configuration: missing ({@code null}) excluded routes or approved openers clear them. */
+    /**
+     * A full replacement, like the rest of the configuration: missing ({@code null}) excluded routes or approved openers
+     * clear them. It locks the application like {@link #approveOpener}, so an approval made meanwhile is either replaced
+     * as a whole or applied on top of this update, never interleaved with it.
+     */
+    @Transactional
     public TargetApplication updateApplication(String id, String name, String baseUrl, String loginUrl, String username, String password, Integer maxCrawlDepth, List<String> excludedRoutes, List<ApprovedOpenerRule> approvedOpeners) {
         validateConfiguration(name, baseUrl, loginUrl, username, password, maxCrawlDepth, excludedRoutes, approvedOpeners);
-        TargetApplication application = applications.findById(id).orElseThrow();
+        TargetApplication application = applications.findForUpdateById(id).orElseThrow();
         application.updateConfiguration(name, baseUrl, loginUrl, protector.encrypt(username), protector.encrypt(password), effectiveDepth(maxCrawlDepth), normalizeRoutes(excludedRoutes), normalizeApprovedOpeners(approvedOpeners));
         return applications.save(application);
     }
@@ -56,12 +65,14 @@ public class ProjectApplicationService {
      * RF24: approves one more opener without touching the credentials or any other field, so it needs no password.
      * The rule is normalized like {@link #normalizeApprovedOpeners}; an opener the matcher already treats as approved
      * is a no-op. Transactional so the new row is added to the loaded openers instead of merging a detached copy over
-     * rows another request may have added meanwhile.
+     * rows another request may have added meanwhile, and the application row stays locked until commit: concurrent
+     * approvals run one after the other, so the duplicate and limit checks see the openers the previous one committed
+     * (no 51st opener, no case variant of an approved one, and an exact repeat stays a no-op instead of a key conflict).
      */
     @Transactional
     public TargetApplication approveOpener(String id, ApprovedOpenerRule opener) {
         ApprovedOpenerRule rule = normalizeApprovedOpener(opener);
-        TargetApplication application = applications.findById(id).orElseThrow();
+        TargetApplication application = applications.findForUpdateById(id).orElseThrow();
         List<ApprovedOpenerRule> approved = application.getApprovedOpeners();
         if (approved.stream().anyMatch(existing -> openerKey(existing).equals(openerKey(rule)))) return application;
         if (approved.size() >= MAX_APPROVED_OPENERS) throw new IllegalArgumentException("Too many approved openers");
