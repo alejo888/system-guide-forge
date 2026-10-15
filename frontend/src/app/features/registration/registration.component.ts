@@ -1,9 +1,16 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { form, FormField, required } from '@angular/forms/signals';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { ApiService, AccessTestResult, ApplicationInput, ApplicationResponse, LocalizationService } from '../../core/api.service';
+import { ApiService, AccessTestResult, ApplicationInput, ApplicationResponse, ApprovedOpener, LocalizationService } from '../../core/api.service';
 
 type RegistrationState = 'idle' | 'saving' | 'testing' | 'success' | 'starting-analysis' | 'error';
+
+/** Mirrors the backend limits in ProjectApplicationService for RF24 approved openers. */
+const MAX_APPROVED_OPENERS = 50;
+const MAX_OPENER_ROUTE_LENGTH = 200;
+const MAX_OPENER_NAME_LENGTH = 120;
+const OPENER_ROUTE = /^\/(?:[^/?#]+(?:\/[^/?#]+)*)?\/?$/;
+const SENSITIVE_OPENER_NAME = /password|api[-_ ]?key|secret|token|credential|credencial|contrase(?:n|ñ)a|clave (?:de )?api/;
 
 @Component({
   selector: 'sgf-registration', standalone: true, imports: [FormField, RouterLink],
@@ -41,6 +48,11 @@ export class RegistrationComponent {
     const { maxCrawlDepth = 0, excludedRoutes = [] } = this.model();
     return Number.isInteger(maxCrawlDepth) && maxCrawlDepth >= 0 && maxCrawlDepth <= 5 && excludedRoutes.every(route => this.isExcludedRoute(route));
   });
+  readonly maxApprovedOpeners = MAX_APPROVED_OPENERS;
+  readonly openerRoutePlaceholder = '/projects/{id}/board';
+  /** Per-row validity; a fully empty row is valid because it is dropped on submit. */
+  readonly openerRowsValid = computed(() => (this.model().approvedOpeners ?? []).map(opener => this.isOpenerRowValid(opener)));
+  readonly approvedOpenersValid = computed(() => this.openerRowsValid().length <= MAX_APPROVED_OPENERS && this.openerRowsValid().every(Boolean));
 
   constructor() { if (this.editMode) void this.loadApplication(); }
 
@@ -55,16 +67,39 @@ export class RegistrationComponent {
     this.model.update(model => ({ ...model, excludedRoutes }));
   }
   isExcludedRoute(value: string): boolean { return /^\/(?:[^/?#%]+(?:\/[^/?#%]+)*)?\/?$/.test(value); }
+  addOpener(): void {
+    if ((this.model().approvedOpeners ?? []).length >= MAX_APPROVED_OPENERS) return;
+    this.model.update(model => ({ ...model, approvedOpeners: [...(model.approvedOpeners ?? []), { routePattern: '', accessibleName: '' }] }));
+  }
+  removeOpener(index: number): void {
+    this.model.update(model => ({ ...model, approvedOpeners: (model.approvedOpeners ?? []).filter((_, i) => i !== index) }));
+  }
+  setOpener(index: number, field: keyof ApprovedOpener, value: string): void {
+    this.model.update(model => ({ ...model, approvedOpeners: (model.approvedOpeners ?? []).map((opener, i) => i === index ? { ...opener, [field]: value } : opener) }));
+  }
+  private normalizeOpenerName(value: string): string { return value.normalize('NFC').replace(/\s+/g, ' ').trim(); }
+  private isOpenerEmpty(opener: ApprovedOpener): boolean { return !opener.routePattern.trim() && !this.normalizeOpenerName(opener.accessibleName); }
+  private isOpenerRowValid(opener: ApprovedOpener): boolean {
+    if (this.isOpenerEmpty(opener)) return true;
+    const route = opener.routePattern.trim();
+    const name = this.normalizeOpenerName(opener.accessibleName);
+    return route.length <= MAX_OPENER_ROUTE_LENGTH && !route.includes('%') && OPENER_ROUTE.test(route)
+      && name.length >= 1 && name.length <= MAX_OPENER_NAME_LENGTH && !SENSITIVE_OPENER_NAME.test(name.toLowerCase());
+  }
+  private normalizeOpeners(openers: ApprovedOpener[]): ApprovedOpener[] {
+    return openers.filter(opener => !this.isOpenerEmpty(opener)).map(opener => ({ routePattern: opener.routePattern.trim(), accessibleName: this.normalizeOpenerName(opener.accessibleName) }));
+  }
   routeIsExcluded(route: string, excludedRoute: string): boolean { return route === excludedRoute || route.startsWith(`${excludedRoute}/`); }
       private normalizeExcludedRoutes(routes: string[]): string[] { return [...new Set(routes.map(route => route.length > 1 && route.endsWith('/') ? route.slice(0, -1) : route))]; }
 
   async register(): Promise<void> {
-    if (this.applicationLoadState() !== 'ready' || !this.localUrlsValid() || !this.crawlerConfigurationValid() || this.registrationForm().invalid()) return;
+    if (this.applicationLoadState() !== 'ready' || !this.localUrlsValid() || !this.crawlerConfigurationValid() || !this.approvedOpenersValid() || this.registrationForm().invalid()) return;
     this.state.set('saving'); this.errorMessage.set('');
     try {
       const value = this.model();
       const { projectName: _, ...application } = value;
       application.maxCrawlDepth ??= 0; application.excludedRoutes = this.normalizeExcludedRoutes(application.excludedRoutes ?? []);
+      application.approvedOpeners = this.normalizeOpeners(application.approvedOpeners ?? []);
       const saved = this.editMode
         ? await this.api.updateApplication(this.applicationId(), application)
         : await this.createApplication(value.projectName, application);
@@ -99,8 +134,7 @@ export class RegistrationComponent {
     try {
       const application = await this.api.getApplication(this.routeApplicationId);
       this.model.update(model => ({ ...model, projectName: application.name, name: application.name, baseUrl: application.baseUrl, loginUrl: application.loginUrl, maxCrawlDepth: application.maxCrawlDepth ?? 0, excludedRoutes: application.excludedRoutes ?? [],
-        // No editor exists yet for approved openers (RF24); keep them so an update, which replaces the list, preserves them.
-        approvedOpeners: application.approvedOpeners ?? [] }));
+        approvedOpeners: (application.approvedOpeners ?? []).map(opener => ({ ...opener })) }));
       this.applicationLoadState.set('ready');
     } catch { this.applicationLoadState.set('error'); }
   }
