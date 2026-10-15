@@ -462,6 +462,33 @@ class PersistenceTest {
         }
     }
 
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void serializesAShorterUpdateOverloadWithAConcurrentOpenerApproval() throws Exception {
+        Project project = projects.save(new Project("Concurrent overload project"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "Overload and approve", "http://localhost:8080", "http://localhost:8080/login",
+                "u", "p", 2, List.of("/admin"), List.of(new ApprovedOpenerRule("/projects", "Crear proyecto"))));
+        ApprovedOpenerRule board = new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea");
+        var service = transactionalService(new java.util.concurrent.CyclicBarrier(2));
+        // This test commits its rows (no surrounding transaction), so it removes them to keep other tests independent of it.
+        try {
+            // The 8-argument overload replaces the approved openers with none, so it must lock the application like the full one.
+            List<Throwable> outcomes = runConcurrently(
+                    () -> service.updateApplication(application.getId(), "Updated", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2,
+                            List.of("/admin")),
+                    () -> service.approveOpener(application.getId(), board));
+            assertThat(outcomes).containsOnlyNulls();
+            TargetApplication stored = applications.findById(application.getId()).orElseThrow();
+            assertThat(stored.getName()).isEqualTo("Updated");
+            assertThat(stored.getExcludedRoutes()).containsExactly("/admin");
+            // Update then approval keeps only the approved opener; approval then update clears every opener.
+            assertThat(stored.getApprovedOpeners()).isIn(List.of(board), List.of());
+        } finally {
+            applications.deleteById(application.getId());
+            projects.deleteById(project.getId());
+        }
+    }
+
     /** Runs two approvals of one application at the same time; each outcome is null when it returned normally, else what it threw. */
     private List<Throwable> approveConcurrently(String applicationId, ApprovedOpenerRule first, ApprovedOpenerRule second) throws Exception {
         var service = transactionalService(new java.util.concurrent.CyclicBarrier(2));

@@ -39,9 +39,13 @@ public class ProjectApplicationService {
     }
     public List<TargetApplication> listApplications() { return applications.findAllByOrderByNameAscIdAsc(); }
     public Optional<TargetApplication> getApplication(String id) { return applications.findById(id); }
+    // The shorter overloads call the full one directly, past Spring's proxy, so each needs its own @Transactional:
+    // without it findForUpdateById's SELECT ... FOR UPDATE has no transaction to lock the application in.
+    @Transactional
     public TargetApplication updateApplication(String id, String name, String baseUrl, String loginUrl, String username, String password) {
         return updateApplication(id, name, baseUrl, loginUrl, username, password, DEFAULT_CRAWL_DEPTH, List.of());
     }
+    @Transactional
     public TargetApplication updateApplication(String id, String name, String baseUrl, String loginUrl, String username, String password, Integer maxCrawlDepth, List<String> excludedRoutes) {
         return updateApplication(id, name, baseUrl, loginUrl, username, password, maxCrawlDepth, excludedRoutes, List.of());
     }
