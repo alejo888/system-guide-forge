@@ -21,6 +21,11 @@ public class ApplicationController {
         try { TargetApplication a=service.updateApplication(id,input.name(),input.baseUrl(),input.loginUrl(),input.username(),input.password(),input.maxCrawlDepth(),input.excludedRoutes(),toRules(input.approvedOpeners())); return ResponseEntity.ok(toResponse(a)); }
         catch (java.util.NoSuchElementException ex) { return ResponseEntity.notFound().build(); }
     }
+    /** RF24: approves one opener without the credentials that PUT requires; an already approved opener is a no-op. */
+    @PostMapping("/api/applications/{id}/approved-openers") public ResponseEntity<ApplicationResponse> approveOpener(@PathVariable String id,@RequestBody ApprovedOpenerPayload input){
+        try { return ResponseEntity.ok(toResponse(service.approveOpener(id,toRule(input)))); }
+        catch (java.util.NoSuchElementException ex) { return ResponseEntity.notFound().build(); }
+    }
     @PostMapping("/api/applications/{id}/test-access") public ResponseEntity<AccessResult> test(@PathVariable String id){
         try { return ResponseEntity.ok(service.testAccess(id)); }
         catch (java.util.NoSuchElementException ex) { return ResponseEntity.notFound().build(); }
@@ -28,7 +33,8 @@ public class ApplicationController {
     @ExceptionHandler(IllegalArgumentException.class)
     ResponseEntity<ErrorResponse> invalidConfiguration(IllegalArgumentException e) { return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage())); }
     private ApplicationResponse toResponse(TargetApplication a){return new ApplicationResponse(a.getId(),a.getProjectId(),a.getName(),a.getBaseUrl(),a.getLoginUrl(),a.getMaxCrawlDepth(),a.getExcludedRoutes(),a.getApprovedOpeners().stream().map(r->new ApprovedOpenerPayload(r.routePattern(),r.accessibleName())).toList());}
-    private static List<ApprovedOpenerRule> toRules(List<ApprovedOpenerPayload> openers){ return openers == null ? null : openers.stream().map(o -> o == null ? null : new ApprovedOpenerRule(o.routePattern(),o.accessibleName())).toList(); }
+    private static List<ApprovedOpenerRule> toRules(List<ApprovedOpenerPayload> openers){ return openers == null ? null : openers.stream().map(ApplicationController::toRule).toList(); }
+    private static ApprovedOpenerRule toRule(ApprovedOpenerPayload opener){ return opener == null ? null : new ApprovedOpenerRule(opener.routePattern(),opener.accessibleName()); }
     public record ApplicationInput(@NotBlank String name,@NotBlank String baseUrl,@NotBlank String loginUrl,@NotBlank String username,@NotBlank String password, Integer maxCrawlDepth, List<String> excludedRoutes, List<ApprovedOpenerPayload> approvedOpeners) {}
     public record ApplicationResponse(String id,String projectId,String name,String baseUrl,String loginUrl,int maxCrawlDepth,List<String> excludedRoutes,List<ApprovedOpenerPayload> approvedOpeners) {}
     public record ApprovedOpenerPayload(String routePattern, String accessibleName) {}

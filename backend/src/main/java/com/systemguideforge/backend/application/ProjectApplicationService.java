@@ -2,6 +2,7 @@ package com.systemguideforge.backend.application;
 
 import com.systemguideforge.backend.persistence.*;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import java.net.URI;
 import java.util.*;
 
@@ -51,6 +52,22 @@ public class ProjectApplicationService {
         application.updateConfiguration(name, baseUrl, loginUrl, protector.encrypt(username), protector.encrypt(password), effectiveDepth(maxCrawlDepth), normalizeRoutes(excludedRoutes), normalizeApprovedOpeners(approvedOpeners));
         return applications.save(application);
     }
+    /**
+     * RF24: approves one more opener without touching the credentials or any other field, so it needs no password.
+     * The rule is normalized like {@link #normalizeApprovedOpeners}; an opener the matcher already treats as approved
+     * is a no-op. Transactional so the new row is added to the loaded openers instead of merging a detached copy over
+     * rows another request may have added meanwhile.
+     */
+    @Transactional
+    public TargetApplication approveOpener(String id, ApprovedOpenerRule opener) {
+        ApprovedOpenerRule rule = normalizeApprovedOpener(opener);
+        TargetApplication application = applications.findById(id).orElseThrow();
+        List<ApprovedOpenerRule> approved = application.getApprovedOpeners();
+        if (approved.stream().anyMatch(existing -> openerKey(existing).equals(openerKey(rule)))) return application;
+        if (approved.size() >= MAX_APPROVED_OPENERS) throw new IllegalArgumentException("Too many approved openers");
+        application.approveOpener(rule);
+        return applications.save(application);
+    }
     public AccessResult testAccess(String id) {
         TargetApplication app=applications.findById(id).orElseThrow();
         return accessProbe.test(new AccessRequest(app.getBaseUrl(),app.getLoginUrl(),protector.decrypt(app.getUsernameEncrypted()),protector.decrypt(app.getPasswordEncrypted())));
@@ -85,18 +102,25 @@ public class ProjectApplicationService {
         if (openers.size() > MAX_APPROVED_OPENERS) throw new IllegalArgumentException("Too many approved openers");
         Map<String, ApprovedOpenerRule> normalized = new LinkedHashMap<>();
         for (ApprovedOpenerRule opener : openers) {
-            if (opener == null) throw new IllegalArgumentException(INVALID_OPENER_ROUTE);
-            // A literal {id} segment stands for any record; "0" is an equivalent id segment that URI parsing accepts.
-            String route = opener.routePattern() == null ? null : opener.routePattern().replaceAll("/\\{id}(?=/|$)", "/0");
-            if (!isLocalPath(route)) throw new IllegalArgumentException(INVALID_OPENER_ROUTE);
-            String name = ApprovedOpenerMatcher.displayName(opener.accessibleName());
-            if (name.isEmpty() || name.length() > MAX_OPENER_NAME_LENGTH || name.toLowerCase(Locale.ROOT).matches(SENSITIVE_NAME_PATTERN)) throw new IllegalArgumentException(INVALID_OPENER_NAME);
-            ApprovedOpenerRule rule = new ApprovedOpenerRule(ApprovedOpenerMatcher.routeTemplateOf(route), name);
-            if (rule.routePattern().length() > MAX_ROUTE_LENGTH) throw new IllegalArgumentException(INVALID_OPENER_ROUTE);
-            normalized.putIfAbsent(rule.routePattern() + "\n" + ApprovedOpenerMatcher.nameKey(name), rule);
+            ApprovedOpenerRule rule = normalizeApprovedOpener(opener);
+            normalized.putIfAbsent(openerKey(rule), rule);
         }
         return List.copyOf(normalized.values());
     }
+    /** One opener of {@link #normalizeApprovedOpeners}: its route template and display name, or an IllegalArgumentException. */
+    static ApprovedOpenerRule normalizeApprovedOpener(ApprovedOpenerRule opener) {
+        if (opener == null) throw new IllegalArgumentException(INVALID_OPENER_ROUTE);
+        // A literal {id} segment stands for any record; "0" is an equivalent id segment that URI parsing accepts.
+        String route = opener.routePattern() == null ? null : opener.routePattern().replaceAll("/\\{id}(?=/|$)", "/0");
+        if (!isLocalPath(route)) throw new IllegalArgumentException(INVALID_OPENER_ROUTE);
+        String name = ApprovedOpenerMatcher.displayName(opener.accessibleName());
+        if (name.isEmpty() || name.length() > MAX_OPENER_NAME_LENGTH || name.toLowerCase(Locale.ROOT).matches(SENSITIVE_NAME_PATTERN)) throw new IllegalArgumentException(INVALID_OPENER_NAME);
+        ApprovedOpenerRule rule = new ApprovedOpenerRule(ApprovedOpenerMatcher.routeTemplateOf(route), name);
+        if (rule.routePattern().length() > MAX_ROUTE_LENGTH) throw new IllegalArgumentException(INVALID_OPENER_ROUTE);
+        return rule;
+    }
+    /** Openers with the same key are the same opener for the matcher: same route template, same name ignoring case. */
+    private static String openerKey(ApprovedOpenerRule rule) { return rule.routePattern() + "\n" + ApprovedOpenerMatcher.nameKey(rule.accessibleName()); }
     private static boolean isLocalPath(String route) {
         if (route == null || route.length() > MAX_ROUTE_LENGTH || route.indexOf('%') >= 0 || !route.matches(EXCLUDED_ROUTE_PATTERN)) return false;
         try {

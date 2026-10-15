@@ -35,6 +35,15 @@ describe('ApiService', () => {
   it('loads analysis evidence endpoints and requests screenshots as blobs', async () => { fetchSpy.and.callFake((url: string) => Promise.resolve(url.endsWith('screenshot') ? new Response(new Blob(['png'], { type: 'image/png' })) : response([]))); await service.startAnalysis('app-1'); await service.getAnalysis('analysis-1'); await service.getAnalysisPages('analysis-1'); await service.getPageElements('page-1'); const screenshot = await service.getPageScreenshot('page-1'); expect(screenshot).toEqual(jasmine.any(Blob)); expect(fetchSpy.calls.allArgs().map(([url]) => url)).toContain('/api/pages/page-1/screenshot'); });
   it('loads analysis history for an application', async () => { const analyses: AnalysisSummaryResponse[] = [{ id: 'analysis-1', applicationId: 'app-1', status: 'COMPLETED', startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T00:01:00Z', failureMessage: null, pageCount: 2 }]; fetchSpy.and.resolveTo(response(analyses)); await expectAsync(service.getApplicationAnalyses('app-1')).toBeResolvedTo(analyses); expect(fetchSpy).toHaveBeenCalledWith('/api/applications/app-1/analyses', jasmine.any(Object)); });
 
+  it('approves one form opener with a POST that carries only the route and the visible name', async () => {
+    const application = { id: 'app-1', projectId: 'project-1', name: 'Portal', baseUrl: 'http://localhost:3000', loginUrl: 'http://localhost:3000/login', approvedOpeners: [{ routePattern: '/projects/{id}/board', accessibleName: 'Create task' }] };
+    fetchSpy.and.resolveTo(response(application));
+
+    await expectAsync(service.approveOpener('app-1', { routePattern: '/projects/1/board', accessibleName: 'Create task' })).toBeResolvedTo(application);
+
+    expect(fetchSpy).toHaveBeenCalledWith('/api/applications/app-1/approved-openers', jasmine.objectContaining({ method: 'POST', body: JSON.stringify({ routePattern: '/projects/1/board', accessibleName: 'Create task' }) }));
+  });
+
   it('translates known keys and falls back to English for missing Spanish keys', () => {
     const localization = new LocalizationService();
     localization.setLanguage('es');

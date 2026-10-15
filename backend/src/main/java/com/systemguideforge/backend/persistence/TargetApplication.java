@@ -68,6 +68,10 @@ public class TargetApplication {
         Set<ApprovedOpenerRule> kept = new HashSet<>(getApprovedOpeners());
         for (ApprovedOpenerRule rule : wanted) if (kept.add(rule)) approvedOpenerEntities.add(new ApprovedOpener(id, rule));
     }
+    /** Adds one approved opener as a new row; existing opener rows, excluded routes and credentials stay as they are. */
+    public void approveOpener(ApprovedOpenerRule rule) {
+        if (!getApprovedOpeners().contains(rule)) approvedOpenerEntities.add(new ApprovedOpener(id, rule));
+    }
     public boolean isExcludedPath(String urlPath) {
         String path;
         try { path = normalizePath(java.net.URI.create(urlPath).getPath()); }
