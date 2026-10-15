@@ -843,6 +843,11 @@ components:
         manualInclusionApproved:
           type: boolean
           description: Whether this UNKNOWN action is included in generated documentation only.
+        controlType:
+          type: string
+          nullable: true
+          maxLength: 32
+          description: Captured control subtype. The input type for inputs (for example `email`), `tab` for role=tab buttons, `item` for data-item buttons; null otherwise. Tabs are never offered as form openers.
 
     ManualInclusionRequest:
       type: object

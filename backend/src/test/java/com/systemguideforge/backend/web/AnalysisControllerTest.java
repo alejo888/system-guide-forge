@@ -45,6 +45,34 @@ class AnalysisControllerTest {
     }
 
     @Test
+    void includesControlTypeInElementResponsesNullWhenAbsent() throws Exception {
+        AnalysisService service = mock(AnalysisService.class);
+        UIElement tab = new UIElement("page-1", "button", "[role=tab]", "Details", ActionClassification.SAFE, null, false, "tab");
+        UIElement email = new UIElement("page-1", "input", "#email", "Email", ActionClassification.UNKNOWN, null, false, "email");
+        UIElement plain = new UIElement("page-1", "button", "#save", "Save", ActionClassification.MUTATING);
+        when(service.elements("page-1")).thenReturn(List.of(tab, email, plain));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AnalysisController(service)).build();
+
+        mvc.perform(get("/api/pages/page-1/elements"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[0].controlType").value("tab"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[1].controlType").value("email"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[2].controlType").doesNotExist());
+    }
+
+    @Test
+    void includesControlTypeInManualInclusionResponse() {
+        AnalysisService service = mock(AnalysisService.class);
+        AnalysisController controller = new AnalysisController(service);
+        UIElement item = new UIElement("page-1", "button", "[data-item]", "Task 42", ActionClassification.UNKNOWN, null, false, "item");
+        when(service.setManualInclusionApproval(item.getId(), true)).thenReturn(item);
+
+        var response = controller.updateManualInclusion(item.getId(), new AnalysisController.ManualInclusionRequest(true));
+
+        assertThat(response.getBody().controlType()).isEqualTo("item");
+    }
+
+    @Test
     void returnsNotFoundForMissingAnalysisPagesAndPageElements() throws Exception {
         AnalysisService service = mock(AnalysisService.class);
         when(service.pages("missing-analysis")).thenThrow(new java.util.NoSuchElementException());

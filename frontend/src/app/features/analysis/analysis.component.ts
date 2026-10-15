@@ -71,8 +71,8 @@ export class AnalysisComponent implements OnInit {
   openerFeedbackFor(element: ElementResponse): OpenerFeedback | undefined { return this.openerFeedback().get(element.id); }
   private setOpenerPending(elementId: string, pending: boolean): void { this.openerPendingIds.update(ids => { const next = new Set(ids); if (pending) next.add(elementId); else next.delete(elementId); return next; }); }
   private setOpenerFeedback(elementId: string, feedback: OpenerFeedback | null): void { this.openerFeedback.update(current => { const next = new Map(current); if (feedback) next.set(elementId, feedback); else next.delete(elementId); return next; }); }
-  /** Only named buttons can open a form; links, fields, and unnamed controls never become openers. */
-  canApproveOpener(element: ElementResponse): boolean { return element.kind === 'button' && !!element.accessibleName?.trim(); }
+  /** Only named buttons can open a form; links, fields, unnamed controls, and tabs never become openers. */
+  canApproveOpener(element: ElementResponse): boolean { return element.kind === 'button' && element.controlType !== 'tab' && !!element.accessibleName?.trim(); }
   /** Mirrors the backend ApprovedOpenerMatcher: same route template and same visible name ignoring case and spacing. */
   isApprovedOpener(page: PageResponse, element: ElementResponse): boolean {
     const route = this.routeTemplate(this.routeLabel(page.url)); const name = this.openerNameKey(element.accessibleName);

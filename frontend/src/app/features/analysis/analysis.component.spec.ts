@@ -651,6 +651,18 @@ describe('AnalysisComponent approve as opener', () => {
     expect(buttons[0].closest('.element-row')?.textContent).toContain('Create task');
   });
 
+  it('does not offer "Approve as opener" on tabs but keeps it for data-item cards and plain buttons', async () => {
+    api.getPageElements.and.resolveTo([
+      { ...createTask, controlType: null },
+      { id: 'element-tab', kind: 'button', selector: '[role="tab"]', accessibleName: 'Details', actionClassification: 'SAFE', manualInclusionApproved: false, controlType: 'tab' },
+      { id: 'element-item', kind: 'button', selector: '[data-item]', accessibleName: 'Task 42', actionClassification: 'UNKNOWN', manualInclusionApproved: false, controlType: 'item' },
+    ]);
+    await render();
+
+    const labels = approveButtons().map(button => button.getAttribute('aria-label'));
+    expect(labels).toEqual(['Approve as opener: Create task', 'Approve as opener: Task 42']);
+  });
+
   it('sends the path of the page address and the control name without touching its classification', async () => {
     api.approveOpener.and.resolveTo(application([{ routePattern: '/projects/{id}/board', accessibleName: 'Create task' }]));
     await render();
