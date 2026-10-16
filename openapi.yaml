@@ -383,9 +383,12 @@ paths:
       summary: Generate or replace the deterministic manual document draft
       description: >-
         Generates the requested draft from a completed analysis. An existing draft is
-        reused when language and type match. Replacing a draft with different language
-        or type requires `confirmReplacement: true` and transactionally replaces its
-        sections and editable content.
+        reused unchanged, keeping its edits, when language and type match and
+        `confirmReplacement` is absent or false. With `confirmReplacement: true` the
+        same-language, same-type draft is regenerated from the current evidence instead.
+        Replacing a draft with different language or type requires
+        `confirmReplacement: true`. Regeneration and replacement transactionally replace
+        the sections and editable content of the same document, discarding previous edits.
       operationId: generateDocument
       parameters:
         - $ref: '#/components/parameters/AnalysisId'
@@ -873,7 +876,10 @@ components:
         confirmReplacement:
           type: boolean
           default: false
-          description: Must be true to replace an existing draft with different language or type.
+          description: >-
+            Explicit confirmation that the existing draft and its edits may be destroyed.
+            Required to replace a draft with different language or type; with the same
+            language and type it regenerates the draft instead of reusing it.
 
     DocumentUpdateRequest:
       type: object

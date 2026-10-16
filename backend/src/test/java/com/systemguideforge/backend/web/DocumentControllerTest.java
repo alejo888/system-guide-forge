@@ -157,6 +157,29 @@ class DocumentControllerTest {
     }
 
     @Test
+    void forwardsExplicitRegenerationConfirmationForTheSameSettingsToTheService() {
+        Document document = document();
+        when(service.generate("analysis-1", Document.DocumentLanguage.EN, Document.DocumentType.USER_MANUAL, true)).thenReturn(document);
+
+        var response = controller.generate("analysis-1", new DocumentController.GenerateRequest(document.getLanguage().name().toLowerCase(), document.getType().name().toLowerCase(), true));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(201);
+        assertThat(response.getBody().id()).isEqualTo(document.getId());
+        verify(service).generate("analysis-1", Document.DocumentLanguage.EN, Document.DocumentType.USER_MANUAL, true);
+    }
+
+    @Test
+    void treatsAMissingConfirmationAsAPlainGenerationRequest() {
+        Document document = document();
+        when(service.generate("analysis-1", Document.DocumentLanguage.EN, Document.DocumentType.USER_MANUAL, false)).thenReturn(document);
+
+        var response = controller.generate("analysis-1", new DocumentController.GenerateRequest("en", "user_manual", null));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(201);
+        verify(service).generate("analysis-1", Document.DocumentLanguage.EN, Document.DocumentType.USER_MANUAL, false);
+    }
+
+    @Test
     void mapsMissingReplacementConfirmationToConflict() {
         var response = controller.draftReplacementConfirmationRequired(new DocumentService.DraftReplacementConfirmationRequiredException());
 
