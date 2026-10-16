@@ -321,6 +321,21 @@ describe('AnalysisComponent document editing', () => {
     expect(fixture.nativeElement.querySelector('.regeneration-error')?.textContent).toContain('The draft could not be regenerated. The current draft and its edits were kept.');
     expect(fixture.nativeElement.querySelector('.document-error')?.textContent ?? '').not.toContain('The draft could not be generated.');
   });
+  it('disables the regenerate button while a draft is loading or saving', () => {
+    component.setDocumentLanguage('en');
+    const regenerateButton = (): HTMLButtonElement => fixture.nativeElement.querySelector('.regenerate-draft');
+    fixture.detectChanges();
+    expect(regenerateButton().disabled).toBeFalse();
+
+    component.documentState.set('loading');
+    fixture.detectChanges();
+    expect(regenerateButton().disabled).toBeTrue();
+
+    component.documentState.set('ready');
+    component.saveState.set('saving');
+    fixture.detectChanges();
+    expect(regenerateButton().disabled).toBeTrue();
+  });
   it('clears the regeneration error after a later successful regeneration', async () => {
     component.setDocumentLanguage('en');
     api.generateDocument.and.rejectWith(new ApiError(500, 'boom'));
