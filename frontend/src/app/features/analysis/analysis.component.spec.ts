@@ -305,14 +305,66 @@ describe('AnalysisComponent document editing', () => {
     expect(component.editableTitle()).toBe('My edited title');
     expect(component.documentState()).toBe('ready');
   });
-  it('reports a regeneration failure without calling the API again', async () => {
+  it('keeps the draft and its edits visible when regeneration fails, without calling the API again', async () => {
     component.setDocumentLanguage('en');
+    component.editTitle('My edited title');
     api.generateDocument.and.rejectWith(new ApiError(500, 'boom'));
 
     await component.regenerateDocument();
+    fixture.detectChanges();
 
     expect(api.generateDocument).toHaveBeenCalledOnceWith('analysis-1', { language: 'en', type: 'user_manual', confirmReplacement: true });
-    expect(component.documentState()).toBe('error');
+    expect(component.document()).toBe(document);
+    expect(component.editableTitle()).toBe('My edited title');
+    expect(component.documentState()).toBe('ready');
+    expect(fixture.nativeElement.querySelector('.draft-section')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.regeneration-error')?.textContent).toContain('The draft could not be regenerated. The current draft and its edits were kept.');
+    expect(fixture.nativeElement.querySelector('.document-error')?.textContent ?? '').not.toContain('The draft could not be generated.');
+  });
+  it('disables the regenerate button while a draft is loading or saving', () => {
+    component.setDocumentLanguage('en');
+    const regenerateButton = (): HTMLButtonElement => fixture.nativeElement.querySelector('.regenerate-draft');
+    fixture.detectChanges();
+    expect(regenerateButton().disabled).toBeFalse();
+
+    component.documentState.set('loading');
+    fixture.detectChanges();
+    expect(regenerateButton().disabled).toBeTrue();
+
+    component.documentState.set('ready');
+    component.saveState.set('saving');
+    fixture.detectChanges();
+    expect(regenerateButton().disabled).toBeTrue();
+  });
+  it('clears the regeneration error after a later successful regeneration', async () => {
+    component.setDocumentLanguage('en');
+    api.generateDocument.and.rejectWith(new ApiError(500, 'boom'));
+    await component.regenerateDocument();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.regeneration-error')).not.toBeNull();
+    api.generateDocument.and.resolveTo(document);
+
+    await component.regenerateDocument();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.regeneration-error')).toBeNull();
+    expect(component.documentState()).toBe('ready');
+  });
+  it('clears the regeneration error when a manual-inclusion change invalidates the draft', async () => {
+    component.setDocumentLanguage('en');
+    api.generateDocument.and.rejectWith(new ApiError(500, 'boom'));
+    await component.regenerateDocument();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.regeneration-error')).not.toBeNull();
+    const unknown = { id: 'element-1', kind: 'button', selector: '#advanced', accessibleName: 'Advanced', actionClassification: 'UNKNOWN' as const, manualInclusionApproved: false };
+    component.pages.set([{ id: 'page-1', analysisId: 'analysis-1', url: 'https://example.test', title: 'Home', elements: [unknown], screenshotUrl: null }]);
+    api.updateManualInclusion.and.resolveTo({ ...unknown, manualInclusionApproved: true });
+
+    await component.setManualInclusionApproval(unknown.id, true);
+    fixture.detectChanges();
+
+    expect(component.document()).toBeNull();
+    expect(fixture.nativeElement.querySelector('.regeneration-error')).toBeNull();
   });
       it('reorders sections by array order', () => { component.moveSection('section-2', -1); expect(component.editableSections().map(section => section.id)).toEqual(['section-2', 'section-1']); });
     it('keeps hidden sections in the editable array while excluding them from the reader-facing draft', () => { expect(component.visibleSections().map(section => section.id)).toEqual(['section-1']); expect(component.hiddenSections().map(section => section.id)).toEqual(['section-2']); component.setSectionHidden('section-2', false); expect(component.editableSections()[1].hidden).toBeFalse(); });
