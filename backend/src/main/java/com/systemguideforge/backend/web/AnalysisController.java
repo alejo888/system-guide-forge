@@ -24,12 +24,12 @@ public class AnalysisController {
     @ExceptionHandler(java.util.NoSuchElementException.class) ResponseEntity<Void> notFound(java.util.NoSuchElementException e){return ResponseEntity.notFound().build();}
     @ExceptionHandler(AnalysisService.InvalidManualInclusionApprovalException.class) ResponseEntity<ErrorResponse> invalidManualInclusion(AnalysisService.InvalidManualInclusionApprovalException e){return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));}
     private static AnalysisResponse to(Analysis a){return new AnalysisResponse(a.getId(),a.getApplicationId(),a.getStatus(),a.getStartedAt(),a.getCompletedAt(),a.getFailureMessage());}
-    private static ElementResponse toElement(UIElement e){return new ElementResponse(e.getId(),e.getKind(),e.getSelector(),e.getAccessibleName(),e.getActionClassification(),e.isManualInclusionApproved());}
+    private static ElementResponse toElement(UIElement e){return new ElementResponse(e.getId(),e.getKind(),e.getSelector(),e.getAccessibleName(),e.getActionClassification(),e.isManualInclusionApproved(),e.getControlType());}
     private static AnalysisSummaryResponse toSummary(AnalysisService.AnalysisSummary a){return new AnalysisSummaryResponse(a.id(),a.applicationId(),a.status(),a.startedAt(),a.completedAt(),a.failureMessage(),a.pageCount());}
     public record AnalysisResponse(String id,String applicationId,AnalysisStatus status,java.time.Instant startedAt,java.time.Instant completedAt,String failureMessage){}
     public record AnalysisSummaryResponse(String id,String applicationId,AnalysisStatus status,java.time.Instant startedAt,java.time.Instant completedAt,String failureMessage,long pageCount){}
     public record PageResponse(String id,String analysisId,String url,String title,String heading,PageKind kind){}
-    public record ElementResponse(String id,String kind,String selector,String accessibleName,com.systemguideforge.backend.application.ActionClassification actionClassification, boolean manualInclusionApproved){}
+    public record ElementResponse(String id,String kind,String selector,String accessibleName,com.systemguideforge.backend.application.ActionClassification actionClassification, boolean manualInclusionApproved, String controlType){}
     public record ManualInclusionRequest(Boolean approved){}
     public record ErrorResponse(String message){}
 }

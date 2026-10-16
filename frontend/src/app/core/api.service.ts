@@ -14,7 +14,7 @@ export interface PageResponse { id: string; analysisId: string; url: string; tit
     export interface FunctionalModulePage extends PageResponse {}
     export interface FunctionalModule { key: string; name: string; pages: FunctionalModulePage[]; }
 export type ActionClassification = 'SAFE' | 'MUTATING' | 'UNKNOWN';
-export interface ElementResponse { id: string; kind: string; selector: string; accessibleName: string | null; actionClassification: ActionClassification; manualInclusionApproved: boolean; }
+export interface ElementResponse { id: string; kind: string; selector: string; accessibleName: string | null; actionClassification: ActionClassification; manualInclusionApproved: boolean; controlType?: string | null; }
 export type DocumentLanguage = 'en' | 'es';
 export type DocumentType = 'user_manual';
 export interface DocumentSectionResponse { id: string; position: number; sourcePageId: string; screenshotId: string | null; title: string; content: string; hidden: boolean; }
