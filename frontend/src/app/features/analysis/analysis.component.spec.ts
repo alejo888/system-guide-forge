@@ -305,14 +305,33 @@ describe('AnalysisComponent document editing', () => {
     expect(component.editableTitle()).toBe('My edited title');
     expect(component.documentState()).toBe('ready');
   });
-  it('reports a regeneration failure without calling the API again', async () => {
+  it('keeps the draft and its edits visible when regeneration fails, without calling the API again', async () => {
     component.setDocumentLanguage('en');
+    component.editTitle('My edited title');
     api.generateDocument.and.rejectWith(new ApiError(500, 'boom'));
 
     await component.regenerateDocument();
+    fixture.detectChanges();
 
     expect(api.generateDocument).toHaveBeenCalledOnceWith('analysis-1', { language: 'en', type: 'user_manual', confirmReplacement: true });
-    expect(component.documentState()).toBe('error');
+    expect(component.document()).toBe(document);
+    expect(component.editableTitle()).toBe('My edited title');
+    expect(component.documentState()).toBe('ready');
+    expect(fixture.nativeElement.querySelector('.draft-section')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.regeneration-error')?.textContent).toContain('The draft could not be regenerated. The current draft and its edits were kept.');
+    expect(fixture.nativeElement.querySelector('.document-error')?.textContent ?? '').not.toContain('The draft could not be generated.');
+  });
+  it('clears the regeneration error after a later successful regeneration', async () => {
+    component.setDocumentLanguage('en');
+    api.generateDocument.and.rejectWith(new ApiError(500, 'boom'));
+    await component.regenerateDocument();
+    api.generateDocument.and.resolveTo(document);
+
+    await component.regenerateDocument();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.regeneration-error')).toBeNull();
+    expect(component.documentState()).toBe('ready');
   });
       it('reorders sections by array order', () => { component.moveSection('section-2', -1); expect(component.editableSections().map(section => section.id)).toEqual(['section-2', 'section-1']); });
     it('keeps hidden sections in the editable array while excluding them from the reader-facing draft', () => { expect(component.visibleSections().map(section => section.id)).toEqual(['section-1']); expect(component.hiddenSections().map(section => section.id)).toEqual(['section-2']); component.setSectionHidden('section-2', false); expect(component.editableSections()[1].hidden).toBeFalse(); });

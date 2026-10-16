@@ -26,6 +26,8 @@ export class AnalysisComponent implements OnInit {
   readonly approvedUnknownElementCount = computed(() => this.unknownReviewGroups().reduce((count, group) => count + group.elements.filter(element => element.manualInclusionApproved).length, 0));
   readonly filteredModules = computed(() => { const query = this.normalizedSearch(); const selected = this.selectedModule(); return this.modules().map(module => { const moduleMatches = !query || this.searchText(module.name, module.key).includes(query); if (selected !== 'all' && module.key !== selected) return null; const pages = module.pages.filter(page => moduleMatches || this.pageMatches(page, query)); return pages.length ? { ...module, pages } : null; }).filter((module): module is FunctionalModule => module !== null); });
   readonly state = signal<'loading' | 'ready' | 'error'>('loading'); readonly moduleState = signal<'loading' | 'ready' | 'error'>('loading'); readonly documentState = signal<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle'); readonly saveState = signal<SaveState>('idle'); readonly manualInclusionState = signal<'idle' | 'saving' | 'error'>('idle'); readonly manualInclusionMessage = signal(''); readonly retryState = signal<RetryState>('idle'); readonly retryErrorMessage = signal(''); readonly errorMessage = signal(''); readonly docxExportState = signal<DocxExportState>('idle'); readonly draftLookupState = signal<DraftLookupState>('idle');
+  /** Set when a regeneration fails: the loaded draft and its unsaved edits stay on screen instead of the generic draft error. */
+  readonly regenerationError = signal(false);
   /** RF24 openers already approved for this analysis' application; empty when they could not be loaded. */
   readonly approvedOpeners = signal<ApprovedOpener[]>([]); readonly openerPendingIds = signal<ReadonlySet<string>>(new Set()); readonly openerFeedback = signal<ReadonlyMap<string, OpenerFeedback>>(new Map());
   private draftGenerationStarted = false;
@@ -145,6 +147,7 @@ export class AnalysisComponent implements OnInit {
     if (!id) return;
     this.draftGenerationStarted = true;
     this.draftLookupState.set('idle');
+    this.regenerationError.set(false);
     const current = this.document();
     const language = this.documentLanguage();
     const type = this.documentType();
@@ -183,12 +186,15 @@ export class AnalysisComponent implements OnInit {
     if (!window.confirm(this.t('regenerate-draft-confirmation'))) return;
     this.draftGenerationStarted = true;
     this.draftLookupState.set('idle');
+    this.regenerationError.set(false);
+    const priorDocumentState = this.documentState();
     this.documentState.set('loading');
     try {
       const regenerated = await this.api.generateDocument(id, { language: this.documentLanguage(), type: this.documentType(), confirmReplacement: true });
       this.setGeneratedDocument(regenerated);
     } catch {
-      this.documentState.set('error');
+      this.documentState.set(priorDocumentState);
+      this.regenerationError.set(true);
     }
   }
   async setManualInclusionApproval(elementId: string, approved: boolean): Promise<void> { this.manualInclusionState.set('saving'); this.manualInclusionMessage.set(''); try { const updated = await this.api.updateManualInclusion(elementId, approved); this.pages.update(pages => pages.map(page => ({ ...page, elements: page.elements.map(element => element.id === elementId ? updated : element) }))); if (this.document()) { this.document.set(null); this.editableTitle.set(''); this.editableSections.set([]); this.documentState.set('idle'); this.saveState.set('idle'); this.manualInclusionMessage.set(this.t('draft-invalidated')); } else this.manualInclusionMessage.set(this.t('manual-inclusion-updated')); this.manualInclusionState.set('idle'); } catch { this.manualInclusionState.set('error'); this.manualInclusionMessage.set(this.t('manual-inclusion-error')); } }
