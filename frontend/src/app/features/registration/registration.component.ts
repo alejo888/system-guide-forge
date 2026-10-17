@@ -10,6 +10,8 @@ const MAX_APPROVED_OPENERS = 50;
 const MAX_OPENER_ROUTE_LENGTH = 200;
 const MAX_OPENER_NAME_LENGTH = 120;
 const OPENER_ROUTE = /^\/(?:[^/?#]+(?:\/[^/?#]+)*)?\/?$/;
+/** Mirrors FunctionalModuleDeriver.ID_SEGMENT: a purely numeric or UUID segment is a record identifier. */
+const ID_SEGMENT = /^(?:[0-9]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/;
 const SENSITIVE_OPENER_NAME = /password|api[-_ ]?key|secret|token|credential|credencial|contrase(?:n|ñ)a|clave (?:de )?api/;
 
 @Component({
@@ -52,7 +54,21 @@ export class RegistrationComponent {
   readonly openerRoutePlaceholder = '/projects/{id}/board';
   /** Per-row validity; a fully empty row is valid because it is dropped on submit. */
   readonly openerRowsValid = computed(() => (this.model().approvedOpeners ?? []).map(opener => this.isOpenerRowValid(opener)));
-  readonly approvedOpenersValid = computed(() => this.openerRowsValid().length <= MAX_APPROVED_OPENERS && this.openerRowsValid().every(Boolean));
+  /** Per-row duplicate flag: true for a valid row whose server key matches an earlier valid row; the first occurrence stays unflagged. */
+  readonly openerRowsDuplicate = computed(() => {
+    const seen = new Set<string>();
+    return (this.model().approvedOpeners ?? []).map((opener, i) => {
+      if (this.isOpenerEmpty(opener) || !this.openerRowsValid()[i]) return false;
+      const key = this.openerKey(opener);
+      if (seen.has(key)) return true;
+      seen.add(key);
+      return false;
+    });
+  });
+  readonly hasDuplicateOpeners = computed(() => this.openerRowsDuplicate().some(Boolean));
+  /** True when a row breaks the route or name rules, or there are too many rows; duplicates are reported separately. */
+  readonly openerRulesBroken = computed(() => this.openerRowsValid().length > MAX_APPROVED_OPENERS || !this.openerRowsValid().every(Boolean));
+  readonly approvedOpenersValid = computed(() => !this.openerRulesBroken() && !this.hasDuplicateOpeners());
 
   constructor() { if (this.editMode) void this.loadApplication(); }
 
@@ -85,6 +101,16 @@ export class RegistrationComponent {
     const name = this.normalizeOpenerName(opener.accessibleName);
     return route.length <= MAX_OPENER_ROUTE_LENGTH && !route.includes('%') && OPENER_ROUTE.test(route)
       && name.length >= 1 && name.length <= MAX_OPENER_NAME_LENGTH && !SENSITIVE_OPENER_NAME.test(name.toLowerCase());
+  }
+  /**
+   * The key ProjectApplicationService.openerKey merges on: the RF23 route template (a literal {id} segment, numeric and
+   * UUID segments all become {id}; no trailing slash except for /) plus the NFC, whitespace-collapsed, lower-case name.
+   */
+  private openerKey(opener: ApprovedOpener): string {
+    const segments = opener.routePattern.trim().replace(/\/\{id\}(?=\/|$)/g, '/0').split('/').map(segment => ID_SEGMENT.test(segment) ? '{id}' : segment);
+    const template = segments.join('/');
+    const route = template.length > 1 && template.endsWith('/') ? template.slice(0, -1) : template;
+    return route + '\n' + this.normalizeOpenerName(opener.accessibleName).toLowerCase();
   }
   private normalizeOpeners(openers: ApprovedOpener[]): ApprovedOpener[] {
     return openers.filter(opener => !this.isOpenerEmpty(opener)).map(opener => ({ routePattern: opener.routePattern.trim(), accessibleName: this.normalizeOpenerName(opener.accessibleName) }));

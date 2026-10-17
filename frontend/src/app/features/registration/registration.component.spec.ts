@@ -247,6 +247,98 @@ describe('RegistrationComponent crawler configuration', () => {
       expect(fixture.nativeElement.querySelector('.opener-empty')?.textContent).toContain('Sin aperturas aprobadas');
       expect(addButton().textContent).toContain('Agregar apertura');
     });
+
+    describe('duplicate rows', () => {
+      const duplicateAlert = (): HTMLElement | null => fixture.nativeElement.querySelector('#opener-duplicate-validation');
+      const inputs = (index: number): HTMLInputElement[] => Array.from(rows()[index].querySelectorAll('input')) as HTMLInputElement[];
+      function addRows(count: number): void { for (let i = 0; i < count; i++) addButton().click(); fixture.detectChanges(); }
+
+      it('flags only the later duplicate and blocks submit', async () => {
+        addRows(2);
+        fillRow(0, '/projects/{id}/board', 'Crear tarea');
+        fillRow(1, '/projects/{id}/board', 'Crear tarea');
+        expect(duplicateAlert()?.getAttribute('role')).toBe('alert');
+        expect(duplicateAlert()?.textContent).toContain('same route and visible name');
+        expect(inputs(0).map(input => input.getAttribute('aria-invalid'))).toEqual(['false', 'false']);
+        expect(inputs(0).map(input => input.getAttribute('aria-describedby'))).toEqual([null, null]);
+        expect(inputs(1).map(input => input.getAttribute('aria-invalid'))).toEqual(['true', 'true']);
+        expect(inputs(1).map(input => input.getAttribute('aria-describedby'))).toEqual(['opener-duplicate-validation', 'opener-duplicate-validation']);
+        expect(fixture.nativeElement.querySelector('#opener-validation')).toBeNull();
+        expect(component.approvedOpenersValid()).toBeFalse();
+        expect(submitButton().disabled).toBeTrue();
+        await component.register();
+        expect(api.createApplication).not.toHaveBeenCalled();
+      });
+
+      for (const [route, name] of [
+        ['/projects/{id}/board', 'CREAR TAREA'],
+        ['  /projects/{id}/board  ', '  Crear \n tarea '],
+        ['/projects/{id}/board/', 'Crear tarea'],
+        ['/projects/42/board', 'Crear tarea'],
+        ['/projects/123e4567-e89b-12d3-a456-426614174000/board', 'crear tarea'],
+        ['/projects/{id}/board', 'Crear tarea'.normalize('NFD')]
+      ]) {
+        it(`flags a row that the server would merge: ${JSON.stringify(route)} ${JSON.stringify(name)}`, () => {
+          addRows(2);
+          fillRow(0, '/projects/{id}/board', 'Crear tarea');
+          fillRow(1, route, name);
+          expect(duplicateAlert()).not.toBeNull();
+          expect(inputs(1)[0].getAttribute('aria-invalid')).toBe('true');
+          expect(submitButton().disabled).toBeTrue();
+        });
+      }
+
+      it('flags accented names that differ only by Unicode normalization or case', () => {
+        addRows(2);
+        fillRow(0, '/configuración', 'Añadir tarea');
+        fillRow(1, '/configuración', 'AÑADIR TAREA'.normalize('NFD'));
+        expect(duplicateAlert()).not.toBeNull();
+        expect(submitButton().disabled).toBeTrue();
+      });
+
+      it('does not flag distinct rows', () => {
+        addRows(4);
+        fillRow(0, '/projects/{id}/board', 'Crear tarea');
+        fillRow(1, '/projects/{id}/board', 'Crear proyecto');
+        fillRow(2, '/projects/board', 'Crear tarea');
+        fillRow(3, '/projects/{id}/list', 'Crear tarea');
+        expect(duplicateAlert()).toBeNull();
+        expect(rows().every(row => Array.from(row.querySelectorAll('input')).every(input => input.getAttribute('aria-invalid') === 'false'))).toBeTrue();
+        expect(submitButton().disabled).toBeFalse();
+      });
+
+      it('does not treat empty or blank rows as duplicates of each other', () => {
+        addRows(3);
+        fillRow(0, '', '');
+        fillRow(1, '   ', '  ');
+        fillRow(2, '/projects', 'Nuevo proyecto');
+        expect(duplicateAlert()).toBeNull();
+        expect(submitButton().disabled).toBeFalse();
+      });
+
+      it('becomes valid again after the duplicate is removed', async () => {
+        addRows(3);
+        fillRow(0, '/projects', 'Nuevo proyecto');
+        fillRow(1, '/projects', 'nuevo proyecto');
+        fillRow(2, '/second', 'Second');
+        expect(duplicateAlert()).not.toBeNull();
+        (rows()[1].querySelector('button') as HTMLButtonElement).click();
+        fixture.detectChanges();
+        expect(duplicateAlert()).toBeNull();
+        expect(component.approvedOpenersValid()).toBeTrue();
+        expect(submitButton().disabled).toBeFalse();
+        await component.register();
+        expect(api.createApplication).toHaveBeenCalledWith('project-1', jasmine.objectContaining({ approvedOpeners: [{ routePattern: '/projects', accessibleName: 'Nuevo proyecto' }, { routePattern: '/second', accessibleName: 'Second' }] }));
+      });
+
+      it('explains duplicates in Spanish', () => {
+        component.localization.setLanguage('es');
+        addRows(2);
+        fillRow(0, '/projects', 'Nuevo proyecto');
+        fillRow(1, '/projects', 'Nuevo proyecto');
+        expect(duplicateAlert()?.textContent).toContain('misma ruta y el mismo nombre visible');
+      });
+    });
   });
 
   describe('edit mode', () => {
