@@ -31,12 +31,19 @@ public class ApplicationController {
         catch (java.util.NoSuchElementException ex) { return ResponseEntity.notFound().build(); }
     }
     @ExceptionHandler(IllegalArgumentException.class)
-    ResponseEntity<ErrorResponse> invalidConfiguration(IllegalArgumentException e) { return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage())); }
+    ResponseEntity<ErrorResponse> invalidConfiguration(IllegalArgumentException e) {
+        String code = e instanceof ProjectApplicationService.InvalidApplicationConfigurationException invalid ? invalid.code() : null;
+        return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage(), code));
+    }
     private ApplicationResponse toResponse(TargetApplication a){return new ApplicationResponse(a.getId(),a.getProjectId(),a.getName(),a.getBaseUrl(),a.getLoginUrl(),a.getMaxCrawlDepth(),a.getExcludedRoutes(),a.getApprovedOpeners().stream().map(r->new ApprovedOpenerPayload(r.routePattern(),r.accessibleName())).toList());}
     private static List<ApprovedOpenerRule> toRules(List<ApprovedOpenerPayload> openers){ return openers == null ? null : openers.stream().map(ApplicationController::toRule).toList(); }
     private static ApprovedOpenerRule toRule(ApprovedOpenerPayload opener){ return opener == null ? null : new ApprovedOpenerRule(opener.routePattern(),opener.accessibleName()); }
     public record ApplicationInput(@NotBlank String name,@NotBlank String baseUrl,@NotBlank String loginUrl,@NotBlank String username,@NotBlank String password, Integer maxCrawlDepth, List<String> excludedRoutes, List<ApprovedOpenerPayload> approvedOpeners) {}
     public record ApplicationResponse(String id,String projectId,String name,String baseUrl,String loginUrl,int maxCrawlDepth,List<String> excludedRoutes,List<ApprovedOpenerPayload> approvedOpeners) {}
     public record ApprovedOpenerPayload(String routePattern, String accessibleName) {}
-    public record ErrorResponse(String message) {}
+    /** {@code code} is omitted when the error has none (for example a non-local URL), so older clients see the same body. */
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    public record ErrorResponse(String message, String code) {
+        public ErrorResponse(String message) { this(message, null); }
+    }
 }

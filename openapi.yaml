@@ -945,5 +945,22 @@ components:
           type: string
         code:
           type: string
-          enum: [DRAFT_REPLACEMENT_CONFIRMATION_REQUIRED]
-          description: Present when a mismatched existing draft requires explicit replacement confirmation.
+          enum:
+            - DRAFT_REPLACEMENT_CONFIRMATION_REQUIRED
+            - APPLICATION_FIELDS_REQUIRED
+            - PROJECT_NOT_FOUND
+            - INVALID_CRAWL_DEPTH
+            - TOO_MANY_EXCLUDED_ROUTES
+            - INVALID_EXCLUDED_ROUTE
+            - INVALID_OPENER_ROUTE
+            - INVALID_OPENER_NAME
+            - TOO_MANY_APPROVED_OPENERS
+          description: >-
+            Stable machine identifier of the error, for clients that show their own localized
+            text instead of the English `message`. Omitted when the error has no code (for
+            example a non-local base or login URL). `DRAFT_REPLACEMENT_CONFIRMATION_REQUIRED`:
+            a mismatched existing draft requires explicit replacement confirmation. The others
+            are application configuration and opener approval validation errors:
+            `APPLICATION_FIELDS_REQUIRED` (a required field is blank), `PROJECT_NOT_FOUND`,
+            `INVALID_CRAWL_DEPTH`, `TOO_MANY_EXCLUDED_ROUTES`, `INVALID_EXCLUDED_ROUTE`,
+            `INVALID_OPENER_ROUTE`, `INVALID_OPENER_NAME`, and `TOO_MANY_APPROVED_OPENERS`.
