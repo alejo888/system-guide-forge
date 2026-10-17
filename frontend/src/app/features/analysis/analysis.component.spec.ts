@@ -810,6 +810,27 @@ describe('AnalysisComponent approve as opener', () => {
     expect(component.routeLabel('not a url')).toBe('not a url');
   });
 
+  it('keeps a segment raw when it decodes to a percent sign or mixes an encoded slash with another escape', async () => {
+    await render();
+
+    expect(component.routeLabel('http://localhost/discount/50%25/caf%C3%A9')).toBe('/discount/50%25/café');
+    expect(component.routeLabel('http://localhost/files/a%2Fb%C3%B3')).toBe('/files/a%2Fb%C3%B3');
+  });
+
+  for (const [description, url] of [['empty', ''], ['unparseable', 'not a url']]) {
+    it(`does not call approveOpener when the page URL is ${description} and shows the generic error`, async () => {
+      usePageUrl(url);
+      await render();
+
+      approveButtons()[0].click();
+      await settle();
+
+      expect(api.approveOpener).not.toHaveBeenCalled();
+      expect(fixture.nativeElement.querySelector('.opener-feedback[role="alert"]')?.textContent).toContain('The opener could not be approved. Please try again.');
+      expect(approveButtons()[0].disabled).toBeFalse();
+    });
+  }
+
   it('shows the approved state when a stored opener matches the route template and the name ignoring case and spacing', async () => {
     api.getApplication.and.resolveTo(application([
       { routePattern: '/projects/{id}/list', accessibleName: 'Create task' },
