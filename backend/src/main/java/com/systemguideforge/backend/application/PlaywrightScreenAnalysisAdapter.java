@@ -24,7 +24,10 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
                     "input[name*='credential' i], input[name*='api-key' i], input[id*='password' i], " +
                     "input[id*='secret' i], input[id*='token' i], input[placeholder*='password' i], " +
                     "input[aria-label*='password' i], textarea[name*='password' i], " +
-                    "textarea[name*='secret' i], textarea[name*='token' i], [data-sensitive]";
+                    "textarea[name*='secret' i], textarea[name*='token' i], select[name*='password' i], " +
+                    "select[name*='secret' i], select[name*='token' i], select[name*='credential' i], " +
+                    "select[name*='api-key' i], select[id*='password' i], select[id*='secret' i], " +
+                    "select[id*='token' i], select[aria-label*='password' i], [data-sensitive]";
     private static final Logger LOG = LoggerFactory.getLogger(PlaywrightScreenAnalysisAdapter.class);
     /** Elements captured per kind on one page; data-item detection scans the same prefix so indices stay aligned. */
     private static final int MAX_ELEMENTS_PER_KIND = 500;
@@ -871,7 +874,7 @@ public final class PlaywrightScreenAnalysisAdapter implements ScreenAnalysisAdap
         try { String path = normalizedPath(URI.create(resolved)); return path.length() <= 255 ? path : null; } catch (RuntimeException e) { return null; }
     }
     private static ActionClassification classifyFixtureElement(Locator item,String kind,String attribute,String value,String pressLabel,String name,String id,String placeholder,String role){ if(isSensitiveField(kind,value,name,id,placeholder))return ActionClassification.UNKNOWN; ActionClassification metadata=ActionClassifier.classifyFixtureMetadata(item.getAttribute("data-action-type")); if(metadata!=null)return metadata; return "a".equals(kind)?ActionClassifier.classify(kind,attribute,value):ActionClassifier.classifyControl(kind,value,pressLabel,role); }
-    private static boolean isSensitiveField(String kind,String type,String name,String id,String placeholder){if(!"input".equals(kind)&&!"textarea".equals(kind))return false; return String.join(" ",type==null?"":type,name==null?"":name,id==null?"":id,placeholder==null?"":placeholder).matches("(?i).*(password|api[-_]?key|secret|token|credential).*");}
+    private static boolean isSensitiveField(String kind,String type,String name,String id,String placeholder){if(!"input".equals(kind)&&!"textarea".equals(kind)&&!"select".equals(kind))return false; return String.join(" ",type==null?"":type,name==null?"":name,id==null?"":id,placeholder==null?"":placeholder).matches("(?i).*(password|api[-_]?key|secret|token|credential).*");}
     private static final String VISIBLE_TEXT_SCRIPT = "root => { const collect = el => { let out = ''; for (const child of el.childNodes) { if (child.nodeType === 3) out += child.textContent || ''; else if (child.nodeType === 1 && child.getAttribute('aria-hidden') !== 'true') { const display = getComputedStyle(child).display; if (display === 'none') continue; const gap = display === 'inline' || display === 'contents' ? '' : ' '; out += gap + collect(child) + gap; } } return out; }; return collect(root).replace(/\\s+/g, ' ').trim(); }"; private static String text(Locator l){try{Object value=l.evaluate(VISIBLE_TEXT_SCRIPT);return value instanceof String visible?visible:null;}catch(Exception e){return null;}} private static String first(String... values){for(String v:values)if(v!=null&&!v.isBlank())return v.trim();return null;} private static String safe(String value){return value==null?null:value.replaceAll("(?i)password|secret|credential|token|api[-_]?key","[redacted]");} private static String safeUrl(String value){try{URI uri=URI.create(value);return new URI(uri.getScheme(),uri.getAuthority(),normalizedPath(uri),null,null).toString();}catch(Exception e){return "about:blank";}}
     static final class CrawlBudget {
         private int pages;
