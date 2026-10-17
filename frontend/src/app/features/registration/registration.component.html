@@ -14,8 +14,8 @@
           <p class="openers-help">{{ t('approved-openers-help') }}</p>
           @for (opener of model().approvedOpeners ?? []; track $index; let i = $index) {
             <div class="opener-row">
-              <label>{{ t('opener-route') }}<input type="text" [value]="opener.routePattern" (input)="setOpener(i, 'routePattern', $any($event.target).value)" [attr.aria-label]="t('opener-route') + ' ' + (i + 1)" [attr.aria-invalid]="!openerRowsValid()[i]" [attr.aria-describedby]="openerRowsValid()[i] ? null : 'opener-validation'" [placeholder]="openerRoutePlaceholder"></label>
-              <label>{{ t('opener-name') }}<input type="text" [value]="opener.accessibleName" (input)="setOpener(i, 'accessibleName', $any($event.target).value)" [attr.aria-label]="t('opener-name') + ' ' + (i + 1)" [attr.aria-invalid]="!openerRowsValid()[i]" [attr.aria-describedby]="openerRowsValid()[i] ? null : 'opener-validation'" [placeholder]="t('opener-name-placeholder')"></label>
+              <label>{{ t('opener-route') }}<input type="text" [value]="opener.routePattern" (input)="setOpener(i, 'routePattern', $any($event.target).value)" [attr.aria-label]="t('opener-route') + ' ' + (i + 1)" [attr.aria-invalid]="!openerRowsValid()[i] || openerRowsDuplicate()[i]" [attr.aria-describedby]="!openerRowsValid()[i] ? 'opener-validation' : openerRowsDuplicate()[i] ? 'opener-duplicate-validation' : null" [placeholder]="openerRoutePlaceholder"></label>
+              <label>{{ t('opener-name') }}<input type="text" [value]="opener.accessibleName" (input)="setOpener(i, 'accessibleName', $any($event.target).value)" [attr.aria-label]="t('opener-name') + ' ' + (i + 1)" [attr.aria-invalid]="!openerRowsValid()[i] || openerRowsDuplicate()[i]" [attr.aria-describedby]="!openerRowsValid()[i] ? 'opener-validation' : openerRowsDuplicate()[i] ? 'opener-duplicate-validation' : null" [placeholder]="t('opener-name-placeholder')"></label>
               <button class="button outline opener-remove" type="button" [attr.aria-label]="t('remove-opener') + ' ' + (i + 1)" (click)="removeOpener(i)">{{ t('remove') }}</button>
             </div>
           } @empty {
@@ -23,7 +23,8 @@
           }
           <div class="openers-actions"><button class="button outline opener-add" type="button" [disabled]="(model().approvedOpeners ?? []).length >= maxApprovedOpeners" (click)="addOpener()">{{ t('add-opener') }}</button><small>{{ t('opener-limit') }}</small></div>
         </fieldset>
-        @if (!approvedOpenersValid()) { <div id="opener-validation" class="error-message" role="alert">{{ t('opener-validation') }}</div> }
+        @if (openerRulesBroken()) { <div id="opener-validation" class="error-message" role="alert">{{ t('opener-validation') }}</div> }
+        @if (hasDuplicateOpeners()) { <div id="opener-duplicate-validation" class="error-message" role="alert">{{ t('opener-duplicate-validation') }}</div> }
       </div>
       @if (loadingMessage()) { <div class="loading-message" role="status" aria-live="polite">{{ loadingMessage() }}</div> }
       @if (state() === 'error') { <div class="error-message" role="alert">{{ errorMessage() }}</div> }
