@@ -50,6 +50,35 @@ class PlaywrightScreenAnalysisAdapterTest {
     void sanitizationPolicyMasksPasswordAndSensitiveFields() {
         String selector = PlaywrightScreenAnalysisAdapter.SENSITIVE_FIELD_SELECTOR;
         assertThat(selector).contains("input[type='password']").contains("[autocomplete='current-password']").contains("[name*='token' i]").contains("[data-sensitive]");
+        assertThat(selector).contains("select[name*='secret' i]").contains("select[id*='token' i]").contains("select[aria-label*='password' i]");
+    }
+
+    @Test
+    void masksSensitiveSelectsInTheScreenshotButNotOrdinarySelects() throws Exception {
+        String style = "select { display: block; appearance: none; width: 320px; height: 60px; margin-top: 12px; border: 0; }"
+                + " .status { background: rgb(1, 123, 45); color: rgb(1, 123, 45); }";
+        byte[] sensitive = analyzeDashboard("<!doctype html><html><head><style>" + style + "</style></head><body><main><h1>Settings</h1>"
+                + "<select name=\"apiToken\"><option>tok-1</option></select></main></body></html>", null).sanitizedScreenshot();
+        byte[] ordinary = analyzeDashboard("<!doctype html><html><head><style>" + style + "</style></head><body><main><h1>Settings</h1>"
+                + "<select class=\"status\" name=\"status\"><option>Open</option></select></main></body></html>", null).sanitizedScreenshot();
+
+        assertThat(pixelCount(ImageIO.read(new ByteArrayInputStream(sensitive)), 0xFF00FF)).isGreaterThan(1_000);
+        BufferedImage ordinaryImage = ImageIO.read(new ByteArrayInputStream(ordinary));
+        assertThat(pixelCount(ordinaryImage, 0xFF00FF)).isZero();
+        assertThat(pixelCount(ordinaryImage, 0x017B2D)).isGreaterThan(1_000);
+    }
+
+    @Test
+    void classifiesSensitiveSelectsAsUnknownEvenWhenFixtureMetadataSaysSafe() throws Exception {
+        ScreenAnalysisAdapter.ScreenAnalysisResult result = analyzeDashboard(
+                "<!doctype html><html><body><main><h1>Settings</h1>"
+                        + "<select aria-label=\"Clave API\" name=\"apiSecret\" data-action-type=\"safe\"><option>a</option></select>"
+                        + "<select aria-label=\"Estado\" name=\"status\" data-action-type=\"safe\"><option>Open</option></select></main></body></html>",
+                null);
+
+        assertThat(result.elements()).filteredOn(element -> "select".equals(element.kind()))
+                .extracting(ScreenAnalysisAdapter.DetectedElement::accessibleName, ScreenAnalysisAdapter.DetectedElement::classification)
+                .containsExactly(tuple("Clave API", ActionClassification.UNKNOWN), tuple("Estado", ActionClassification.SAFE));
     }
 
     @Test
