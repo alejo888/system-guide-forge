@@ -743,6 +743,7 @@ describe('AnalysisComponent approve as opener', () => {
     fixture.detectChanges();
   }
   async function settle(): Promise<void> { await fixture.whenStable(); fixture.detectChanges(); }
+  function usePageUrl(url: string): void { const encodedPage = { ...page, url }; api.getAnalysisPages.and.resolveTo([encodedPage]); api.getAnalysisModules.and.resolveTo([{ key: 'settings', name: 'Settings', pages: [encodedPage] }]); }
   const approveButtons = (): HTMLButtonElement[] => Array.from(fixture.nativeElement.querySelectorAll('.approve-opener-button'));
 
   it('offers "Approve as opener" only on buttons that have a visible name', async () => {
@@ -779,6 +780,34 @@ describe('AnalysisComponent approve as opener', () => {
     expect(api.approveOpener).toHaveBeenCalledOnceWith('app-1', { routePattern: '/projects/1/board', accessibleName: 'Create task' });
     expect(api.updateManualInclusion).not.toHaveBeenCalled();
     expect(component.pages()[0].elements[0]).toEqual(createTask);
+  });
+
+  it('sends the decoded path when the page address has a non-ASCII route', async () => {
+    usePageUrl('http://localhost/configuraci%C3%B3n/1');
+    api.approveOpener.and.resolveTo(application([{ routePattern: '/configuración/{id}', accessibleName: 'Create task' }]));
+    await render();
+
+    approveButtons()[0].click();
+    await settle();
+
+    expect(api.approveOpener).toHaveBeenCalledOnceWith('app-1', { routePattern: '/configuración/1', accessibleName: 'Create task' });
+  });
+
+  it('shows the approved state when a stored decoded non-ASCII route matches the encoded page address', async () => {
+    usePageUrl('http://localhost/configuraci%C3%B3n/1');
+    api.getApplication.and.resolveTo(application([{ routePattern: '/configuración/{id}', accessibleName: 'Create task' }]));
+    await render();
+
+    expect(approveButtons().length).toBe(0);
+    expect(fixture.nativeElement.querySelector('.opener-approved')?.textContent).toContain('Approved opener');
+  });
+
+  it('shows the decoded route and keeps malformed or slash-encoding segments raw', async () => {
+    await render();
+
+    expect(component.routeLabel('http://localhost/configuraci%C3%B3n')).toBe('/configuración');
+    expect(component.routeLabel('http://localhost/files/a%2Fb/%E0%A4%A/caf%C3%A9')).toBe('/files/a%2Fb/%E0%A4%A/café');
+    expect(component.routeLabel('not a url')).toBe('not a url');
   });
 
   it('shows the approved state when a stored opener matches the route template and the name ignoring case and spacing', async () => {

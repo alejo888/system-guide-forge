@@ -88,7 +88,7 @@ export class AnalysisComponent implements OnInit {
     this.setOpenerPending(element.id, true); this.setOpenerFeedback(element.id, null);
     const sequence = ++this.openerRequestSequence;
     try {
-      const application = await this.api.approveOpener(applicationId, { routePattern: new URL(page.url).pathname, accessibleName: element.accessibleName });
+      const application = await this.api.approveOpener(applicationId, { routePattern: this.routeLabel(page.url), accessibleName: element.accessibleName });
       this.applyApprovedOpeners(sequence, application.approvedOpeners, true);
       this.setOpenerFeedback(element.id, { elementId: element.id, kind: 'success', message: this.t('opener-approved-next-analysis') });
     } catch (error) {
@@ -109,7 +109,13 @@ export class AnalysisComponent implements OnInit {
   private baseLabel(page: PageResponse): string { return page.heading?.trim() || page.title?.trim() || ''; }
   elementLabel(element: ElementResponse): string { return element.accessibleName?.trim() || this.t('unnamed-element'); }
   isLoginPage(page: PageResponse): boolean { return page.kind === 'LOGIN'; }
-  routeLabel(url: string): string { try { return new URL(url).pathname || '/'; } catch { return url || '/'; } }
+  /** The page's decoded path, shared by the display, the approved check, and the approval request, because the backend
+   * and the crawler compare decoded routes. A segment that is a malformed escape or decodes to '/' stays raw. */
+  routeLabel(url: string): string {
+    let path: string;
+    try { path = new URL(url).pathname || '/'; } catch { return url || '/'; }
+    return path.split('/').map(segment => { try { const decoded = decodeURIComponent(segment); return decoded.includes('/') ? segment : decoded; } catch { return segment; } }).join('/');
+  }
   sectionAnchor(id: string): string { return `manual-section-${this.anchorPart(id)}`; }
   pageAnchor(id: string): string { return `discovered-page-${this.anchorPart(id)}`; }
   moduleAnchor(key: string): string { return `module-${this.anchorPart(key)}`; }
