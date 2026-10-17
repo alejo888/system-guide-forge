@@ -86,6 +86,11 @@ export class AnalysisComponent implements OnInit {
     const route = this.routeTemplate(this.routeLabel(page.url)); const name = this.openerNameKey(element.accessibleName);
     return this.approvedOpeners().some(opener => this.routeTemplate(opener.routePattern) === route && this.openerNameKey(opener.accessibleName) === name);
   }
+  /** The opener action an element row shows: nothing, the approved badge, or the "Approve as opener" button. */
+  openerState(page: PageResponse, element: ElementResponse): 'none' | 'approved' | 'approvable' {
+    if (!this.canApproveOpener(element)) return 'none';
+    return this.isApprovedOpener(page, element) ? 'approved' : 'approvable';
+  }
   approveOpenerLabel(element: ElementResponse): string { return `${this.t('approve-opener')}: ${this.elementLabel(element)}`; }
   /** RF24: approves the control for future analyses only; the current evidence, classification, and draft stay as they are. */
   async approveOpener(page: PageResponse, element: ElementResponse): Promise<void> {
