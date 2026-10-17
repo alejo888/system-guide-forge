@@ -168,6 +168,7 @@ class ProjectApplicationServiceTest {
                 "project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, java.util.List.of(), openers));
 
         assertEquals("Too many approved openers", error.getMessage());
+        assertEquals("TOO_MANY_APPROVED_OPENERS", ((ProjectApplicationService.InvalidApplicationConfigurationException) error).code());
         verifyNoInteractions(applications, protector);
     }
 
@@ -217,6 +218,29 @@ class ProjectApplicationServiceTest {
     }
 
     @Test
+    void reportsAStableCodeForEachInvalidOpener() {
+        assertEquals("INVALID_OPENER_ROUTE", codeOf(() -> service.approveOpener("app-id", new ApprovedOpenerRule("/projects?tab=1", "Crear tarea"))));
+        assertEquals("INVALID_OPENER_ROUTE", codeOf(() -> service.approveOpener("app-id", null)));
+        assertEquals("INVALID_OPENER_NAME", codeOf(() -> service.approveOpener("app-id", new ApprovedOpenerRule("/projects", "Show password"))));
+        assertEquals("TOO_MANY_APPROVED_OPENERS", codeOf(() -> service.createApplication("project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, java.util.List.of(),
+                java.util.stream.IntStream.range(0, 51).mapToObj(index -> new ApprovedOpenerRule("/page" + index, "Abrir")).toList())));
+    }
+
+    @Test
+    void reportsAStableCodeForEachInvalidConfiguration() {
+        assertEquals("APPLICATION_FIELDS_REQUIRED", codeOf(() -> service.createApplication("project-id", " ", "http://localhost:8080", "http://localhost:8080/login", "user", "password")));
+        assertEquals("INVALID_CRAWL_DEPTH", codeOf(() -> service.createApplication("project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 6, java.util.List.of())));
+        assertEquals("INVALID_EXCLUDED_ROUTE", codeOf(() -> service.createApplication("project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2, java.util.List.of("admin"))));
+        assertEquals("TOO_MANY_EXCLUDED_ROUTES", codeOf(() -> service.createApplication("project-id", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password", 2,
+                java.util.stream.IntStream.range(0, 51).mapToObj(index -> "/route" + index).toList())));
+        assertEquals("PROJECT_NOT_FOUND", codeOf(() -> service.createApplication("missing-project", "App", "http://localhost:8080", "http://localhost:8080/login", "user", "password")));
+    }
+
+    private static String codeOf(org.junit.jupiter.api.function.Executable call) {
+        return assertThrows(ProjectApplicationService.InvalidApplicationConfigurationException.class, call).code();
+    }
+
+    @Test
     void rejectsTheFiftyFirstApprovedOpenerButStillAcceptsARepeatedOne() {
         var existing = TestFixtures.application("app-id");
         var fifty = java.util.stream.IntStream.range(0, 50).mapToObj(index -> new ApprovedOpenerRule("/page" + index, "Abrir")).toList();
@@ -226,6 +250,7 @@ class ProjectApplicationServiceTest {
         var error = assertThrows(IllegalArgumentException.class, () -> service.approveOpener("app-id", new ApprovedOpenerRule("/page50", "Abrir")));
 
         assertEquals("Too many approved openers", error.getMessage());
+        assertEquals("TOO_MANY_APPROVED_OPENERS", ((ProjectApplicationService.InvalidApplicationConfigurationException) error).code());
         assertEquals(50, service.approveOpener("app-id", new ApprovedOpenerRule("/page7", "abrir")).getApprovedOpeners().size());
         verify(applications, never()).save(any());
     }

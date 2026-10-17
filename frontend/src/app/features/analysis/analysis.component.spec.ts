@@ -876,17 +876,51 @@ describe('AnalysisComponent approve as opener', () => {
     expect(component.documentState()).toBe('ready');
   });
 
-  it('shows the server message when the approval is rejected and keeps the action available', async () => {
-    api.approveOpener.and.rejectWith(new ApiError(400, 'Approved opener names must not mention secrets'));
+  it('shows localized text for a known rejection code instead of the server message and keeps the action available', async () => {
+    api.approveOpener.and.rejectWith(new ApiError(400, 'Approved opener names must not mention secrets', 'INVALID_OPENER_NAME'));
     await render();
 
     approveButtons()[0].click();
     await settle();
 
     const alert = fixture.nativeElement.querySelector('.opener-feedback[role="alert"]');
-    expect(alert?.textContent).toContain('Approved opener names must not mention secrets');
+    expect(alert?.textContent).toContain('The visible name of this control cannot be approved as an opener.');
+    expect(alert?.textContent).not.toContain('Approved opener names must not mention secrets');
     expect(approveButtons().length).toBe(1);
     expect(approveButtons()[0].disabled).toBeFalse();
+  });
+
+  it('shows the Spanish text for each known rejection code', async () => {
+    await render();
+    component.localization.setLanguage('es');
+    const expected: Record<string, string> = {
+      INVALID_OPENER_ROUTE: 'La ruta de esta página no se puede aprobar como apertura.',
+      INVALID_OPENER_NAME: 'El nombre visible de este control no se puede aprobar como apertura.',
+      TOO_MANY_APPROVED_OPENERS: 'La aplicación ya tiene el máximo de 50 aperturas aprobadas.'
+    };
+    for (const [code, text] of Object.entries(expected)) {
+      api.approveOpener.and.rejectWith(new ApiError(400, 'English server text', code));
+      approveButtons()[0].click();
+      await settle();
+
+      const alert = fixture.nativeElement.querySelector('.opener-feedback[role="alert"]');
+      expect(alert?.textContent).withContext(code).toContain(text);
+      expect(alert?.textContent).withContext(code).not.toContain('English server text');
+    }
+  });
+
+  it('shows the generic error instead of the server message for an unknown or missing rejection code', async () => {
+    for (const error of [new ApiError(400, 'Some new server rule', 'SOMETHING_NEW'), new ApiError(400, 'Only local URLs are allowed')]) {
+      api.approveOpener.and.rejectWith(error);
+      await render();
+
+      approveButtons()[0].click();
+      await settle();
+
+      const alert = fixture.nativeElement.querySelector('.opener-feedback[role="alert"]');
+      expect(alert?.textContent).withContext(error.message).toContain('The opener could not be approved. Please try again.');
+      expect(alert?.textContent).withContext(error.message).not.toContain(error.message);
+    }
   });
 
   it('shows a generic error when the approval fails without a server message', async () => {

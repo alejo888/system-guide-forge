@@ -110,17 +110,34 @@ class ApplicationControllerTest {
     }
 
     @Test
-    void rejectsAnInvalidOpenerApprovalWithItsMessage() throws Exception {
+    void rejectsAnInvalidOpenerApprovalWithItsMessageAndCode() throws Exception {
         ProjectApplicationService service = mock(ProjectApplicationService.class);
         when(service.approveOpener("app-1", new ApprovedOpenerRule("/projects", "Show password")))
-                .thenThrow(new IllegalArgumentException("Approved opener names must be visible, non-sensitive control names of at most 120 characters"));
+                .thenThrow(new ProjectApplicationService.InvalidApplicationConfigurationException("INVALID_OPENER_NAME",
+                        "Approved opener names must be visible, non-sensitive control names of at most 120 characters"));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new ApplicationController(service)).build();
 
         mvc.perform(post("/api/applications/app-1/approved-openers").contentType(MediaType.APPLICATION_JSON).content("""
                         {"routePattern":"/projects","accessibleName":"Show password"}
                         """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Approved opener names must be visible, non-sensitive control names of at most 120 characters"));
+                .andExpect(jsonPath("$.message").value("Approved opener names must be visible, non-sensitive control names of at most 120 characters"))
+                .andExpect(jsonPath("$.code").value("INVALID_OPENER_NAME"));
+    }
+
+    @Test
+    void omitsTheCodeForAnInvalidRequestWithoutOne() throws Exception {
+        ProjectApplicationService service = mock(ProjectApplicationService.class);
+        when(service.approveOpener("app-1", new ApprovedOpenerRule("/projects", "Crear tarea")))
+                .thenThrow(new IllegalArgumentException("Only local URLs are allowed"));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new ApplicationController(service)).build();
+
+        mvc.perform(post("/api/applications/app-1/approved-openers").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"routePattern":"/projects","accessibleName":"Crear tarea"}
+                        """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Only local URLs are allowed"))
+                .andExpect(jsonPath("$.code").doesNotExist());
     }
 
     @Test

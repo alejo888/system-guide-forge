@@ -34,7 +34,7 @@ public class ProjectApplicationService {
     }
     public TargetApplication createApplication(String projectId,String name,String baseUrl,String loginUrl,String username,String password, Integer maxCrawlDepth, List<String> excludedRoutes, List<ApprovedOpenerRule> approvedOpeners) {
         validateConfiguration(name, baseUrl, loginUrl, username, password, maxCrawlDepth, excludedRoutes, approvedOpeners);
-        if (!projects.existsById(projectId)) throw new IllegalArgumentException("Project not found");
+        if (!projects.existsById(projectId)) throw invalid("PROJECT_NOT_FOUND", "Project not found");
         return applications.save(new TargetApplication(projectId,name,baseUrl,loginUrl,protector.encrypt(username),protector.encrypt(password),effectiveDepth(maxCrawlDepth),normalizeRoutes(excludedRoutes),normalizeApprovedOpeners(approvedOpeners)));
     }
     public List<TargetApplication> listApplications() { return applications.findAllByOrderByNameAscIdAsc(); }
@@ -75,7 +75,7 @@ public class ProjectApplicationService {
         TargetApplication application = applications.findForUpdateById(id).orElseThrow();
         List<ApprovedOpenerRule> approved = application.getApprovedOpeners();
         if (approved.stream().anyMatch(existing -> openerKey(existing).equals(openerKey(rule)))) return application;
-        if (approved.size() >= MAX_APPROVED_OPENERS) throw new IllegalArgumentException("Too many approved openers");
+        if (approved.size() >= MAX_APPROVED_OPENERS) throw invalid("TOO_MANY_APPROVED_OPENERS", "Too many approved openers");
         application.approveOpener(rule);
         return applications.save(application);
     }
@@ -84,20 +84,20 @@ public class ProjectApplicationService {
         return accessProbe.test(new AccessRequest(app.getBaseUrl(),app.getLoginUrl(),protector.decrypt(app.getUsernameEncrypted()),protector.decrypt(app.getPasswordEncrypted())));
     }
     private void validateConfiguration(String name, String baseUrl, String loginUrl, String username, String password, Integer depth, List<String> routes, List<ApprovedOpenerRule> openers) {
-        if (isBlank(name) || isBlank(baseUrl) || isBlank(loginUrl) || isBlank(username) || isBlank(password)) throw new IllegalArgumentException("Application configuration fields are required");
+        if (isBlank(name) || isBlank(baseUrl) || isBlank(loginUrl) || isBlank(username) || isBlank(password)) throw invalid("APPLICATION_FIELDS_REQUIRED", "Application configuration fields are required");
         LocalUrlValidator.requireLocal(baseUrl); LocalUrlValidator.requireLocal(loginUrl);
         if (depth == null) depth = DEFAULT_CRAWL_DEPTH;
-        if (depth < 0 || depth > MAX_CRAWL_DEPTH) throw new IllegalArgumentException("Crawl depth must be between 0 and 5");
+        if (depth < 0 || depth > MAX_CRAWL_DEPTH) throw invalid("INVALID_CRAWL_DEPTH", "Crawl depth must be between 0 and 5");
         normalizeRoutes(routes);
         normalizeApprovedOpeners(openers);
     }
     private static int effectiveDepth(Integer depth) { return depth == null ? DEFAULT_CRAWL_DEPTH : depth; }
     static List<String> normalizeRoutes(List<String> routes) {
         if (routes == null) return List.of();
-        if (routes.size() > MAX_EXCLUDED_ROUTES) throw new IllegalArgumentException("Too many excluded routes");
+        if (routes.size() > MAX_EXCLUDED_ROUTES) throw invalid("TOO_MANY_EXCLUDED_ROUTES", "Too many excluded routes");
         LinkedHashSet<String> normalized = new LinkedHashSet<>();
         for (String route : routes) {
-            if (!isLocalPath(route)) throw new IllegalArgumentException("Excluded routes must be normalized URL paths");
+            if (!isLocalPath(route)) throw invalid("INVALID_EXCLUDED_ROUTE", "Excluded routes must be normalized URL paths");
             String value = route.length() > 1 && route.endsWith("/") ? route.substring(0, route.length() - 1) : route;
             normalized.add(value);
         }
@@ -110,7 +110,7 @@ public class ProjectApplicationService {
      */
     static List<ApprovedOpenerRule> normalizeApprovedOpeners(List<ApprovedOpenerRule> openers) {
         if (openers == null) return List.of();
-        if (openers.size() > MAX_APPROVED_OPENERS) throw new IllegalArgumentException("Too many approved openers");
+        if (openers.size() > MAX_APPROVED_OPENERS) throw invalid("TOO_MANY_APPROVED_OPENERS", "Too many approved openers");
         Map<String, ApprovedOpenerRule> normalized = new LinkedHashMap<>();
         for (ApprovedOpenerRule opener : openers) {
             ApprovedOpenerRule rule = normalizeApprovedOpener(opener);
@@ -120,14 +120,14 @@ public class ProjectApplicationService {
     }
     /** One opener of {@link #normalizeApprovedOpeners}: its route template and display name, or an IllegalArgumentException. */
     static ApprovedOpenerRule normalizeApprovedOpener(ApprovedOpenerRule opener) {
-        if (opener == null) throw new IllegalArgumentException(INVALID_OPENER_ROUTE);
+        if (opener == null) throw invalid("INVALID_OPENER_ROUTE", INVALID_OPENER_ROUTE);
         // A literal {id} segment stands for any record; "0" is an equivalent id segment that URI parsing accepts.
         String route = opener.routePattern() == null ? null : opener.routePattern().replaceAll("/\\{id}(?=/|$)", "/0");
-        if (!isLocalPath(route)) throw new IllegalArgumentException(INVALID_OPENER_ROUTE);
+        if (!isLocalPath(route)) throw invalid("INVALID_OPENER_ROUTE", INVALID_OPENER_ROUTE);
         String name = ApprovedOpenerMatcher.displayName(opener.accessibleName());
-        if (name.isEmpty() || name.length() > MAX_OPENER_NAME_LENGTH || name.toLowerCase(Locale.ROOT).matches(SENSITIVE_NAME_PATTERN)) throw new IllegalArgumentException(INVALID_OPENER_NAME);
+        if (name.isEmpty() || name.length() > MAX_OPENER_NAME_LENGTH || name.toLowerCase(Locale.ROOT).matches(SENSITIVE_NAME_PATTERN)) throw invalid("INVALID_OPENER_NAME", INVALID_OPENER_NAME);
         ApprovedOpenerRule rule = new ApprovedOpenerRule(ApprovedOpenerMatcher.routeTemplateOf(route), name);
-        if (rule.routePattern().length() > MAX_ROUTE_LENGTH) throw new IllegalArgumentException(INVALID_OPENER_ROUTE);
+        if (rule.routePattern().length() > MAX_ROUTE_LENGTH) throw invalid("INVALID_OPENER_ROUTE", INVALID_OPENER_ROUTE);
         return rule;
     }
     /** Openers with the same key are the same opener for the matcher: same route template, same name ignoring case. */
@@ -140,4 +140,14 @@ public class ProjectApplicationService {
         } catch (IllegalArgumentException ex) { return false; }
     }
     private boolean isBlank(String value) { return value == null || value.isBlank(); }
+    private static InvalidApplicationConfigurationException invalid(String code, String message) { return new InvalidApplicationConfigurationException(code, message); }
+    /**
+     * A rejected application configuration or opener approval. The English message stays as before; {@code code} is a
+     * stable machine identifier (documented in openapi.yaml) that clients map to their own localized text.
+     */
+    public static class InvalidApplicationConfigurationException extends IllegalArgumentException {
+        private final String code;
+        public InvalidApplicationConfigurationException(String code, String message) { super(message); this.code = code; }
+        public String code() { return code; }
+    }
 }

@@ -10,6 +10,12 @@ type DocxExportState = 'idle' | 'exporting' | 'error';
 type DraftLookupState = 'idle' | 'loading';
 interface OpenerFeedback { elementId: string; kind: 'success' | 'error'; message: string; }
 /** Mirrors the backend RF23 id segment: purely numeric or a UUID. */
+/** Backend opener rejection codes (openapi.yaml ErrorResponse.code) and their localized keys. */
+const OPENER_ERROR_KEYS: ReadonlyMap<string, string> = new Map([
+  ['INVALID_OPENER_ROUTE', 'opener-error-invalid-route'],
+  ['INVALID_OPENER_NAME', 'opener-error-invalid-name'],
+  ['TOO_MANY_APPROVED_OPENERS', 'opener-error-too-many']
+]);
 const ID_SEGMENT = /^(?:[0-9]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/;
 
 @Component({ selector: 'sgf-analysis', standalone: true, imports: [RouterLink], templateUrl: './analysis.component.html', styleUrl: './analysis.component.css' })
@@ -94,8 +100,7 @@ export class AnalysisComponent implements OnInit {
       this.applyApprovedOpeners(sequence, application.approvedOpeners, true);
       this.setOpenerFeedback(element.id, { elementId: element.id, kind: 'success', message: this.t('opener-approved-next-analysis') });
     } catch (error) {
-      const message = error instanceof ApiError && error.status === 400 && error.message ? error.message : this.t('opener-approve-error');
-      this.setOpenerFeedback(element.id, { elementId: element.id, kind: 'error', message });
+      this.setOpenerFeedback(element.id, { elementId: element.id, kind: 'error', message: this.t(this.openerErrorKey(error)) });
     } finally {
       this.setOpenerPending(element.id, false);
     }
@@ -247,6 +252,11 @@ export class AnalysisComponent implements OnInit {
   private docxFilename(title: string | null | undefined): string { const safeTitle = (title ?? '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, ''); return `${safeTitle || 'manual'}.docx`; }
   private setEditableDocument(document: DocumentResponse): void { this.document.set(document); this.documentLanguage.set(document.language); this.documentType.set(document.type); this.editableTitle.set(document.title); this.editableSections.set(document.sections.map((section, index) => ({ ...section, position: index }))); }
   private setGeneratedDocument(document: DocumentResponse): void { this.setEditableDocument(document); this.documentState.set(document.sections.length ? 'ready' : 'empty'); }
+  /** Maps a known opener rejection code to its localized key; server text is never shown, so anything else is the generic error. */
+  private openerErrorKey(error: unknown): string {
+    const code = error instanceof ApiError && error.status === 400 ? error.code : undefined;
+    return (code && OPENER_ERROR_KEYS.get(code)) || 'opener-approve-error';
+  }
   private isReplacementConfirmationRequired(error: unknown): boolean { return error instanceof ApiError && error.status === 409 && error.code === 'DRAFT_REPLACEMENT_CONFIRMATION_REQUIRED'; }
   private documentReplacementWarning(): string { return this.localization.language() === 'es' ? 'Este borrador editable existente se eliminará y se reemplazará. ¿Querés continuar?' : 'The existing editable draft will be destroyed and replaced. Do you want to continue?'; }
   private fail(message: string): void { this.state.set('error'); this.errorMessage.set(message); }
