@@ -272,6 +272,56 @@ class PersistenceTest {
         }
 
     @Test
+    void reusesKeptExcludedRouteRowsWhenAnUpdatePartiallyOverlapsTheStoredRoutes() {
+        Project project = projects.save(new Project("Partial overlap project"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 2,
+                List.of("/admin", "/reports", "/settings")));
+        applications.flush();
+        entityManager.clear();
+        java.util.Map<String, String> idsBefore = excludedRouteIdsByPath(application.getId());
+
+        TargetApplication loaded = applications.findById(application.getId()).orElseThrow();
+        loaded.updateConfiguration("App", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 2, List.of("/settings", "/billing", "/admin"));
+        // Before the flush the routes keep the order of the update.
+        assertThat(loaded.getExcludedRoutes()).containsExactly("/settings", "/billing", "/admin");
+        applications.flush();
+        entityManager.clear();
+
+        java.util.Map<String, String> idsAfter = excludedRouteIdsByPath(application.getId());
+        assertThat(idsAfter).containsOnlyKeys("/admin", "/billing", "/settings");
+        assertThat(idsAfter.get("/admin")).isEqualTo(idsBefore.get("/admin"));
+        assertThat(idsAfter.get("/settings")).isEqualTo(idsBefore.get("/settings"));
+        assertThat(idsAfter.get("/billing")).isNotIn(idsBefore.values());
+        // After a reload the rows come back in path order (@OrderBy), not in the order of the update.
+        assertThat(applications.findById(application.getId()).orElseThrow().getExcludedRoutes()).containsExactly("/admin", "/billing", "/settings");
+    }
+
+    @Test
+    void reusesEveryExcludedRouteRowWhenAnUpdateOnlyReordersTheStoredRoutes() {
+        Project project = projects.save(new Project("Reorder project"));
+        TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 2,
+                List.of("/admin", "/reports", "/settings")));
+        applications.flush();
+        entityManager.clear();
+        java.util.Map<String, String> idsBefore = excludedRouteIdsByPath(application.getId());
+
+        TargetApplication loaded = applications.findById(application.getId()).orElseThrow();
+        loaded.updateConfiguration("App", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 2, List.of("/settings", "/admin", "/reports"));
+        assertThat(loaded.getExcludedRoutes()).containsExactly("/settings", "/admin", "/reports");
+        applications.flush();
+        entityManager.clear();
+
+        assertThat(excludedRouteIdsByPath(application.getId())).isEqualTo(idsBefore);
+        assertThat(applications.findById(application.getId()).orElseThrow().getExcludedRoutes()).containsExactly("/admin", "/reports", "/settings");
+    }
+
+    private java.util.Map<String, String> excludedRouteIdsByPath(String applicationId) {
+        java.util.Map<String, String> ids = new java.util.LinkedHashMap<>();
+        for (ExcludedRoute route : excludedRoutes.findByApplicationIdOrderByPath(applicationId)) ids.put(route.getPath(), route.getId());
+        return ids;
+    }
+
+    @Test
     void persistsApprovedOpenersAndReplacesThemOnUpdate() {
         Project project = projects.save(new Project("Opener project"));
         TargetApplication application = applications.save(new TargetApplication(project.getId(), "App", "http://localhost:8080", "http://localhost:8080/login", "u", "p", 2, List.of(),
