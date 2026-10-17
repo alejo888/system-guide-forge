@@ -85,10 +85,12 @@ export class AnalysisComponent implements OnInit {
   async approveOpener(page: PageResponse, element: ElementResponse): Promise<void> {
     const applicationId = this.analysis()?.applicationId;
     if (!applicationId || !element.accessibleName || this.isOpenerPending(element)) return;
+    const routePattern = this.decodedPath(page.url);
+    if (!routePattern) { this.setOpenerFeedback(element.id, { elementId: element.id, kind: 'error', message: this.t('opener-approve-error') }); return; }
     this.setOpenerPending(element.id, true); this.setOpenerFeedback(element.id, null);
     const sequence = ++this.openerRequestSequence;
     try {
-      const application = await this.api.approveOpener(applicationId, { routePattern: new URL(page.url).pathname, accessibleName: element.accessibleName });
+      const application = await this.api.approveOpener(applicationId, { routePattern, accessibleName: element.accessibleName });
       this.applyApprovedOpeners(sequence, application.approvedOpeners, true);
       this.setOpenerFeedback(element.id, { elementId: element.id, kind: 'success', message: this.t('opener-approved-next-analysis') });
     } catch (error) {
@@ -109,7 +111,17 @@ export class AnalysisComponent implements OnInit {
   private baseLabel(page: PageResponse): string { return page.heading?.trim() || page.title?.trim() || ''; }
   elementLabel(element: ElementResponse): string { return element.accessibleName?.trim() || this.t('unnamed-element'); }
   isLoginPage(page: PageResponse): boolean { return page.kind === 'LOGIN'; }
-  routeLabel(url: string): string { try { return new URL(url).pathname || '/'; } catch { return url || '/'; } }
+  /** The page's decoded path for the display and the approved check, because the backend and the crawler compare decoded
+   * routes; falls back to the raw URL (or '/') when it does not parse. The approval request uses decodedPath directly. */
+  routeLabel(url: string): string { return this.decodedPath(url) ?? (url || '/'); }
+  /** The page's decoded path, or null when the URL does not parse into a real path. A segment that is a malformed escape
+   * or decodes to '/' or '%' stays raw. */
+  private decodedPath(url: string): string | null {
+    let path: string;
+    try { path = new URL(url).pathname; } catch { return null; }
+    if (!path.startsWith('/')) return null;
+    return path.split('/').map(segment => { try { const decoded = decodeURIComponent(segment); return /[/%]/.test(decoded) ? segment : decoded; } catch { return segment; } }).join('/');
+  }
   sectionAnchor(id: string): string { return `manual-section-${this.anchorPart(id)}`; }
   pageAnchor(id: string): string { return `discovered-page-${this.anchorPart(id)}`; }
   moduleAnchor(key: string): string { return `module-${this.anchorPart(key)}`; }
