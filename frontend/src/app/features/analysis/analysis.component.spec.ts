@@ -817,6 +817,25 @@ describe('AnalysisComponent approve as opener', () => {
     expect(component.routeLabel('http://localhost/files/a%2Fb%C3%B3')).toBe('/files/a%2Fb%C3%B3');
   });
 
+  // Pinned behavior: these segments are sent decoded; the backend rejects them, so the localized route error is shown.
+  for (const [description, encoded, decoded] of [['question mark', 'a%3Fb', 'a?b'], ['hash', 'a%23b', 'a#b'], ['space', 'a%20b', 'a b']]) {
+    it(`sends a segment that decodes to a ${description} as is and shows the localized route error when the backend rejects it`, async () => {
+      usePageUrl(`http://localhost/notes/${encoded}/1`);
+      api.approveOpener.and.rejectWith(new ApiError(400, 'English server text', 'INVALID_OPENER_ROUTE'));
+      await render();
+
+      approveButtons()[0].click();
+      await settle();
+
+      expect(api.approveOpener).toHaveBeenCalledOnceWith('app-1', { routePattern: `/notes/${decoded}/1`, accessibleName: 'Create task' });
+      const alert = fixture.nativeElement.querySelector('.opener-feedback[role="alert"]');
+      expect(component.localization.has('opener-error-invalid-route')).toBeTrue();
+      expect(alert?.textContent).toContain(component.t('opener-error-invalid-route'));
+      expect(alert?.textContent).not.toContain('English server text');
+      expect(approveButtons()[0].disabled).toBeFalse();
+    });
+  }
+
   for (const [description, url] of [['empty', ''], ['unparseable', 'not a url']]) {
     it(`does not call approveOpener when the page URL is ${description} and shows the generic error`, async () => {
       usePageUrl(url);

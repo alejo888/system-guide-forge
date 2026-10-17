@@ -1019,6 +1019,43 @@ class DocumentServiceTest {
     }
 
     @Test
+    void dropsOnlyTheSecondExpandedOpenerWhenTheFirstOpenedFormStillFitsTheContentLimit() {
+        Page board = new Page("a", "http://localhost/board", "Board");
+        UIElement firstOpener = new UIElement(board.getId(), "button", "button:nth-of-type(1)", "Create task", ActionClassification.MUTATING);
+        UIElement secondOpener = new UIElement(board.getId(), "button", "button:nth-of-type(2)", "Create project", ActionClassification.MUTATING);
+        List<UIElement> elements = new java.util.ArrayList<>(List.of(firstOpener, secondOpener,
+                new UIElement(board.getId(), "input", "input:nth-of-type(1)", "Task title", ActionClassification.UNKNOWN, null, false, "text", firstOpener.getId())));
+        for (int index = 1; index <= 5; index++) {
+            elements.add(new UIElement(board.getId(), "input", "input:nth-of-type(" + index + ")", index + "x".repeat(2500), ActionClassification.UNKNOWN, null, false, "text", secondOpener.getId()));
+        }
+
+        String content = generateForPages(Document.DocumentLanguage.EN, List.of(board), page -> elements).getSections().getFirst().getContent();
+
+        assertThat(content).hasSizeLessThanOrEqualTo(10000)
+                .contains("1. Press the \"Create task\" button. A form opens:\n   - Enter the information in the field \"Task title\".\n"
+                        + "2. Press the \"Create project\" button.\n")
+                .doesNotContain("xxxxx");
+    }
+
+    @Test
+    void stopsAtTheFirstBareStepThatDoesNotFitTheContentLimitWithoutCuttingItOrListingLaterSteps() {
+        Page board = new Page("a", "http://localhost/board", "Board");
+        List<UIElement> elements = new java.util.ArrayList<>();
+        for (int index = 1; index <= 4; index++) {
+            elements.add(new UIElement(board.getId(), "button", "button:nth-of-type(" + index + ")", index + "x".repeat(2900), ActionClassification.SAFE));
+        }
+        // A short step after the one that does not fit would fit on its own, but the layout stops at the first overflow.
+        elements.add(new UIElement(board.getId(), "button", "button:nth-of-type(5)", "Export", ActionClassification.SAFE));
+
+        String content = generateForPages(Document.DocumentLanguage.EN, List.of(board), page -> elements).getSections().getFirst().getContent();
+
+        assertThat(content).hasSizeLessThanOrEqualTo(10000)
+                .contains("1. Press the \"1" + "x".repeat(2900) + "\" button.\n", "3. Press the \"3" + "x".repeat(2900) + "\" button.\n")
+                .endsWith("3. Press the \"3" + "x".repeat(2900) + "\" button.\n")
+                .doesNotContain("4. Press", "\"4x", "Export", "...");
+    }
+
+    @Test
     void keepsLaterStepsAndFoldedPageFieldsWhenAnOpenedFormDoesNotFitTheContentLimit() {
         Page board = new Page("a", "http://localhost/board", "Board");
         UIElement opener = new UIElement(board.getId(), "button", "button:nth-of-type(1)", "Create task", ActionClassification.MUTATING);
