@@ -100,17 +100,22 @@ describe('RegistrationComponent crawler configuration', () => {
     expect(component.isLocalUrl('https://example.com')).toBeFalse();
   });
 
+  // A macrotask runs only after every pending microtask, so the config load has settled however many awaits it takes.
+  const settleConfig = () => new Promise<void>(resolve => setTimeout(resolve));
+
   it('rejects host.docker.internal while the backend does not allow the Docker host', async () => {
-    await fixture.whenStable();
+    await settleConfig();
+    expect(api.getConfig).toHaveBeenCalledTimes(1);
     expect(component.isLocalUrl('http://host.docker.internal:3000')).toBeFalse();
   });
 
   it('accepts exactly host.docker.internal over HTTP(S) once the backend allows the Docker host', async () => {
-    api.getConfig.and.resolveTo({ allowDockerHost: true });
+    let finishConfig!: (value: { allowDockerHost: boolean }) => void;
+    api.getConfig.and.returnValue(new Promise(resolve => { finishConfig = resolve; }));
     const allowed = TestBed.createComponent(RegistrationComponent).componentInstance;
-    await fixture.whenStable();
-    await Promise.resolve();
-    expect(api.getConfig).toHaveBeenCalled();
+    expect(allowed.isLocalUrl('http://host.docker.internal:3000')).toBeFalse();
+    finishConfig({ allowDockerHost: true });
+    await settleConfig();
     expect(allowed.isLocalUrl('http://host.docker.internal:3000')).toBeTrue();
     expect(allowed.isLocalUrl('https://HOST.Docker.Internal/login')).toBeTrue();
     expect(allowed.isLocalUrl('http://localhost:3000')).toBeTrue();
@@ -121,10 +126,12 @@ describe('RegistrationComponent crawler configuration', () => {
   });
 
   it('stays localhost-only when the configuration cannot be loaded', async () => {
+    api.getConfig.calls.reset();
     api.getConfig.and.rejectWith(new ApiError(500, 'Unavailable'));
     const failed = TestBed.createComponent(RegistrationComponent).componentInstance;
-    await fixture.whenStable();
-    await Promise.resolve();
+    await settleConfig();
+    expect(api.getConfig).toHaveBeenCalledTimes(1);
+    expect(failed.allowDockerHost()).toBeFalse();
     expect(failed.isLocalUrl('http://host.docker.internal:3000')).toBeFalse();
     expect(failed.isLocalUrl('http://localhost:3000')).toBeTrue();
   });
@@ -132,8 +139,7 @@ describe('RegistrationComponent crawler configuration', () => {
   it('lists host.docker.internal in the URL hint only when the backend allows it', async () => {
     api.getConfig.and.resolveTo({ allowDockerHost: true });
     const allowedFixture = TestBed.createComponent(RegistrationComponent);
-    await allowedFixture.whenStable();
-    await Promise.resolve();
+    await settleConfig();
     allowedFixture.componentInstance.model.update(value => ({ ...value, baseUrl: 'https://example.com' }));
     allowedFixture.detectChanges();
     expect(allowedFixture.nativeElement.querySelector('#local-url-validation')?.textContent).toContain('Use an HTTP(S) URL on localhost, 127.0.0.1, [::1], or host.docker.internal.');
