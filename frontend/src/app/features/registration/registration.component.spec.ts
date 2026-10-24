@@ -14,7 +14,8 @@ describe('RegistrationComponent crawler configuration', () => {
     localStorage.clear();
     routeUrl = [];
     routeParams = {};
-    api = jasmine.createSpyObj<ApiService>('ApiService', ['createProject', 'createApplication', 'testAccess', 'getApplication', 'updateApplication']);
+    api = jasmine.createSpyObj<ApiService>('ApiService', ['createProject', 'createApplication', 'testAccess', 'getApplication', 'updateApplication', 'getConfig']);
+    api.getConfig.and.resolveTo({ allowDockerHost: false });
     api.createProject.and.resolveTo({ id: 'project-1', name: 'Workspace' });
     api.createApplication.and.resolveTo({ id: 'app-1', projectId: 'project-1', name: 'Portal', baseUrl: 'http://localhost:3000', loginUrl: 'http://localhost:3000/login', maxCrawlDepth: 4, excludedRoutes: ['/admin'] });
     await TestBed.configureTestingModule({ imports: [RegistrationComponent], providers: [{ provide: ApiService, useValue: api }, provideRouter([]), { provide: ActivatedRoute, useFactory: () => ({ snapshot: { url: routeUrl, paramMap: convertToParamMap(routeParams) } }) }] }).compileComponents();
@@ -97,6 +98,55 @@ describe('RegistrationComponent crawler configuration', () => {
     expect(component.isLocalUrl('http://[::1]:3000')).toBeTrue();
     expect(component.isLocalUrl('https://[::1]/login')).toBeTrue();
     expect(component.isLocalUrl('https://example.com')).toBeFalse();
+  });
+
+  it('rejects host.docker.internal while the backend does not allow the Docker host', async () => {
+    await fixture.whenStable();
+    expect(component.isLocalUrl('http://host.docker.internal:3000')).toBeFalse();
+  });
+
+  it('accepts exactly host.docker.internal over HTTP(S) once the backend allows the Docker host', async () => {
+    api.getConfig.and.resolveTo({ allowDockerHost: true });
+    const allowed = TestBed.createComponent(RegistrationComponent).componentInstance;
+    await fixture.whenStable();
+    await Promise.resolve();
+    expect(api.getConfig).toHaveBeenCalled();
+    expect(allowed.isLocalUrl('http://host.docker.internal:3000')).toBeTrue();
+    expect(allowed.isLocalUrl('https://HOST.Docker.Internal/login')).toBeTrue();
+    expect(allowed.isLocalUrl('http://localhost:3000')).toBeTrue();
+    expect(allowed.isLocalUrl('https://example.com')).toBeFalse();
+    expect(allowed.isLocalUrl('http://foo.host.docker.internal')).toBeFalse();
+    expect(allowed.isLocalUrl('http://host.docker.internal.evil.com')).toBeFalse();
+    expect(allowed.isLocalUrl('ftp://host.docker.internal/file')).toBeFalse();
+  });
+
+  it('stays localhost-only when the configuration cannot be loaded', async () => {
+    api.getConfig.and.rejectWith(new ApiError(500, 'Unavailable'));
+    const failed = TestBed.createComponent(RegistrationComponent).componentInstance;
+    await fixture.whenStable();
+    await Promise.resolve();
+    expect(failed.isLocalUrl('http://host.docker.internal:3000')).toBeFalse();
+    expect(failed.isLocalUrl('http://localhost:3000')).toBeTrue();
+  });
+
+  it('lists host.docker.internal in the URL hint only when the backend allows it', async () => {
+    api.getConfig.and.resolveTo({ allowDockerHost: true });
+    const allowedFixture = TestBed.createComponent(RegistrationComponent);
+    await allowedFixture.whenStable();
+    await Promise.resolve();
+    allowedFixture.componentInstance.model.update(value => ({ ...value, baseUrl: 'https://example.com' }));
+    allowedFixture.detectChanges();
+    expect(allowedFixture.nativeElement.querySelector('#local-url-validation')?.textContent).toContain('Use an HTTP(S) URL on localhost, 127.0.0.1, [::1], or host.docker.internal.');
+
+    component.model.update(value => ({ ...value, baseUrl: 'https://example.com' }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('#local-url-validation')?.textContent).not.toContain('host.docker.internal');
+  });
+
+  it('describes the Docker host in English and Spanish validation messages', () => {
+    expect(component.t('local-url-validation-docker')).toBe('Use an HTTP(S) URL on localhost, 127.0.0.1, [::1], or host.docker.internal.');
+    component.localization.setLanguage('es');
+    expect(component.t('local-url-validation-docker')).toBe('Usá una URL HTTP(S) en localhost, 127.0.0.1, [::1] o host.docker.internal.');
   });
 
   it('describes IPv6 loopback in English and Spanish validation messages', () => {

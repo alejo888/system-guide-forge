@@ -12,6 +12,8 @@ const MAX_OPENER_NAME_LENGTH = 120;
 const OPENER_ROUTE = /^\/(?:[^/?#]+(?:\/[^/?#]+)*)?\/?$/;
 /** Mirrors FunctionalModuleDeriver.ID_SEGMENT: a purely numeric or UUID segment is a record identifier. */
 const ID_SEGMENT = /^(?:[0-9]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/;
+/** Mirrors LocalUrlValidator.DOCKER_HOST: accepted only when the backend reports allowDockerHost. */
+const DOCKER_HOST = 'host.docker.internal';
 const SENSITIVE_OPENER_NAME = /password|api[-_ ]?key|secret|token|credential|credencial|contrase(?:n|ñ)a|clave (?:de )?api/;
 
 @Component({
@@ -35,6 +37,9 @@ export class RegistrationComponent {
   readonly state = signal<RegistrationState>('idle');
   readonly applicationLoadState = signal<'loading' | 'ready' | 'error'>(this.editMode ? 'loading' : 'ready');
   readonly passwordVisible = signal(false);
+  /** Stays false (localhost-only) until GET /api/config confirms the backend allows the Docker host. */
+  readonly allowDockerHost = signal(false);
+  readonly localUrlValidationKey = computed(() => this.allowDockerHost() ? 'local-url-validation-docker' : 'local-url-validation');
   readonly loadingMessage = computed(() => {
     const spanish = this.localization.language() === 'es';
     if (this.applicationLoadState() === 'loading') return this.t('loading-application');
@@ -70,10 +75,15 @@ export class RegistrationComponent {
   readonly openerRulesBroken = computed(() => this.openerRowsValid().length > MAX_APPROVED_OPENERS || !this.openerRowsValid().every(Boolean));
   readonly approvedOpenersValid = computed(() => !this.openerRulesBroken() && !this.hasDuplicateOpeners());
 
-  constructor() { if (this.editMode) void this.loadApplication(); }
+  constructor() { void this.loadConfig(); if (this.editMode) void this.loadApplication(); }
 
   isLocalUrl(value: string): boolean {
-    try { const url = new URL(value); return (url.protocol === 'http:' || url.protocol === 'https:') && (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'); }
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+      if (this.allowDockerHost() && url.hostname === DOCKER_HOST) return true;
+      return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+    }
     catch { return false; }
   }
 
@@ -155,6 +165,10 @@ export class RegistrationComponent {
   }
   private async createApplication(projectName: string, application: ApplicationInput): Promise<ApplicationResponse> {
     const project = await this.api.createProject({ name: projectName.trim() }); return this.api.createApplication(project.id, application);
+  }
+  private async loadConfig(): Promise<void> {
+    try { this.allowDockerHost.set((await this.api.getConfig())?.allowDockerHost === true); }
+    catch { this.allowDockerHost.set(false); }
   }
   private async loadApplication(): Promise<void> {
     try {
