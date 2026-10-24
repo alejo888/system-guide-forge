@@ -352,7 +352,7 @@ class PersistenceTest {
                 List.of("/admin", "/settings"),
                 List.of(new ApprovedOpenerRule("/projects/{id}/board", "Crear tarea"), new ApprovedOpenerRule("/projects", "Crear proyecto"))));
         var service = new com.systemguideforge.backend.application.ProjectApplicationService(projects, applications, mock(CredentialProtector.class),
-                mock(com.systemguideforge.backend.application.AccessProbe.class));
+                mock(com.systemguideforge.backend.application.AccessProbe.class), new com.systemguideforge.backend.application.LocalUrlValidator(false));
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new com.systemguideforge.backend.web.ApplicationController(service)).build();
 
         // This test commits its rows (no surrounding transaction), so it removes them to keep other tests independent of it.
@@ -378,7 +378,7 @@ class PersistenceTest {
         CredentialProtector protector = mock(CredentialProtector.class);
         // The service as Spring wires it: its @Transactional methods run inside a transaction, the controller outside one.
         var proxyFactory = new org.springframework.aop.framework.ProxyFactory(new com.systemguideforge.backend.application.ProjectApplicationService(projects, applications,
-                protector, mock(com.systemguideforge.backend.application.AccessProbe.class)));
+                protector, mock(com.systemguideforge.backend.application.AccessProbe.class), new com.systemguideforge.backend.application.LocalUrlValidator(false)));
         proxyFactory.setProxyTargetClass(true);
         proxyFactory.addAdvice(new org.springframework.transaction.interceptor.TransactionInterceptor(transactionManager,
                 new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource()));
@@ -566,7 +566,7 @@ class PersistenceTest {
         CredentialProtector protector = mock(CredentialProtector.class);
         when(protector.encrypt(any())).thenAnswer(invocation -> "encrypted-" + invocation.getArgument(0));
         var proxyFactory = new org.springframework.aop.framework.ProxyFactory(new com.systemguideforge.backend.application.ProjectApplicationService(projects, repository,
-                protector, mock(com.systemguideforge.backend.application.AccessProbe.class)));
+                protector, mock(com.systemguideforge.backend.application.AccessProbe.class), new com.systemguideforge.backend.application.LocalUrlValidator(false)));
         proxyFactory.setProxyTargetClass(true);
         proxyFactory.addAdvice(new org.springframework.transaction.interceptor.TransactionInterceptor(transactionManager,
                 new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource()));

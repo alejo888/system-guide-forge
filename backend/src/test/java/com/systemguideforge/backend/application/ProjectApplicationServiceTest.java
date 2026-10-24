@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -19,6 +20,7 @@ class ProjectApplicationServiceTest {
     @Mock TargetApplicationRepository applications;
     @Mock CredentialProtector protector;
     @Mock AccessProbe accessProbe;
+    @Spy LocalUrlValidator localUrls = new LocalUrlValidator(false);
     @InjectMocks ProjectApplicationService service;
 
     @Test
@@ -51,6 +53,21 @@ class ProjectApplicationServiceTest {
 
         assertEquals(4, created.getMaxCrawlDepth());
         assertEquals(java.util.List.of("/admin", "/settings"), created.getExcludedRoutes());
+    }
+
+    @Test
+    void acceptsTheDockerHostOnlyWhenTheValidatorAllowsIt() {
+        assertThrows(IllegalArgumentException.class, () -> service.createApplication(
+                "project-id", "App", "http://host.docker.internal:4173", "http://host.docker.internal:4173/login", "user", "password"));
+        verifyNoInteractions(applications, protector);
+
+        var dockerService = new ProjectApplicationService(projects, applications, protector, accessProbe, new LocalUrlValidator(true));
+        when(projects.existsById("project-id")).thenReturn(true);
+        when(applications.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var created = dockerService.createApplication("project-id", "App", "http://host.docker.internal:4173", "http://host.docker.internal:4173/login", "user", "password");
+
+        assertEquals("http://host.docker.internal:4173", created.getBaseUrl());
     }
 
     @Test

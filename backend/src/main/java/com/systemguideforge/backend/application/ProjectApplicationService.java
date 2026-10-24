@@ -22,8 +22,8 @@ public class ProjectApplicationService {
             ".*(password|api[-_ ]?key|secret|token|credential|credencial|contrase(?:n|\\x{f1})a|clave (?:de )?api).*";
     private static final String INVALID_OPENER_ROUTE = "Approved opener routes must be URL paths of this application";
     private static final String INVALID_OPENER_NAME = "Approved opener names must be visible, non-sensitive control names of at most 120 characters";
-    private final ProjectRepository projects; private final TargetApplicationRepository applications; private final CredentialProtector protector; private final AccessProbe accessProbe;
-    public ProjectApplicationService(ProjectRepository projects, TargetApplicationRepository applications, CredentialProtector protector, AccessProbe accessProbe) { this.projects=projects;this.applications=applications;this.protector=protector;this.accessProbe=accessProbe; }
+    private final ProjectRepository projects; private final TargetApplicationRepository applications; private final CredentialProtector protector; private final AccessProbe accessProbe; private final LocalUrlValidator localUrls;
+    public ProjectApplicationService(ProjectRepository projects, TargetApplicationRepository applications, CredentialProtector protector, AccessProbe accessProbe, LocalUrlValidator localUrls) { this.projects=projects;this.applications=applications;this.protector=protector;this.accessProbe=accessProbe;this.localUrls=localUrls; }
     public Project createProject(String name) { return projects.save(new Project(name)); }
     public Optional<Project> getProject(String id) { return projects.findById(id); }
     public TargetApplication createApplication(String projectId,String name,String baseUrl,String loginUrl,String username,String password) {
@@ -85,7 +85,7 @@ public class ProjectApplicationService {
     }
     private void validateConfiguration(String name, String baseUrl, String loginUrl, String username, String password, Integer depth, List<String> routes, List<ApprovedOpenerRule> openers) {
         if (isBlank(name) || isBlank(baseUrl) || isBlank(loginUrl) || isBlank(username) || isBlank(password)) throw invalid("APPLICATION_FIELDS_REQUIRED", "Application configuration fields are required");
-        LocalUrlValidator.requireLocal(baseUrl); LocalUrlValidator.requireLocal(loginUrl);
+        localUrls.requireLocal(baseUrl); localUrls.requireLocal(loginUrl);
         if (depth == null) depth = DEFAULT_CRAWL_DEPTH;
         if (depth < 0 || depth > MAX_CRAWL_DEPTH) throw invalid("INVALID_CRAWL_DEPTH", "Crawl depth must be between 0 and 5");
         normalizeRoutes(routes);
