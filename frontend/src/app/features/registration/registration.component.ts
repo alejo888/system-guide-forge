@@ -75,7 +75,10 @@ export class RegistrationComponent {
   readonly openerRulesBroken = computed(() => this.openerRowsValid().length > MAX_APPROVED_OPENERS || !this.openerRowsValid().every(Boolean));
   readonly approvedOpenersValid = computed(() => !this.openerRulesBroken() && !this.hasDuplicateOpeners());
 
-  constructor() { void this.loadConfig(); if (this.editMode) void this.loadApplication(); }
+  /** Settles (never rejects) once GET /api/config has been answered or has failed. */
+  private readonly configLoaded = this.loadConfig();
+
+  constructor() { if (this.editMode) void this.loadApplication(); }
 
   isLocalUrl(value: string): boolean {
     try {
@@ -172,7 +175,8 @@ export class RegistrationComponent {
   }
   private async loadApplication(): Promise<void> {
     try {
-      const application = await this.api.getApplication(this.routeApplicationId);
+      // Hydrate only after the config settles so a host.docker.internal URL is never judged against the localhost-only default.
+      const [application] = await Promise.all([this.api.getApplication(this.routeApplicationId), this.configLoaded]);
       this.model.update(model => ({ ...model, projectName: application.name, name: application.name, baseUrl: application.baseUrl, loginUrl: application.loginUrl, maxCrawlDepth: application.maxCrawlDepth ?? 0, excludedRoutes: application.excludedRoutes ?? [],
         approvedOpeners: (application.approvedOpeners ?? []).map(opener => ({ ...opener })) }));
       this.applicationLoadState.set('ready');

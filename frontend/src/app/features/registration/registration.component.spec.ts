@@ -444,6 +444,24 @@ describe('RegistrationComponent crawler configuration', () => {
       expect((edit.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBeFalse();
     });
 
+    it('waits for the configuration before showing a Docker-host application as ready', async () => {
+      let finishConfig!: (value: { allowDockerHost: boolean }) => void;
+      api.getConfig.and.returnValue(new Promise(resolve => { finishConfig = resolve; }));
+      api.getApplication.and.resolveTo({ ...existing, baseUrl: 'http://host.docker.internal:3000', loginUrl: 'http://host.docker.internal:3000/login' });
+      const edit = TestBed.createComponent(RegistrationComponent);
+      edit.detectChanges();
+      await settleConfig();
+      edit.detectChanges();
+      expect(edit.componentInstance.applicationLoadState()).toBe('loading');
+      expect(edit.nativeElement.querySelector('#local-url-validation')).toBeNull();
+      finishConfig({ allowDockerHost: true });
+      await settleConfig();
+      edit.detectChanges();
+      expect(edit.componentInstance.applicationLoadState()).toBe('ready');
+      expect(edit.componentInstance.model().baseUrl).toBe('http://host.docker.internal:3000');
+      expect(edit.nativeElement.querySelector('#local-url-validation')).toBeNull();
+    });
+
     it('shows a visible error instead of a blank form when the id is unknown', async () => {
       api.getApplication.and.rejectWith(new ApiError(404, 'Application not found'));
       const edit = TestBed.createComponent(RegistrationComponent);

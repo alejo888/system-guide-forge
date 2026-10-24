@@ -13,9 +13,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class LocalUrlValidatorPropertyBindingTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
-            // Drop the host OS environment so a developer's own SGF_ALLOW_DOCKER_HOST cannot leak into the test.
-            .withInitializer(context -> context.getEnvironment().getPropertySources()
-                    .remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME))
+            // Drop the host OS environment and JVM system properties so a developer's own SGF_ALLOW_DOCKER_HOST
+            // (or a -DSGF_ALLOW_DOCKER_HOST / -Dsgf.allow-docker-host) cannot leak into the test.
+            .withInitializer(context -> {
+                var sources = context.getEnvironment().getPropertySources();
+                sources.remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
+                sources.remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);
+            })
             .withInitializer(new ConfigDataApplicationContextInitializer())
             .withUserConfiguration(LocalUrlValidator.class);
 
