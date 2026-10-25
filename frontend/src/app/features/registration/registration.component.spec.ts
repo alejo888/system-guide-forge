@@ -191,6 +191,18 @@ describe('RegistrationComponent crawler configuration', () => {
       expect(api.getConfig).toHaveBeenCalledTimes(1);
       expect(api.createApplication).toHaveBeenCalledWith('project-1', jasmine.objectContaining({ baseUrl: 'http://host.docker.internal:3000' }));
     });
+
+    it('ignores a second Docker-host submit while the config is still being awaited', async () => {
+      let finishConfig!: (value: { allowDockerHost: boolean }) => void;
+      api.getConfig.and.returnValue(new Promise(resolve => { finishConfig = resolve; }));
+      const pending = TestBed.createComponent(RegistrationComponent).componentInstance;
+      pending.model.update(value => ({ ...value, ...dockerHostApplication }));
+      const first = pending.register();
+      const second = pending.register();
+      finishConfig({ allowDockerHost: true });
+      await Promise.all([first, second]);
+      expect(api.createApplication).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('lists host.docker.internal in the URL hint only when the backend allows it', async () => {

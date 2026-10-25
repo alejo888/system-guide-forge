@@ -79,6 +79,7 @@ export class RegistrationComponent {
   private readonly configLoaded: Promise<void>;
   /** True after GET /api/config failed; a Docker-host submit retries it once (the backend may still have been booting). */
   private configFailed = false;
+  private awaitingConfig = false;
 
   constructor() {
     this.configLoaded = this.loadConfig();
@@ -139,9 +140,14 @@ export class RegistrationComponent {
   async register(): Promise<void> {
     // Only a Docker-host URL depends on the config: wait for a still-pending first load, then retry once if it failed.
     // Other URLs skip the await so the saving state starts without an extra tick.
+    // The state is still 'idle' during that wait, so a flag stops a second click from submitting twice.
     if (!this.allowDockerHost() && this.usesDockerHost()) {
-      await this.configLoaded;
-      if (this.configFailed && !this.allowDockerHost()) await this.loadConfig();
+      if (this.awaitingConfig) return;
+      this.awaitingConfig = true;
+      try {
+        await this.configLoaded;
+        if (this.configFailed && !this.allowDockerHost()) await this.loadConfig();
+      } finally { this.awaitingConfig = false; }
     }
     if (this.applicationLoadState() !== 'ready' || !this.localUrlsValid() || !this.crawlerConfigurationValid() || !this.approvedOpenersValid() || this.registrationForm().invalid()) return;
     this.state.set('saving'); this.errorMessage.set('');

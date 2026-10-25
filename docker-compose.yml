@@ -30,6 +30,8 @@ services:
       SGF_ALLOW_DOCKER_HOST: "true"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # The JVM would be PID 1; an init process reaps the Playwright driver and Chromium children it leaves behind.
+    init: true
     # Chromium needs more than the default 64 MB /dev/shm.
     shm_size: 1gb
     depends_on:
