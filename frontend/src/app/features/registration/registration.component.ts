@@ -137,7 +137,12 @@ export class RegistrationComponent {
       private normalizeExcludedRoutes(routes: string[]): string[] { return [...new Set(routes.map(route => route.length > 1 && route.endsWith('/') ? route.slice(0, -1) : route))]; }
 
   async register(): Promise<void> {
-    if (this.configFailed && !this.allowDockerHost() && this.usesDockerHost()) await this.loadConfig();
+    // Only a Docker-host URL depends on the config: wait for a still-pending first load, then retry once if it failed.
+    // Other URLs skip the await so the saving state starts without an extra tick.
+    if (!this.allowDockerHost() && this.usesDockerHost()) {
+      await this.configLoaded;
+      if (this.configFailed && !this.allowDockerHost()) await this.loadConfig();
+    }
     if (this.applicationLoadState() !== 'ready' || !this.localUrlsValid() || !this.crawlerConfigurationValid() || !this.approvedOpenersValid() || this.registrationForm().invalid()) return;
     this.state.set('saving'); this.errorMessage.set('');
     try {
