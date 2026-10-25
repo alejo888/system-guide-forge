@@ -35,7 +35,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    restart: unless-stopped
+    # Bounded so a fatal startup error does not restart forever: a missing SGF_CREDENTIAL_KEY makes the backend
+    # exit. Check `docker compose logs backend`.
+    restart: on-failure:3
 
   frontend:
     profiles: ["app"]
@@ -43,6 +45,8 @@ services:
     environment:
       BACKEND_HOST: backend
       BACKEND_PORT: "8080"
+      # Hostnames nginx answers for; any other Host is dropped (DNS rebinding protection).
+      SERVER_NAMES: ${SGF_SERVER_NAMES:-localhost 127.0.0.1}
     ports:
       - "127.0.0.1:${SGF_WEB_PORT:-8088}:8080"
     depends_on:

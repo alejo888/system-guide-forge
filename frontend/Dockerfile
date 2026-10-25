@@ -28,9 +28,11 @@ FROM nginxinc/nginx-unprivileged:1.30.6-alpine3.24
 # Backend upstream and DNS resolver, rendered into conf.d/default.conf by the image's envsubst
 # entrypoint (/etc/nginx/templates/*.template). The resolver is Docker's embedded DNS, so the
 # backend name is resolved per request and nginx starts even when the backend is not up yet.
+# SERVER_NAMES lists the Host names served; any other Host is refused (DNS rebinding guard).
 ENV BACKEND_HOST=backend \
     BACKEND_PORT=8080 \
-    NGINX_RESOLVER=127.0.0.11
+    NGINX_RESOLVER=127.0.0.11 \
+    SERVER_NAMES="localhost 127.0.0.1"
 
 USER root
 RUN rm -f /etc/nginx/conf.d/default.conf

@@ -81,6 +81,9 @@ docker compose --profile app down
 La interfaz queda en `http://localhost:8088`, publicada solo en `127.0.0.1`; el backend no publica puertos y se accede vía `/api` del frontend. Los datos se guardan en el mismo volumen de PostgreSQL que usa el paso 1.
 
 - Los sistemas que corren en el host se registran como `http://host.docker.internal:<puerto>`, con la URL base y la de login en el mismo host. Ese nombre solo se acepta porque Compose define `SGF_ALLOW_DOCKER_HOST=true` para el backend; fuera de Compose siguen permitidos únicamente `localhost`, `127.0.0.1` y `[::1]`.
+- Los sistemas registrados antes con URLs `localhost`, `127.0.0.1` o `[::1]` siguen pasando la validación, pero dentro del contenedor esas direcciones apuntan al propio contenedor. Editalos para usar `http://host.docker.internal:<puerto>` tanto en la URL base como en la de login.
+- La interfaz solo responde en `http://localhost:<puerto>` o `http://127.0.0.1:<puerto>`; nginx cierra la conexión ante cualquier otro nombre de host (protección contra DNS rebinding, porque el backend no tiene autenticación). Para servirla con otro nombre, definí a propósito `SGF_SERVER_NAMES` en `.env` (por ejemplo `localhost 127.0.0.1 mi-host`).
+- El backend se reinicia como máximo 3 veces si termina con error (por ejemplo, sin `SGF_CREDENTIAL_KEY`). Si no arranca, revisá `docker compose --profile app logs backend`.
 - El proxy `/api` espera hasta 10 minutos, porque el análisis recorre el sistema de forma sincrónica.
 - `docker compose up -d` sin el perfil `app` sigue iniciando solo PostgreSQL para el desarrollo en el host.
 
@@ -92,6 +95,7 @@ La interfaz queda en `http://localhost:8088`, publicada solo en `127.0.0.1`; el 
 | `SGF_CREDENTIAL_KEY` | Sí, salvo que se use `sgf.credential-key` | Cifra las credenciales guardadas | No tiene |
 | `SGF_ALLOW_DOCKER_HOST` | No | Acepta `host.docker.internal` como URL de sistema (Compose lo activa) | `false` |
 | `SGF_WEB_PORT` | No | Puerto local de la interfaz en Docker | `8088` |
+| `SGF_SERVER_NAMES` | No | Nombres de host que acepta nginx en Docker (separados por espacio) | `localhost 127.0.0.1` |
 | `SGF_DB_URL` | No | URL JDBC del backend | `jdbc:postgresql://localhost:15432/systemguideforge` |
 | `SGF_DB_USERNAME` | No | Usuario JDBC | `systemguideforge` |
 | `SGF_DB_PASSWORD` | No | Contraseña JDBC | `systemguideforge` |

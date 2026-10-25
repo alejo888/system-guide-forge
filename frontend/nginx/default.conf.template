@@ -1,8 +1,20 @@
 # Rendered by the nginx image entrypoint with envsubst; only defined environment variables
-# (BACKEND_HOST, BACKEND_PORT, NGINX_RESOLVER) are substituted, nginx variables stay intact.
+# (BACKEND_HOST, BACKEND_PORT, NGINX_RESOLVER, SERVER_NAMES) are substituted, nginx variables stay intact.
+
+# DNS rebinding guard: the backend has no authentication, so a page on an attacker-controlled name that
+# resolves to 127.0.0.1 must not reach it through this proxy. Any Host outside SERVER_NAMES lands here and
+# the connection is closed without a response (444).
+server {
+    listen 8080 default_server;
+    server_name _;
+    server_tokens off;
+    return 444;
+}
+
+# SERVER_NAMES defaults to "localhost 127.0.0.1"; add another hostname only to expose the UI under it on purpose.
 server {
     listen 8080;
-    server_name _;
+    server_name ${SERVER_NAMES};
     server_tokens off;
 
     root /usr/share/nginx/html;
