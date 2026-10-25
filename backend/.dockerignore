@@ -1,0 +1,35 @@
+# Build context is backend/. Only mvnw, pom.xml and src/ are needed by the Dockerfile.
+
+# Build output and the locally downloaded Maven distribution (mvnw re-downloads it in the image)
+target/
+.maven/
+.mvn/wrapper/*.jar
+
+# Local runtime data (H2 files, traces) and any environment/secret files
+data/
+.env
+.env.*
+*.env
+
+# Logs and temporary files
+*.log
+logs/
+*.tmp
+
+# IDE, OS and VCS files
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+.DS_Store
+Thumbs.db
+.git/
+.gitignore
+
+# Windows-only wrapper and Docker files themselves
+mvnw.cmd
+Dockerfile
+.dockerignore

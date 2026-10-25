@@ -76,9 +76,15 @@ export class RegistrationComponent {
   readonly approvedOpenersValid = computed(() => !this.openerRulesBroken() && !this.hasDuplicateOpeners());
 
   /** Settles (never rejects) once GET /api/config has been answered or has failed. */
-  private readonly configLoaded = this.loadConfig();
+  private readonly configLoaded: Promise<void>;
+  /** True after GET /api/config failed; a Docker-host submit retries it once (the backend may still have been booting). */
+  private configFailed = false;
+  private awaitingConfig = false;
 
-  constructor() { if (this.editMode) void this.loadApplication(); }
+  constructor() {
+    this.configLoaded = this.loadConfig();
+    if (this.editMode) void this.loadApplication();
+  }
 
   isLocalUrl(value: string): boolean {
     try {
@@ -132,6 +138,17 @@ export class RegistrationComponent {
       private normalizeExcludedRoutes(routes: string[]): string[] { return [...new Set(routes.map(route => route.length > 1 && route.endsWith('/') ? route.slice(0, -1) : route))]; }
 
   async register(): Promise<void> {
+    // Only a Docker-host URL depends on the config: wait for a still-pending first load, then retry once if it failed.
+    // Other URLs skip the await so the saving state starts without an extra tick.
+    // The state is still 'idle' during that wait, so a flag stops a second click from submitting twice.
+    if (!this.allowDockerHost() && this.usesDockerHost()) {
+      if (this.awaitingConfig) return;
+      this.awaitingConfig = true;
+      try {
+        await this.configLoaded;
+        if (this.configFailed && !this.allowDockerHost()) await this.loadConfig();
+      } finally { this.awaitingConfig = false; }
+    }
     if (this.applicationLoadState() !== 'ready' || !this.localUrlsValid() || !this.crawlerConfigurationValid() || !this.approvedOpenersValid() || this.registrationForm().invalid()) return;
     this.state.set('saving'); this.errorMessage.set('');
     try {
@@ -170,8 +187,12 @@ export class RegistrationComponent {
     const project = await this.api.createProject({ name: projectName.trim() }); return this.api.createApplication(project.id, application);
   }
   private async loadConfig(): Promise<void> {
-    try { this.allowDockerHost.set((await this.api.getConfig())?.allowDockerHost === true); }
-    catch { this.allowDockerHost.set(false); }
+    try { this.allowDockerHost.set((await this.api.getConfig())?.allowDockerHost === true); this.configFailed = false; }
+    catch { this.allowDockerHost.set(false); this.configFailed = true; }
+  }
+  private usesDockerHost(): boolean {
+    const { baseUrl, loginUrl } = this.model();
+    return [baseUrl, loginUrl].some(value => { try { return new URL(value).hostname === DOCKER_HOST; } catch { return false; } });
   }
   private async loadApplication(): Promise<void> {
     try {

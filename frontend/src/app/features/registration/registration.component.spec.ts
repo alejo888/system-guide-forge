@@ -136,6 +136,75 @@ describe('RegistrationComponent crawler configuration', () => {
     expect(failed.isLocalUrl('http://localhost:3000')).toBeTrue();
   });
 
+  describe('config retry on submit', () => {
+    const dockerHostApplication = { projectName: 'Workspace', name: 'Portal', baseUrl: 'http://host.docker.internal:3000', loginUrl: 'http://host.docker.internal:3000/login', username: 'tester', password: 'secret' };
+
+    async function createAfterFailedConfig(): Promise<RegistrationComponent> {
+      api.getConfig.calls.reset();
+      api.getConfig.and.rejectWith(new ApiError(502, 'Bad Gateway'));
+      const created = TestBed.createComponent(RegistrationComponent).componentInstance;
+      await settleConfig();
+      expect(created.allowDockerHost()).toBeFalse();
+      return created;
+    }
+
+    it('retries a failed config load once on submit and registers a Docker-host application when it is now allowed', async () => {
+      const retried = await createAfterFailedConfig();
+      api.getConfig.and.resolveTo({ allowDockerHost: true });
+      retried.model.update(value => ({ ...value, ...dockerHostApplication }));
+      await retried.register();
+      expect(api.getConfig).toHaveBeenCalledTimes(2);
+      expect(retried.allowDockerHost()).toBeTrue();
+      expect(api.createApplication).toHaveBeenCalledWith('project-1', jasmine.objectContaining({ baseUrl: 'http://host.docker.internal:3000' }));
+    });
+
+    it('stays fail-closed and does not submit when the retried config load also fails', async () => {
+      const failed = await createAfterFailedConfig();
+      failed.model.update(value => ({ ...value, ...dockerHostApplication }));
+      await failed.register();
+      expect(api.getConfig).toHaveBeenCalledTimes(2);
+      expect(failed.allowDockerHost()).toBeFalse();
+      expect(api.createProject).not.toHaveBeenCalled();
+      expect(api.createApplication).not.toHaveBeenCalled();
+    });
+
+    it('does not reload a config that loaded successfully', async () => {
+      api.getConfig.calls.reset();
+      api.getConfig.and.resolveTo({ allowDockerHost: false });
+      const loaded = TestBed.createComponent(RegistrationComponent).componentInstance;
+      await settleConfig();
+      loaded.model.update(value => ({ ...value, ...dockerHostApplication }));
+      await loaded.register();
+      expect(api.getConfig).toHaveBeenCalledTimes(1);
+      expect(api.createApplication).not.toHaveBeenCalled();
+    });
+
+    it('waits for a still-pending first config load before judging a Docker-host submit', async () => {
+      api.getConfig.calls.reset();
+      let finishConfig!: (value: { allowDockerHost: boolean }) => void;
+      api.getConfig.and.returnValue(new Promise(resolve => { finishConfig = resolve; }));
+      const pending = TestBed.createComponent(RegistrationComponent).componentInstance;
+      pending.model.update(value => ({ ...value, ...dockerHostApplication }));
+      const submitted = pending.register();
+      finishConfig({ allowDockerHost: true });
+      await submitted;
+      expect(api.getConfig).toHaveBeenCalledTimes(1);
+      expect(api.createApplication).toHaveBeenCalledWith('project-1', jasmine.objectContaining({ baseUrl: 'http://host.docker.internal:3000' }));
+    });
+
+    it('ignores a second Docker-host submit while the config is still being awaited', async () => {
+      let finishConfig!: (value: { allowDockerHost: boolean }) => void;
+      api.getConfig.and.returnValue(new Promise(resolve => { finishConfig = resolve; }));
+      const pending = TestBed.createComponent(RegistrationComponent).componentInstance;
+      pending.model.update(value => ({ ...value, ...dockerHostApplication }));
+      const first = pending.register();
+      const second = pending.register();
+      finishConfig({ allowDockerHost: true });
+      await Promise.all([first, second]);
+      expect(api.createApplication).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('lists host.docker.internal in the URL hint only when the backend allows it', async () => {
     api.getConfig.and.resolveTo({ allowDockerHost: true });
     const allowedFixture = TestBed.createComponent(RegistrationComponent);
