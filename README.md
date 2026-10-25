@@ -64,12 +64,34 @@ npm start
 
 La aplicación queda en `http://localhost:4200`. El proxy de Angular reenvía las solicitudes `/api` a `http://127.0.0.1:8080`, evitando configurar CORS para el desarrollo local. El Resumen lista todos los sistemas registrados desde el backend (`GET /api/applications`) y cada uno se edita en `/edit/{id}`. El navegador solo conserva las preferencias de idioma en `localStorage`; los sistemas, la evidencia y los documentos permanecen en el backend.
 
+## Ejecutar con Docker
+
+Alternativa a los pasos 1–3 que no requiere Java ni Node en el host. Requiere Docker Desktop (o Docker Engine con Compose v2).
+
+1. Definí en `.env` (local, no versionado) `POSTGRES_PASSWORD` y `SGF_CREDENTIAL_KEY`. Opcional: `SGF_WEB_PORT` (por defecto `8088`).
+2. Si la base ya tiene sistemas registrados desde el backend en el host, usá **el mismo valor** de `SGF_CREDENTIAL_KEY`; con otra clave las contraseñas guardadas no se pueden descifrar. Sin clave el backend no arranca.
+3. Iniciá el stack completo:
+
+```bash
+docker compose --profile app up -d --build
+docker compose --profile app logs -f backend
+docker compose --profile app down
+```
+
+La interfaz queda en `http://localhost:8088`, publicada solo en `127.0.0.1`; el backend no publica puertos y se accede vía `/api` del frontend. Los datos se guardan en el mismo volumen de PostgreSQL que usa el paso 1.
+
+- Los sistemas que corren en el host se registran como `http://host.docker.internal:<puerto>`, con la URL base y la de login en el mismo host. Ese nombre solo se acepta porque Compose define `SGF_ALLOW_DOCKER_HOST=true` para el backend; fuera de Compose siguen permitidos únicamente `localhost`, `127.0.0.1` y `[::1]`.
+- El proxy `/api` espera hasta 10 minutos, porque el análisis recorre el sistema de forma sincrónica.
+- `docker compose up -d` sin el perfil `app` sigue iniciando solo PostgreSQL para el desarrollo en el host.
+
 ## Variables de entorno
 
 | Variable | Requerida | Uso | Valor por defecto |
 | --- | --- | --- | --- |
 | `POSTGRES_PASSWORD` | Sí para Compose | Contraseña del contenedor PostgreSQL | No tiene; Compose falla si falta |
 | `SGF_CREDENTIAL_KEY` | Sí, salvo que se use `sgf.credential-key` | Cifra las credenciales guardadas | No tiene |
+| `SGF_ALLOW_DOCKER_HOST` | No | Acepta `host.docker.internal` como URL de sistema (Compose lo activa) | `false` |
+| `SGF_WEB_PORT` | No | Puerto local de la interfaz en Docker | `8088` |
 | `SGF_DB_URL` | No | URL JDBC del backend | `jdbc:postgresql://localhost:15432/systemguideforge` |
 | `SGF_DB_USERNAME` | No | Usuario JDBC | `systemguideforge` |
 | `SGF_DB_PASSWORD` | No | Contraseña JDBC | `systemguideforge` |

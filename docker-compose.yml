@@ -15,5 +15,40 @@ services:
       timeout: 5s
       retries: 10
 
+  # Full stack: `docker compose --profile app up -d --build`. Without the profile only Postgres starts.
+  backend:
+    profiles: ["app"]
+    build: ./backend
+    environment:
+      SGF_DB_URL: jdbc:postgresql://postgres:5432/systemguideforge
+      SGF_DB_USERNAME: systemguideforge
+      SGF_DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      # Must match the key that encrypted the credentials already stored in the database. Not `:?`: Compose
+      # interpolates every service even outside the active profile, and the backend refuses to start without a key.
+      SGF_CREDENTIAL_KEY: ${SGF_CREDENTIAL_KEY:-}
+      # Lets targets on the host be registered as http://host.docker.internal:<port>.
+      SGF_ALLOW_DOCKER_HOST: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Chromium needs more than the default 64 MB /dev/shm.
+    shm_size: 1gb
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    profiles: ["app"]
+    build: ./frontend
+    environment:
+      BACKEND_HOST: backend
+      BACKEND_PORT: "8080"
+    ports:
+      - "127.0.0.1:${SGF_WEB_PORT:-8088}:8080"
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   systemguideforge-postgres-data:
