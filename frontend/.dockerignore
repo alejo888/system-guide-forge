@@ -1,0 +1,32 @@
+# Dependencies and build output are recreated inside the image.
+node_modules
+dist
+.angular
+coverage
+out-tsc
+
+# Test and e2e outputs
+e2e
+playwright.config.js
+playwright-report
+test-results
+blob-report
+*.log
+npm-debug.log*
+
+# Secrets and local environment
+.env
+.env.*
+
+# IDE, OS and VCS files
+.git
+.gitignore
+.idea
+.vscode
+*.iml
+.DS_Store
+Thumbs.db
+
+# Docker build files
+Dockerfile
+.dockerignore
